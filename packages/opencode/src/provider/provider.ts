@@ -153,6 +153,37 @@ export namespace Provider {
         },
       }
     },
+    "amazon-q": async (input) => {
+      const { AuthAmazonQ } = await import("../auth/amazon-q")
+      const hasToken = await AuthAmazonQ.access()
+
+      if (!hasToken && input?.models) {
+        // If no token, remove paid models but keep free ones if any
+        for (const [key, value] of Object.entries(input.models)) {
+          if (value.cost.input > 0) {
+            delete input.models[key]
+          }
+        }
+      }
+
+      return {
+        autoload: !!hasToken,
+        options: {
+          baseURL: "https://api.amazonq.aws.com/v1", // Placeholder URL - needs research
+          headers: {
+            "User-Agent": "opencode/0.12.1",
+          },
+        },
+        async getModel(sdk: any, modelID: string) {
+          const token = await AuthAmazonQ.access()
+          if (!token) throw new Error("Amazon Q authentication required")
+
+          // Set authorization header
+          sdk.apiKey = token
+          return sdk.languageModel(modelID)
+        },
+      }
+    },
   }
 
   const state = Instance.state(async () => {
@@ -250,6 +281,37 @@ export namespace Provider {
         parsed.models[modelID] = parsedModel
       }
       database[providerID] = parsed
+    }
+
+    // Add Amazon Q provider if not in database
+    if (!database["amazon-q"]) {
+      database["amazon-q"] = {
+        id: "amazon-q",
+        name: "Amazon Q Developer",
+        env: [],
+        models: {
+          "amazon-q-developer": {
+            id: "amazon-q-developer",
+            name: "Amazon Q Developer",
+            release_date: "2024-01-01",
+            attachment: false,
+            reasoning: false,
+            temperature: false,
+            tool_call: true,
+            cost: {
+              input: 0,
+              output: 0,
+              cache_read: 0,
+              cache_write: 0,
+            },
+            limit: {
+              context: 100000,
+              output: 4096,
+            },
+            options: {},
+          },
+        },
+      }
     }
 
     const disabled = await Config.get().then((cfg) => new Set(cfg.disabled_providers ?? []))

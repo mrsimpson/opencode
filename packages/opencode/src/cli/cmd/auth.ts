@@ -108,10 +108,11 @@ export const AuthLoginCommand = cmd({
           opencode: 0,
           anthropic: 1,
           "github-copilot": 2,
-          openai: 3,
-          google: 4,
-          openrouter: 5,
-          vercel: 6,
+          "amazon-q": 3,
+          openai: 4,
+          google: 5,
+          openrouter: 6,
+          vercel: 7,
         }
         let provider = await prompts.autocomplete({
           message: "Select provider",

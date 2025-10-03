@@ -29,6 +29,7 @@
     "zod-to-json-schema": "3.24.5"
   },
   "dependencies": {
+    "@aws-sdk/client-sso-oidc": "3.896.0",
     "@clack/prompts": "1.0.0-alpha.1",
     "@hono/standard-validator": "0.1.5",
     "@hono/zod-validator": "catalog:",

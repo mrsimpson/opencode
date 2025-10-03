@@ -7,6 +7,7 @@ import { Server } from "../server/server"
 import { BunProc } from "../bun"
 import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
+import path from "path"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -29,6 +30,7 @@ export namespace Plugin {
     if (!Flag.OPENCODE_DISABLE_DEFAULT_PLUGINS) {
       plugins.push("opencode-copilot-auth@0.0.3")
       plugins.push("opencode-anthropic-auth@0.0.2")
+      plugins.push("file://" + path.resolve(import.meta.dirname, "../auth/amazon-q-plugin.ts"))
     }
     for (let plugin of plugins) {
       log.info("loading plugin", { path: plugin })

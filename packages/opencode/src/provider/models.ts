@@ -56,9 +56,40 @@ export namespace ModelsDev {
     refresh()
     const file = Bun.file(filepath)
     const result = await file.json().catch(() => {})
-    if (result) return result as Record<string, Provider>
-    const json = await data()
-    return JSON.parse(json) as Record<string, Provider>
+    const providers = result ? (result as Record<string, Provider>) : (JSON.parse(await data()) as Record<string, Provider>)
+
+    // Add Amazon Q provider if not in database
+    if (!providers["amazon-q"]) {
+      providers["amazon-q"] = {
+        id: "amazon-q",
+        name: "Amazon Q Developer",
+        env: [],
+        models: {
+          "amazon-q-developer": {
+            id: "amazon-q-developer",
+            name: "Amazon Q Developer",
+            release_date: "2024-01-01",
+            attachment: false,
+            reasoning: false,
+            temperature: false,
+            tool_call: true,
+            cost: {
+              input: 0,
+              output: 0,
+              cache_read: 0,
+              cache_write: 0,
+            },
+            limit: {
+              context: 100000,
+              output: 4096,
+            },
+            options: {},
+          },
+        },
+      }
+    }
+
+    return providers
   }
 
   export async function refresh() {
