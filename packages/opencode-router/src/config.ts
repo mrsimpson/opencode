@@ -15,4 +15,5 @@ export const config = {
   storageClass: process.env.STORAGE_CLASS ?? "",
   storageSize: process.env.STORAGE_SIZE ?? "2Gi",
   defaultGitRepo: process.env.DEFAULT_GIT_REPO,
+  publicDir: process.env.PUBLIC_DIR ?? new URL("../public", import.meta.url).pathname,
 } as const
