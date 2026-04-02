@@ -1,19 +1,9 @@
 import http from "node:http"
 import httpProxy from "http-proxy"
 import { config } from "./config.js"
-import { ensurePVC, ensurePod, getPodIP, updateLastActivity, deleteIdlePods } from "./pod-manager.js"
-
-const LOADING_HTML = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>OpenCode</title></head>
-<body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0">
-  <div style="text-align:center">
-    <h2>Starting your OpenCode session&hellip;</h2>
-    <p style="color:#888">This usually takes a few seconds.</p>
-  </div>
-  <script>setTimeout(()=>location.reload(),3000)</script>
-</body>
-</html>`
+import { getPodIP, updateLastActivity, deleteIdlePods } from "./pod-manager.js"
+import { handleApi } from "./api.js"
+import { serveStatic } from "./static.js"
 
 function getEmail(req: http.IncomingMessage): string | null {
   const header = req.headers["x-auth-request-email"]
@@ -38,6 +28,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    // API routes are handled regardless of pod state
+    const url = req.url ?? "/"
+    if (url.startsWith("/api/")) {
+      const handled = await handleApi(req, res, email)
+      if (handled) return
+    }
+
+    // If pod is running, proxy to it
     const ip = await getPodIP(email)
     if (ip) {
       updateLastActivity(email)
@@ -45,10 +43,8 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    // Pod doesn't exist or isn't ready — provision and show loading page
-    await ensurePVC(email)
-    await ensurePod(email)
-    res.writeHead(202, { "Content-Type": "text/html" }).end(LOADING_HTML)
+    // No running pod — serve the setup UI
+    serveStatic(config.publicDir, req, res)
   } catch (err) {
     console.error(`Error handling request for ${email}:`, err)
     if (!res.headersSent) {

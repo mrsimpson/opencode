@@ -80,10 +80,31 @@ export async function ensurePVC(email: string): Promise<void> {
   }
 }
 
+export type PodState = "none" | "creating" | "running"
+
+/**
+ * Return the current state of a user's pod without creating it.
+ */
+export async function getPodState(email: string): Promise<PodState> {
+  const hash = getUserHash(email)
+  const name = podName(hash)
+
+  try {
+    const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
+    if (pod.status?.phase === "Running" && pod.status.podIP) {
+      return "running"
+    }
+    return "creating"
+  } catch (err) {
+    if (isNotFound(err)) return "none"
+    throw err
+  }
+}
+
 /**
  * Create pod if it doesn't exist. Idempotent. Must call ensurePVC first.
  */
-export async function ensurePod(email: string): Promise<void> {
+export async function ensurePod(email: string, gitRepo?: string): Promise<void> {
   const hash = getUserHash(email)
   const name = podName(hash)
 
@@ -95,15 +116,16 @@ export async function ensurePod(email: string): Promise<void> {
   }
 
   const now = new Date().toISOString()
+  const repoUrl = gitRepo ?? config.defaultGitRepo
 
   const initContainers: k8s.V1Container[] = []
-  if (config.defaultGitRepo) {
+  if (repoUrl) {
     initContainers.push({
       name: "git-init",
       image: "alpine/git:latest",
       command: ["sh", "-c"],
       args: [
-        `if [ ! -d /workspace/.git ]; then git clone ${config.defaultGitRepo} /workspace && cd /workspace && git checkout -b opencode/${hash}; fi`,
+        `if [ ! -d /workspace/.git ]; then git clone ${repoUrl} /workspace && cd /workspace && git checkout -b opencode/${hash}; fi`,
       ],
       volumeMounts: [
         { name: "user-data", mountPath: "/workspace", subPath: "projects" },
