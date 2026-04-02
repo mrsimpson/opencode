@@ -1,0 +1,21 @@
+{
+  "name": "@opencode-ai/opencode-router",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^1.0.0",
+    "http-proxy": "^1.18.1"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.0",
+    "@types/http-proxy": "^1.17.16",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
