@@ -143,21 +143,21 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   const now = new Date().toISOString();
   const { repoUrl, branch, email } = session;
 
-  // git-init: clone if needed, then checkout branch (create from default if it doesn't exist)
+  // Use GIT_SAFE="git -c safe.directory=/workspace" to avoid needing a writable $HOME
+  // for "git config --global". The -c flag applies the config inline for each invocation.
   const gitInitScript = [
     `set -e`,
-    // Mark /workspace as safe regardless of ownership (PVC may have been written by a different UID)
-    `git config --global --add safe.directory /workspace`,
+    `GIT="git -c safe.directory=/workspace"`,
     `if [ ! -d /workspace/.git ]; then`,
     `  git clone "${repoUrl}" /workspace`,
     `fi`,
     `cd /workspace`,
-    `git fetch --all`,
+    `$GIT fetch --all`,
     // Check out existing remote branch, or create a new one from the current HEAD
-    `if git ls-remote --exit-code --heads origin "${branch}" > /dev/null 2>&1; then`,
-    `  git checkout -B "${branch}" "origin/${branch}"`,
+    `if $GIT ls-remote --exit-code --heads origin "${branch}" > /dev/null 2>&1; then`,
+    `  $GIT checkout -B "${branch}" "origin/${branch}"`,
     `else`,
-    `  git checkout -b "${branch}"`,
+    `  $GIT checkout -b "${branch}"`,
     `fi`,
   ].join("\n");
 
@@ -175,6 +175,10 @@ export async function ensurePod(session: SessionKey): Promise<string> {
       image: "alpine/git:latest",
       command: ["sh", "-c"],
       args: [gitInitScript],
+      env: [
+        // Provide a writable HOME so git doesn't try to write to /.gitconfig
+        { name: "HOME", value: "/tmp" },
+      ],
       volumeMounts: [{ name: "user-data", mountPath: "/workspace", subPath: "projects" }],
     },
   ];
