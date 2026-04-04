@@ -17,8 +17,7 @@ export function App() {
 
   const loadSessions = async () => {
     try {
-      const sessions = await listSessions();
-      const email = sessions[0]?.email ?? "";
+      const { email, sessions } = await listSessions();
       setPhase({ kind: "list", sessions, email });
     } catch (err) {
       setPhase({

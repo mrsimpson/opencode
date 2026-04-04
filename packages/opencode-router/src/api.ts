@@ -33,10 +33,10 @@ export async function handleApi(
 ): Promise<boolean> {
   const url = req.url ?? "/";
 
-  // GET /api/sessions — list all sessions for this user
+  // GET /api/sessions — list all sessions for this user, always includes email
   if (url === "/api/sessions" && req.method === "GET") {
     const sessions = await listUserSessions(email);
-    json(res, 200, sessions);
+    json(res, 200, { email, sessions });
     return true;
   }
 

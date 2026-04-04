@@ -7,7 +7,12 @@ export interface Session {
   url: string;
 }
 
-export async function listSessions(): Promise<Session[]> {
+export interface SessionsResponse {
+  email: string;
+  sessions: Session[];
+}
+
+export async function listSessions(): Promise<SessionsResponse> {
   const res = await fetch("/api/sessions");
   if (!res.ok) throw new Error(`Failed to list sessions: ${res.status}`);
   return res.json();
