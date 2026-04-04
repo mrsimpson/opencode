@@ -1,24 +1,45 @@
-export interface StatusResponse {
-  email: string
-  state: "none" | "creating" | "running"
+export interface Session {
+  hash: string;
+  email: string;
+  repoUrl: string;
+  branch: string;
+  state: "creating" | "running";
+  url: string;
 }
 
-export async function getStatus(): Promise<StatusResponse> {
-  const res = await fetch("/api/status")
-  if (!res.ok) throw new Error(`Status check failed: ${res.status}`)
-  return res.json()
+export async function listSessions(): Promise<Session[]> {
+  const res = await fetch("/api/sessions");
+  if (!res.ok) throw new Error(`Failed to list sessions: ${res.status}`);
+  return res.json();
 }
 
 export interface CreateSessionResponse {
-  ok: boolean
-  error?: string
+  hash: string;
+  url: string;
+  state: "creating";
+  error?: string;
 }
 
-export async function createSession(repoUrl: string): Promise<CreateSessionResponse> {
+export async function createSession(
+  repoUrl: string,
+  branch: string
+): Promise<CreateSessionResponse> {
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repoUrl }),
-  })
-  return res.json()
+    body: JSON.stringify({ repoUrl, branch }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Failed to create session: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getSessionState(
+  hash: string
+): Promise<{ hash: string; state: "creating" | "running"; url: string }> {
+  const res = await fetch(`/api/sessions/${hash}`);
+  if (!res.ok) throw new Error(`Failed to get session state: ${res.status}`);
+  return res.json();
 }

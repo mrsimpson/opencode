@@ -5,6 +5,8 @@ import { config } from "./config.js";
 import { deleteIdlePods, getPodIP, updateLastActivity } from "./pod-manager.js";
 import { serveStatic } from "./static.js";
 
+const SESSION_PATH_RE = /^\/code\/([a-f0-9]{12})(\/.*)?$/;
+
 function getEmail(req: http.IncomingMessage): string | null {
   const header = req.headers["x-auth-request-email"];
   if (typeof header === "string" && header.length > 0) return header;
@@ -30,24 +32,35 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    // API routes are handled regardless of pod state
     const url = req.url ?? "/";
+
+    // API routes — always handled regardless of path
     if (url.startsWith("/api/")) {
       const handled = await handleApi(req, res, email);
       if (handled) return;
     }
 
-    // If pod is running, proxy to it
-    const ip = await getPodIP(email);
-    if (ip) {
-      updateLastActivity(email);
-      // DEV_POD_PROXY_TARGET overrides direct pod IP access (pod IPs unreachable outside cluster)
+    // /code/:hash[/*] — proxy to the session's pod
+    const sessionMatch = url.match(SESSION_PATH_RE);
+    if (sessionMatch) {
+      const hash = sessionMatch[1];
+      const ip = await getPodIP(hash);
+      if (!ip) {
+        // Pod not running yet — return a simple status for the SPA to poll
+        res
+          .writeHead(503, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: "session not ready", hash }));
+        return;
+      }
+      updateLastActivity(hash);
       const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+      // Strip /code/:hash prefix before proxying — opencode expects to be at /
+      req.url = sessionMatch[2] ?? "/";
       proxy.web(req, res, { target });
       return;
     }
 
-    // No running pod — serve the setup UI (or proxy to Vite dev server in dev mode)
+    // All other paths — serve the setup SPA (or proxy to Vite in dev)
     if (config.devViteUrl) {
       proxy.web(req, res, { target: config.devViteUrl });
     } else {
@@ -69,15 +82,25 @@ server.on("upgrade", async (req, socket, head) => {
   }
 
   try {
-    const ip = await getPodIP(email);
-    if (ip) {
-      updateLastActivity(email);
+    const url = req.url ?? "/";
+
+    // WebSocket for a session pod
+    const sessionMatch = url.match(SESSION_PATH_RE);
+    if (sessionMatch) {
+      const hash = sessionMatch[1];
+      const ip = await getPodIP(hash);
+      if (!ip) {
+        socket.destroy();
+        return;
+      }
+      updateLastActivity(hash);
+      req.url = sessionMatch[2] ?? "/";
       const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
       proxy.ws(req, socket, head, { target });
       return;
     }
 
-    // No running pod — if Vite dev server is configured, forward HMR websocket to it
+    // WebSocket for Vite HMR (when no pod path matched — SPA dev mode)
     if (config.devViteUrl) {
       proxy.ws(req, socket, head, { target: config.devViteUrl });
       return;
@@ -98,7 +121,6 @@ function shutdown() {
   console.log("Shutting down...");
   clearInterval(cleanupInterval);
   server.close(() => process.exit(0));
-  // Force exit after 10s if connections don't drain
   setTimeout(() => process.exit(1), 10_000);
 }
 

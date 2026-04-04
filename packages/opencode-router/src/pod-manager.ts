@@ -13,40 +13,62 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 }
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 
-const LABEL_USER_HASH = "opencode.ai/user-hash";
+const LABEL_SESSION_HASH = "opencode.ai/session-hash";
 const LABEL_MANAGED_BY = "app.kubernetes.io/managed-by";
 const MANAGED_BY_VALUE = "opencode-router";
 const ANNOTATION_LAST_ACTIVITY = "opencode.ai/last-activity";
 const ANNOTATION_USER_EMAIL = "opencode.ai/user-email";
+const ANNOTATION_REPO_URL = "opencode.ai/repo-url";
+const ANNOTATION_BRANCH = "opencode.ai/branch";
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>();
 const THROTTLE_MS = 60_000;
 
-export function getUserHash(email: string): string {
-  return crypto.createHash("sha256").update(email.toLowerCase().trim()).digest("hex").slice(0, 12);
+export interface SessionKey {
+  email: string;
+  repoUrl: string;
+  branch: string;
+}
+
+export interface SessionInfo {
+  hash: string;
+  email: string;
+  repoUrl: string;
+  branch: string;
+  state: PodState;
+  url: string;
+}
+
+/**
+ * Compute a deterministic, DNS-safe 12-char hex hash for a (email, repoUrl, branch) triple.
+ * This is the stable identity for a session — used for pod name, PVC name, and URL slug.
+ */
+export function getSessionHash(email: string, repoUrl: string, branch: string): string {
+  const key = `${email.toLowerCase().trim()}:${repoUrl.trim()}:${branch.trim()}`;
+  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 12);
 }
 
 function podName(hash: string): string {
-  return `opencode-user-${hash}`;
+  return `opencode-session-${hash}`;
 }
 
 function pvcName(hash: string): string {
   return `opencode-pvc-${hash}`;
 }
 
-function userLabels(hash: string): Record<string, string> {
+function sessionLabels(hash: string): Record<string, string> {
   return {
-    [LABEL_USER_HASH]: hash,
+    [LABEL_SESSION_HASH]: hash,
     [LABEL_MANAGED_BY]: MANAGED_BY_VALUE,
   };
 }
 
 /**
- * Create PVC if it doesn't exist. Idempotent — handles 404 (create) and 409 (race).
+ * Create PVC for a session if it doesn't exist. Idempotent.
  */
-export async function ensurePVC(email: string): Promise<void> {
-  const hash = getUserHash(email);
+export async function ensurePVC(session: SessionKey): Promise<void> {
+  const hash = getSessionHash(session.email, session.repoUrl, session.branch);
   const name = pvcName(hash);
 
   try {
@@ -60,7 +82,12 @@ export async function ensurePVC(email: string): Promise<void> {
     metadata: {
       name,
       namespace: config.namespace,
-      labels: userLabels(hash),
+      labels: sessionLabels(hash),
+      annotations: {
+        [ANNOTATION_USER_EMAIL]: session.email,
+        [ANNOTATION_REPO_URL]: session.repoUrl,
+        [ANNOTATION_BRANCH]: session.branch,
+      },
     },
     spec: {
       accessModes: ["ReadWriteOnce"],
@@ -75,24 +102,19 @@ export async function ensurePVC(email: string): Promise<void> {
     await k8sApi.createNamespacedPersistentVolumeClaim({ namespace: config.namespace, body: pvc });
   } catch (err) {
     if (!isConflict(err)) throw err;
-    // 409 — another replica created it between our read and create
   }
 }
 
 export type PodState = "none" | "creating" | "running";
 
 /**
- * Return the current state of a user's pod without creating it.
+ * Return the current state of a session's pod by its hash.
  */
-export async function getPodState(email: string): Promise<PodState> {
-  const hash = getUserHash(email);
+export async function getPodState(hash: string): Promise<PodState> {
   const name = podName(hash);
-
   try {
     const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace });
-    if (pod.status?.phase === "Running" && pod.status.podIP) {
-      return "running";
-    }
+    if (pod.status?.phase === "Running" && pod.status.podIP) return "running";
     return "creating";
   } catch (err) {
     if (isNotFound(err)) return "none";
@@ -101,25 +123,44 @@ export async function getPodState(email: string): Promise<PodState> {
 }
 
 /**
- * Create pod if it doesn't exist. Idempotent. Must call ensurePVC first.
+ * Create pod for a session if it doesn't exist. Idempotent. Must call ensurePVC first.
+ *
+ * The git-init container:
+ * - Clones repoUrl into /workspace if not already cloned
+ * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
  */
-export async function ensurePod(email: string, gitRepo?: string): Promise<void> {
-  const hash = getUserHash(email);
+export async function ensurePod(session: SessionKey): Promise<string> {
+  const hash = getSessionHash(session.email, session.repoUrl, session.branch);
   const name = podName(hash);
 
   try {
     await k8sApi.readNamespacedPod({ name, namespace: config.namespace });
-    return; // already exists
+    return hash; // already exists
   } catch (err) {
     if (!isNotFound(err)) throw err;
   }
 
   const now = new Date().toISOString();
-  const repoUrl = gitRepo ?? config.defaultGitRepo;
+  const { repoUrl, branch, email } = session;
 
-  const initContainers: k8s.V1Container[] = [];
-  if (repoUrl) {
-    initContainers.push({
+  // git-init: clone if needed, then checkout branch (create from default if it doesn't exist)
+  const gitInitScript = [
+    `set -e`,
+    `if [ ! -d /workspace/.git ]; then`,
+    `  git clone "${repoUrl}" /workspace`,
+    `fi`,
+    `cd /workspace`,
+    `git fetch --all`,
+    // Check out existing remote branch, or create a new one from the current HEAD
+    `if git ls-remote --exit-code --heads origin "${branch}" > /dev/null 2>&1; then`,
+    `  git checkout -B "${branch}" "origin/${branch}"`,
+    `else`,
+    `  git checkout -b "${branch}"`,
+    `fi`,
+  ].join("\n");
+
+  const initContainers: k8s.V1Container[] = [
+    {
       name: "git-init",
       securityContext: {
         runAsUser: 1000,
@@ -131,21 +172,21 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
       },
       image: "alpine/git:latest",
       command: ["sh", "-c"],
-      args: [
-        `if [ ! -d /workspace/.git ]; then git clone ${repoUrl} /workspace && cd /workspace && git checkout -b opencode/${hash}; fi`,
-      ],
+      args: [gitInitScript],
       volumeMounts: [{ name: "user-data", mountPath: "/workspace", subPath: "projects" }],
-    });
-  }
+    },
+  ];
 
   const pod: k8s.V1Pod = {
     metadata: {
       name,
       namespace: config.namespace,
-      labels: userLabels(hash),
+      labels: sessionLabels(hash),
       annotations: {
         [ANNOTATION_LAST_ACTIVITY]: now,
         [ANNOTATION_USER_EMAIL]: email,
+        [ANNOTATION_REPO_URL]: repoUrl,
+        [ANNOTATION_BRANCH]: branch,
       },
     },
     spec: {
@@ -160,7 +201,7 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
       ...(config.imagePullSecretName
         ? { imagePullSecrets: [{ name: config.imagePullSecretName }] }
         : {}),
-      initContainers: initContainers.length > 0 ? initContainers : undefined,
+      initContainers,
       containers: [
         {
           name: "opencode",
@@ -205,21 +246,18 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
   } catch (err) {
     if (!isConflict(err)) throw err;
   }
+
+  return hash;
 }
 
 /**
- * Return the pod's IP if it is Running, or null otherwise.
+ * Return the pod's IP if it is Running, or null otherwise. Looks up by session hash.
  */
-export async function getPodIP(email: string): Promise<string | null> {
-  const hash = getUserHash(email);
+export async function getPodIP(hash: string): Promise<string | null> {
   const name = podName(hash);
-
   try {
-    const response = await k8sApi.readNamespacedPod({ name, namespace: config.namespace });
-    const pod = response;
-    if (pod.status?.phase === "Running" && pod.status.podIP) {
-      return pod.status.podIP;
-    }
+    const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace });
+    if (pod.status?.phase === "Running" && pod.status.podIP) return pod.status.podIP;
     return null;
   } catch (err) {
     if (isNotFound(err)) return null;
@@ -228,11 +266,38 @@ export async function getPodIP(email: string): Promise<string | null> {
 }
 
 /**
- * Update the last-activity annotation on the user's pod.
- * Throttled to at most once per minute per user to reduce K8s API load.
+ * List all sessions belonging to a user (by email annotation).
  */
-export function updateLastActivity(email: string): void {
-  const hash = getUserHash(email);
+export async function listUserSessions(email: string): Promise<SessionInfo[]> {
+  const response = await k8sApi.listNamespacedPod({
+    namespace: config.namespace,
+    labelSelector: `${LABEL_MANAGED_BY}=${MANAGED_BY_VALUE}`,
+  });
+
+  const sessions: SessionInfo[] = [];
+  for (const pod of response.items) {
+    const ann = pod.metadata?.annotations ?? {};
+    if (ann[ANNOTATION_USER_EMAIL] !== email) continue;
+
+    const hash = pod.metadata?.labels?.[LABEL_SESSION_HASH];
+    if (!hash) continue;
+
+    const repoUrl = ann[ANNOTATION_REPO_URL] ?? "";
+    const branch = ann[ANNOTATION_BRANCH] ?? "";
+    const state: PodState =
+      pod.status?.phase === "Running" && pod.status.podIP ? "running" : "creating";
+
+    sessions.push({ hash, email, repoUrl, branch, state, url: `/code/${hash}` });
+  }
+
+  return sessions;
+}
+
+/**
+ * Update the last-activity annotation on a session's pod.
+ * Throttled to at most once per minute per session to reduce K8s API load.
+ */
+export function updateLastActivity(hash: string): void {
   const now = Date.now();
   const last = activityThrottle.get(hash) ?? 0;
   if (now - last < THROTTLE_MS) return;
@@ -281,8 +346,7 @@ export async function deleteIdlePods(): Promise<void> {
           .deleteNamespacedPod({ name, namespace: config.namespace })
           .catch((err) => console.error(`Failed to delete pod ${name}:`, err));
 
-        // Clean up throttle entry
-        const hash = pod.metadata?.labels?.[LABEL_USER_HASH];
+        const hash = pod.metadata?.labels?.[LABEL_SESSION_HASH];
         if (hash) activityThrottle.delete(hash);
       }
     }

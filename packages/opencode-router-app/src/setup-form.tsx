@@ -1,45 +1,46 @@
-import { createSignal } from "solid-js"
-import { Button } from "@opencode-ai/ui/button"
-import { TextField } from "@opencode-ai/ui/text-field"
-import { createSession } from "./api"
+import { Button } from "@opencode-ai/ui/button";
+import { TextField } from "@opencode-ai/ui/text-field";
+import { createSignal } from "solid-js";
+import { createSession } from "./api";
 
-const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
+const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/;
 
-export function SetupForm(props: { email: string; onCreated: () => void }) {
-  const [repoUrl, setRepoUrl] = createSignal("")
-  const [error, setError] = createSignal("")
-  const [submitting, setSubmitting] = createSignal(false)
+export function SetupForm(props: {
+  email: string;
+  onCreated: (hash: string, url: string) => void;
+}) {
+  const [repoUrl, setRepoUrl] = createSignal("");
+  const [branch, setBranch] = createSignal("");
+  const [error, setError] = createSignal("");
+  const [submitting, setSubmitting] = createSignal(false);
 
   const validate = (): string | null => {
-    const url = repoUrl().trim()
-    if (!url) return "Repository URL is required"
-    if (!GIT_URL_PATTERN.test(url)) return "Enter a valid HTTP(S) repository URL"
-    return null
-  }
+    const url = repoUrl().trim();
+    if (!url) return "Repository URL is required";
+    if (!GIT_URL_PATTERN.test(url)) return "Enter a valid HTTP(S) repository URL";
+    if (!branch().trim()) return "Branch name is required";
+    return null;
+  };
 
   const handleSubmit = async (e: SubmitEvent) => {
-    e.preventDefault()
-    const validationError = validate()
+    e.preventDefault();
+    const validationError = validate();
     if (validationError) {
-      setError(validationError)
-      return
+      setError(validationError);
+      return;
     }
 
-    setError("")
-    setSubmitting(true)
+    setError("");
+    setSubmitting(true);
     try {
-      const result = await createSession(repoUrl().trim())
-      if (!result.ok) {
-        setError(result.error ?? "Failed to create session")
-        return
-      }
-      props.onCreated()
+      const result = await createSession(repoUrl().trim(), branch().trim());
+      props.onCreated(result.hash, result.url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error")
+      setError(err instanceof Error ? err.message : "Network error");
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-6 w-full">
@@ -59,9 +60,11 @@ export function SetupForm(props: { email: string; onCreated: () => void }) {
         error={error()}
       />
 
+      <TextField label="Branch" placeholder="main" value={branch()} onChange={setBranch} />
+
       <Button type="submit" variant="primary" size="large" disabled={submitting()}>
         {submitting() ? "Starting..." : "Start Session"}
       </Button>
     </form>
-  )
+  );
 }

@@ -1,24 +1,24 @@
-import { onCleanup, onMount } from "solid-js"
-import { getStatus } from "./api"
+import { onCleanup, onMount } from "solid-js";
+import { getSessionState } from "./api";
 
-export function LoadingScreen() {
-  let timer: ReturnType<typeof setInterval>
+export function LoadingScreen(props: { hash: string; url: string }) {
+  let timer: ReturnType<typeof setInterval>;
 
   onMount(() => {
     timer = setInterval(async () => {
       try {
-        const status = await getStatus()
-        if (status.state === "running") {
-          clearInterval(timer)
-          window.location.replace("/")
+        const session = await getSessionState(props.hash);
+        if (session.state === "running") {
+          clearInterval(timer);
+          window.location.replace(props.url);
         }
       } catch {
         // Retry on next tick
       }
-    }, 3000)
-  })
+    }, 3000);
+  });
 
-  onCleanup(() => clearInterval(timer))
+  onCleanup(() => clearInterval(timer));
 
   return (
     <div class="flex flex-col items-center gap-4">
@@ -36,5 +36,5 @@ export function LoadingScreen() {
         This usually takes a few seconds.
       </p>
     </div>
-  )
+  );
 }
