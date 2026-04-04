@@ -124,6 +124,7 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
         allowPrivilegeEscalation: false,
         runAsNonRoot: true,
         capabilities: { drop: ["ALL"] },
+        seccompProfile: { type: "RuntimeDefault" },
       },
       image: "alpine/git:latest",
       command: ["sh", "-c"],
@@ -151,6 +152,7 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
         runAsGroup: 1000,
         fsGroup: 1000,
         runAsNonRoot: true,
+        seccompProfile: { type: "RuntimeDefault" },
       },
       initContainers: initContainers.length > 0 ? initContainers : undefined,
       containers: [
