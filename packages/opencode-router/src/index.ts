@@ -1,94 +1,99 @@
-import http from "node:http"
-import httpProxy from "http-proxy"
-import { config } from "./config.js"
-import { getPodIP, updateLastActivity, deleteIdlePods } from "./pod-manager.js"
-import { handleApi } from "./api.js"
-import { serveStatic } from "./static.js"
+import http from "node:http";
+import httpProxy from "http-proxy";
+import { handleApi } from "./api.js";
+import { config } from "./config.js";
+import { deleteIdlePods, getPodIP, updateLastActivity } from "./pod-manager.js";
+import { serveStatic } from "./static.js";
 
 function getEmail(req: http.IncomingMessage): string | null {
-  const header = req.headers["x-auth-request-email"]
-  if (typeof header === "string" && header.length > 0) return header
-  return null
+  const header = req.headers["x-auth-request-email"];
+  if (typeof header === "string" && header.length > 0) return header;
+  // Dev fallback: use DEV_EMAIL env var when running locally without oauth2-proxy
+  if (config.devEmail) return config.devEmail;
+  return null;
 }
 
-const proxy = httpProxy.createProxyServer({})
+const proxy = httpProxy.createProxyServer({});
 
 proxy.on("error", (err, _req, res) => {
-  console.error("Proxy error:", err.message)
+  console.error("Proxy error:", err.message);
   if (res instanceof http.ServerResponse && !res.headersSent) {
-    res.writeHead(502).end("Bad Gateway")
+    res.writeHead(502).end("Bad Gateway");
   }
-})
+});
 
 const server = http.createServer(async (req, res) => {
-  const email = getEmail(req)
+  const email = getEmail(req);
   if (!email) {
-    res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")
-    return
+    res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity");
+    return;
   }
 
   try {
     // API routes are handled regardless of pod state
-    const url = req.url ?? "/"
+    const url = req.url ?? "/";
     if (url.startsWith("/api/")) {
-      const handled = await handleApi(req, res, email)
-      if (handled) return
+      const handled = await handleApi(req, res, email);
+      if (handled) return;
     }
 
     // If pod is running, proxy to it
-    const ip = await getPodIP(email)
+    const ip = await getPodIP(email);
     if (ip) {
-      updateLastActivity(email)
-      proxy.web(req, res, { target: `http://${ip}:${config.opencodePort}` })
-      return
+      updateLastActivity(email);
+      // DEV_POD_PROXY_TARGET overrides direct pod IP access (pod IPs unreachable outside cluster)
+      const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+      proxy.web(req, res, { target });
+      return;
     }
 
     // No running pod — serve the setup UI
-    serveStatic(config.publicDir, req, res)
+    serveStatic(config.publicDir, req, res);
   } catch (err) {
-    console.error(`Error handling request for ${email}:`, err)
+    console.error(`Error handling request for ${email}:`, err);
     if (!res.headersSent) {
-      res.writeHead(500, { "Content-Type": "text/plain" }).end("Internal server error")
+      res.writeHead(500, { "Content-Type": "text/plain" }).end("Internal server error");
     }
   }
-})
+});
 
 server.on("upgrade", async (req, socket, head) => {
-  const email = getEmail(req)
+  const email = getEmail(req);
   if (!email) {
-    socket.destroy()
-    return
+    socket.destroy();
+    return;
   }
 
   try {
-    const ip = await getPodIP(email)
+    const ip = await getPodIP(email);
     if (!ip) {
-      socket.destroy()
-      return
+      socket.destroy();
+      return;
     }
-    updateLastActivity(email)
-    proxy.ws(req, socket, head, { target: `http://${ip}:${config.opencodePort}` })
+    updateLastActivity(email);
+    const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+    proxy.ws(req, socket, head, { target });
   } catch (err) {
-    console.error(`WebSocket upgrade error for ${email}:`, err)
-    socket.destroy()
+    console.error(`WebSocket upgrade error for ${email}:`, err);
+    socket.destroy();
   }
-})
+});
 
 // Background: clean up idle pods every 60 seconds
-const cleanupInterval = setInterval(deleteIdlePods, 60_000)
+const cleanupInterval = setInterval(deleteIdlePods, 60_000);
 
 // Graceful shutdown
 function shutdown() {
-  console.log("Shutting down...")
-  clearInterval(cleanupInterval)
-  server.close(() => process.exit(0))
+  console.log("Shutting down...");
+  clearInterval(cleanupInterval);
+  server.close(() => process.exit(0));
   // Force exit after 10s if connections don't drain
-  setTimeout(() => process.exit(1), 10_000)
+  setTimeout(() => process.exit(1), 10_000);
 }
 
-process.on("SIGTERM", shutdown)
-process.on("SIGINT", shutdown)
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 server.listen(config.port, () => {
-  console.log(`opencode-router listening on :${config.port}`)
-})
+  console.log(`opencode-router listening on :${config.port}`);
+});

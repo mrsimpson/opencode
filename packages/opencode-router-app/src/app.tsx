@@ -1,30 +1,33 @@
-import { createSignal, Match, onMount, Switch } from "solid-js"
-import { Logo } from "@opencode-ai/ui/logo"
-import { getStatus } from "./api"
-import { SetupForm } from "./setup-form"
-import { LoadingScreen } from "./loading-screen"
+import { Logo } from "@opencode-ai/ui/logo";
+import { Match, Switch, createSignal, onMount } from "solid-js";
+import { getStatus } from "./api";
+import { LoadingScreen } from "./loading-screen";
+import { SetupForm } from "./setup-form";
 
-type Phase = "loading" | "setup" | "creating" | "error"
+type Phase = "loading" | "setup" | "creating" | "error";
 
 export function App() {
-  const [phase, setPhase] = createSignal<Phase>("loading")
-  const [email, setEmail] = createSignal("")
-  const [error, setError] = createSignal("")
+  const [phase, setPhase] = createSignal<Phase>("loading");
+  const [email, setEmail] = createSignal("");
+  const [error, setError] = createSignal("");
 
   onMount(async () => {
     try {
-      const status = await getStatus()
-      setEmail(status.email)
+      const status = await getStatus();
+      setEmail(status.email);
       if (status.state === "running") {
-        window.location.replace("/")
-        return
+        // In production the router serves this SPA, so "/" goes directly to the opencode pod.
+        // In dev (Vite), override with VITE_ROUTER_URL to avoid a redirect loop back to Vite.
+        const routerUrl = import.meta.env.VITE_ROUTER_URL ?? "/";
+        window.location.replace(routerUrl);
+        return;
       }
-      setPhase(status.state === "none" ? "setup" : "creating")
+      setPhase(status.state === "none" ? "setup" : "creating");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect")
-      setPhase("error")
+      setError(err instanceof Error ? err.message : "Failed to connect");
+      setPhase("error");
     }
-  })
+  });
 
   return (
     <div
@@ -57,5 +60,5 @@ export function App() {
         </Switch>
       </div>
     </div>
-  )
+  );
 }

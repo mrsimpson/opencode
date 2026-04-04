@@ -1,7 +1,7 @@
 function required(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`Missing required environment variable: ${name}`)
-  return value
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
 }
 
 export const config = {
@@ -12,8 +12,17 @@ export const config = {
   idleTimeoutMinutes: Number(process.env.IDLE_TIMEOUT_MINUTES ?? 30),
   apiKeySecretName: process.env.API_KEY_SECRET_NAME ?? "opencode-api-keys",
   configMapName: process.env.CONFIG_MAP_NAME ?? "opencode-config-dir",
+  imagePullSecretName: process.env.IMAGE_PULL_SECRET_NAME ?? "",
   storageClass: process.env.STORAGE_CLASS ?? "",
   storageSize: process.env.STORAGE_SIZE ?? "2Gi",
   defaultGitRepo: process.env.DEFAULT_GIT_REPO,
   publicDir: process.env.PUBLIC_DIR ?? new URL("../public", import.meta.url).pathname,
-} as const
+  /** Dev-only: assumed email when X-Auth-Request-Email header is absent (never set in production) */
+  devEmail: process.env.DEV_EMAIL,
+  /**
+   * Dev-only: fixed proxy target (e.g. "http://localhost:4096") used instead of looking up
+   * the pod IP. Needed when running the router outside the cluster where pod IPs are unreachable.
+   * Set this and port-forward the user pod: kubectl port-forward <pod> 4096:4096 -n opencode-router
+   */
+  devPodProxyTarget: process.env.DEV_POD_PROXY_TARGET,
+} as const;

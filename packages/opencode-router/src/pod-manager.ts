@@ -1,11 +1,14 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import * as k8s from "@kubernetes/client-node";
 import { config } from "./config.js";
 
 const kc = new k8s.KubeConfig();
-try {
+// loadFromCluster() does not throw when not in a pod — it silently produces
+// an invalid config with server=undefined. Check for the SA token file first.
+if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
   kc.loadFromCluster();
-} catch {
+} else {
   kc.loadFromDefault();
 }
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
@@ -154,12 +157,22 @@ export async function ensurePod(email: string, gitRepo?: string): Promise<void> 
         runAsNonRoot: true,
         seccompProfile: { type: "RuntimeDefault" },
       },
+      ...(config.imagePullSecretName
+        ? { imagePullSecrets: [{ name: config.imagePullSecretName }] }
+        : {}),
       initContainers: initContainers.length > 0 ? initContainers : undefined,
       containers: [
         {
           name: "opencode",
           image: config.opencodeImage,
-          command: ["opencode", "serve", "--host", "0.0.0.0"],
+          command: [
+            "opencode",
+            "serve",
+            "--hostname",
+            "0.0.0.0",
+            "--port",
+            String(config.opencodePort),
+          ],
           ports: [{ containerPort: config.opencodePort }],
           envFrom: [{ secretRef: { name: config.apiKeySecretName } }],
           securityContext: {

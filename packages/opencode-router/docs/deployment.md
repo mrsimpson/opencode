@@ -468,7 +468,7 @@ Init containers (if git repo configured):
 Containers:
   opencode:
     image: <OPENCODE_IMAGE>
-    command: opencode serve --host 0.0.0.0
+    command: opencode serve --hostname 0.0.0.0 --port 4096
     ports: 4096
     envFrom: secret/opencode-api-keys
     volumeMounts:
@@ -560,3 +560,49 @@ There is no rolling update of user Pods — they are recreated, not updated in p
 12. [ ] (Optional) Configure ResourceQuota and LimitRange on the namespace
 13. [ ] (Optional) Configure NetworkPolicies
 14. [ ] (Optional) Set up a CronJob or script for periodic PVC cleanup
+
+## Local Development
+
+To develop and test the router locally against a live cluster (without building and pushing a Docker image):
+
+### 1. Generate a temporary kubeconfig
+
+```bash
+# Requires: kubectl pointing at the cluster, opencode-router SA already deployed
+./scripts/create-local-kubeconfig.sh
+```
+
+This creates `/tmp/opencode-router-local.kubeconfig` using a short-lived ServiceAccount token (valid 24h by default).
+
+### 2. Configure local environment
+
+```bash
+cp .env.local.example .env.local
+# Edit .env.local if needed (defaults work for the homelab setup)
+```
+
+### 3. Build and start the router
+
+```bash
+bun run build          # compile TypeScript → dist/
+npm run dev            # sources .env.local automatically, starts on PORT=3002
+```
+
+### 4. Start the SPA dev server (separate terminal)
+
+```bash
+cd ../opencode-router-app
+bun run dev            # Vite proxy forwards /api/* → http://localhost:3002
+```
+
+Open `http://localhost:5173` — the SPA connects to the real cluster via the router.
+
+### Auth bypass in local dev
+
+The router requires `X-Auth-Request-Email` header (set by oauth2-proxy in production). Locally, set `DEV_EMAIL` in `.env.local`:
+
+```
+DEV_EMAIL=dev@local.test
+```
+
+When `DEV_EMAIL` is set and the header is absent, the router assumes that identity. **This env var is never set in production** — the 401 behavior for unauthenticated requests is preserved in all deployed environments.
