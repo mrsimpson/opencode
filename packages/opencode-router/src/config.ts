@@ -17,7 +17,15 @@ export const config = {
   storageSize: process.env.STORAGE_SIZE ?? "2Gi",
   defaultGitRepo: process.env.DEFAULT_GIT_REPO,
   publicDir: process.env.PUBLIC_DIR ?? new URL("../public", import.meta.url).pathname,
-  /** Dev-only: assumed email when X-Auth-Request-Email header is absent (never set in production) */
+  /**
+   * Dev-only: when set, the router proxies the setup UI to this Vite dev server URL
+   * instead of serving static files from publicDir. Enables HMR without a redirect loop.
+   * Example: DEV_VITE_URL=http://localhost:5173
+   */
+  devViteUrl: process.env.DEV_VITE_URL,
+  /**
+   * Dev-only: assumed email when X-Auth-Request-Email header is absent (never set in production)
+   */
   devEmail: process.env.DEV_EMAIL,
   /**
    * Dev-only: fixed proxy target (e.g. "http://localhost:4096") used instead of looking up

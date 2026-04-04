@@ -47,8 +47,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // No running pod — serve the setup UI
-    serveStatic(config.publicDir, req, res);
+    // No running pod — serve the setup UI (or proxy to Vite dev server in dev mode)
+    if (config.devViteUrl) {
+      proxy.web(req, res, { target: config.devViteUrl });
+    } else {
+      serveStatic(config.publicDir, req, res);
+    }
   } catch (err) {
     console.error(`Error handling request for ${email}:`, err);
     if (!res.headersSent) {
@@ -66,13 +70,20 @@ server.on("upgrade", async (req, socket, head) => {
 
   try {
     const ip = await getPodIP(email);
-    if (!ip) {
-      socket.destroy();
+    if (ip) {
+      updateLastActivity(email);
+      const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+      proxy.ws(req, socket, head, { target });
       return;
     }
-    updateLastActivity(email);
-    const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
-    proxy.ws(req, socket, head, { target });
+
+    // No running pod — if Vite dev server is configured, forward HMR websocket to it
+    if (config.devViteUrl) {
+      proxy.ws(req, socket, head, { target: config.devViteUrl });
+      return;
+    }
+
+    socket.destroy();
   } catch (err) {
     console.error(`WebSocket upgrade error for ${email}:`, err);
     socket.destroy();

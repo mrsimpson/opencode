@@ -592,17 +592,37 @@ npm run dev            # sources .env.local automatically, starts on PORT=3002
 
 ```bash
 cd ../opencode-router-app
-bun run dev            # Vite proxy forwards /api/* → http://localhost:3002
+bun run dev            # Vite runs on :5173 as a background HMR server
 ```
 
-Open `http://localhost:5173` — the SPA connects to the real cluster via the router.
+**Open `http://localhost:3002`** — the router is the single entry point:
+- When no pod is running: router proxies the SPA from Vite (`DEV_VITE_URL=http://localhost:5173`), HMR works
+- When pod is running: router proxies to the opencode pod via port-forward (`DEV_POD_PROXY_TARGET`)
+- `window.location.replace("/")` in the SPA stays at `localhost:3002`, no redirect loop
+
+### 5. Port-forward the user pod (when testing the running state)
+
+```bash
+./scripts/port-forward-pod.sh   # reads DEV_EMAIL from .env.local, computes pod name
+```
+
+This forwards `localhost:4096 → <pod>:4096`. Required because pod IPs are cluster-internal.
 
 ### Auth bypass in local dev
 
 The router requires `X-Auth-Request-Email` header (set by oauth2-proxy in production). Locally, set `DEV_EMAIL` in `.env.local`:
 
 ```
-DEV_EMAIL=dev@local.test
+export DEV_EMAIL=dev@local.test
 ```
 
 When `DEV_EMAIL` is set and the header is absent, the router assumes that identity. **This env var is never set in production** — the 401 behavior for unauthenticated requests is preserved in all deployed environments.
+
+### Dev environment variables summary
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `DEV_EMAIL` | router `.env.local` | Auth identity when oauth2-proxy header is absent |
+| `DEV_VITE_URL` | router `.env.local` | Proxy setup UI to Vite dev server (enables HMR) |
+| `DEV_POD_PROXY_TARGET` | router `.env.local` | Fixed proxy target for pod (bypasses unreachable pod IP) |
+| `KUBECONFIG` | router `.env.local` | Temp kubeconfig with SA token for cluster access |

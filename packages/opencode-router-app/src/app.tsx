@@ -16,10 +16,7 @@ export function App() {
       const status = await getStatus();
       setEmail(status.email);
       if (status.state === "running") {
-        // In production the router serves this SPA, so "/" goes directly to the opencode pod.
-        // In dev (Vite), override with VITE_ROUTER_URL to avoid a redirect loop back to Vite.
-        const routerUrl = import.meta.env.VITE_ROUTER_URL ?? "/";
-        window.location.replace(routerUrl);
+        window.location.replace("/");
         return;
       }
       setPhase(status.state === "none" ? "setup" : "creating");
