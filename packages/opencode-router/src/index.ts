@@ -6,12 +6,23 @@ import { deleteIdlePods, getPodIP, updateLastActivity } from "./pod-manager.js";
 import { serveStatic } from "./static.js";
 
 const SESSION_PATH_RE = /^\/code\/([a-f0-9]{12})(\/.*)?$/;
+const SESSION_COOKIE = "oc-session";
 
 function getEmail(req: http.IncomingMessage): string | null {
   const header = req.headers["x-auth-request-email"];
   if (typeof header === "string" && header.length > 0) return header;
   // Dev fallback: use DEV_EMAIL env var when running locally without oauth2-proxy
   if (config.devEmail) return config.devEmail;
+  return null;
+}
+
+/** Extract session hash from the oc-session cookie, if present. */
+function getSessionCookie(req: http.IncomingMessage): string | null {
+  const cookieHeader = req.headers.cookie ?? "";
+  for (const part of cookieHeader.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === SESSION_COOKIE) return rest.join("=").trim();
+  }
   return null;
 }
 
@@ -24,6 +35,19 @@ proxy.on("error", (err, _req, res) => {
   }
 });
 
+async function proxyToSession(
+  hash: string,
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<boolean> {
+  const ip = await getPodIP(hash);
+  if (!ip) return false;
+  updateLastActivity(hash);
+  const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+  proxy.web(req, res, { target });
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const email = getEmail(req);
   if (!email) {
@@ -34,33 +58,43 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = req.url ?? "/";
 
-    // API routes — always handled regardless of path
+    // Router's own API — handled before any session routing
     if (url.startsWith("/api/")) {
       const handled = await handleApi(req, res, email);
       if (handled) return;
     }
 
-    // /code/:hash[/*] — proxy to the session's pod
+    // /code/:hash[/*] — set session cookie and proxy to the session's pod
     const sessionMatch = url.match(SESSION_PATH_RE);
     if (sessionMatch) {
       const hash = sessionMatch[1];
       const ip = await getPodIP(hash);
       if (!ip) {
-        // Pod not running yet — return a simple status for the SPA to poll
         res
           .writeHead(503, { "Content-Type": "application/json" })
           .end(JSON.stringify({ error: "session not ready", hash }));
         return;
       }
       updateLastActivity(hash);
+      // Set cookie so subsequent absolute-path requests from the SPA are routed to this pod
+      res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${hash}; Path=/; SameSite=Strict`);
       const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
-      // Strip /code/:hash prefix before proxying — opencode expects to be at /
+      // Strip /code/:hash prefix — opencode expects to be rooted at /
       req.url = sessionMatch[2] ?? "/";
       proxy.web(req, res, { target });
       return;
     }
 
-    // All other paths — serve the setup SPA (or proxy to Vite in dev)
+    // Not a /code/:hash path — check if this request belongs to an active session via cookie.
+    // This handles absolute-path requests made by the opencode SPA (e.g. /session, /provider).
+    const sessionHash = getSessionCookie(req);
+    if (sessionHash) {
+      const proxied = await proxyToSession(sessionHash, req, res);
+      if (proxied) return;
+      // Cookie points to a pod that's no longer running — fall through to SPA
+    }
+
+    // No active session — serve the setup SPA (or proxy to Vite in dev)
     if (config.devViteUrl) {
       proxy.web(req, res, { target: config.devViteUrl });
     } else {
@@ -84,7 +118,7 @@ server.on("upgrade", async (req, socket, head) => {
   try {
     const url = req.url ?? "/";
 
-    // WebSocket for a session pod
+    // WebSocket for a session pod via /code/:hash path
     const sessionMatch = url.match(SESSION_PATH_RE);
     if (sessionMatch) {
       const hash = sessionMatch[1];
@@ -100,7 +134,19 @@ server.on("upgrade", async (req, socket, head) => {
       return;
     }
 
-    // WebSocket for Vite HMR (when no pod path matched — SPA dev mode)
+    // WebSocket from opencode SPA (absolute path) — route via session cookie
+    const sessionHash = getSessionCookie(req);
+    if (sessionHash) {
+      const ip = await getPodIP(sessionHash);
+      if (ip) {
+        updateLastActivity(sessionHash);
+        const target = config.devPodProxyTarget ?? `http://${ip}:${config.opencodePort}`;
+        proxy.ws(req, socket, head, { target });
+        return;
+      }
+    }
+
+    // WebSocket for Vite HMR (SPA dev mode, no session cookie)
     if (config.devViteUrl) {
       proxy.ws(req, socket, head, { target: config.devViteUrl });
       return;
