@@ -1,4 +1,5 @@
 import type http from "node:http";
+import { config } from "./config.js";
 import {
   type SessionKey,
   ensurePVC,
@@ -18,6 +19,13 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
+/** Build the public URL for a session subdomain. */
+function sessionUrl(hash: string, req: http.IncomingMessage): string {
+  // Derive scheme from X-Forwarded-Proto (set by Traefik) or default to http in dev
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  return `${proto}://${hash}.${config.routerDomain}`;
+}
+
 /**
  * Handle API routes. Returns true if the route was handled.
  *
@@ -35,7 +43,7 @@ export async function handleApi(
 
   // GET /api/sessions — list all sessions for this user, always includes email
   if (url === "/api/sessions" && req.method === "GET") {
-    const sessions = await listUserSessions(email);
+    const sessions = await listUserSessions(email, req);
     json(res, 200, { email, sessions });
     return true;
   }
@@ -69,11 +77,7 @@ export async function handleApi(
     await ensurePVC(session);
     await ensurePod(session);
 
-    json(res, 201, {
-      hash,
-      url: `/code/${hash}`,
-      state: "creating",
-    });
+    json(res, 201, { hash, url: sessionUrl(hash, req), state: "creating" });
     return true;
   }
 
@@ -82,7 +86,7 @@ export async function handleApi(
   if (sessionMatch && req.method === "GET") {
     const hash = sessionMatch[1];
     const state = await getPodState(hash);
-    json(res, 200, { hash, state, url: `/code/${hash}` });
+    json(res, 200, { hash, state, url: sessionUrl(hash, req) });
     return true;
   }
 

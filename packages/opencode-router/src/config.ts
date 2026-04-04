@@ -18,6 +18,12 @@ export const config = {
   defaultGitRepo: process.env.DEFAULT_GIT_REPO,
   publicDir: process.env.PUBLIC_DIR ?? new URL("../public", import.meta.url).pathname,
   /**
+   * The public domain of the router (e.g. "opencode-router.no-panic.org").
+   * Sessions are served at https://<hash>.<routerDomain>.
+   * Required — subdomain routing is the only supported session isolation strategy.
+   */
+  routerDomain: required("ROUTER_DOMAIN"),
+  /**
    * Dev-only: when set, the router proxies the setup UI to this Vite dev server URL
    * instead of serving static files from publicDir. Enables HMR without a redirect loop.
    * Example: DEV_VITE_URL=http://localhost:5173

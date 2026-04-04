@@ -273,12 +273,18 @@ export async function getPodIP(hash: string): Promise<string | null> {
 
 /**
  * List all sessions belonging to a user (by email annotation).
+ * Pass the incoming request so URLs can be built with the correct scheme.
  */
-export async function listUserSessions(email: string): Promise<SessionInfo[]> {
+export async function listUserSessions(
+  email: string,
+  req: import("node:http").IncomingMessage
+): Promise<SessionInfo[]> {
   const response = await k8sApi.listNamespacedPod({
     namespace: config.namespace,
     labelSelector: `${LABEL_MANAGED_BY}=${MANAGED_BY_VALUE}`,
   });
+
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
 
   const sessions: SessionInfo[] = [];
   for (const pod of response.items) {
@@ -293,7 +299,14 @@ export async function listUserSessions(email: string): Promise<SessionInfo[]> {
     const state: PodState =
       pod.status?.phase === "Running" && pod.status.podIP ? "running" : "creating";
 
-    sessions.push({ hash, email, repoUrl, branch, state, url: `/code/${hash}` });
+    sessions.push({
+      hash,
+      email,
+      repoUrl,
+      branch,
+      state,
+      url: `${proto}://${hash}.${config.routerDomain}`,
+    });
   }
 
   return sessions;
