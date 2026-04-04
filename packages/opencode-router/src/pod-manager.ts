@@ -146,6 +146,8 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   // git-init: clone if needed, then checkout branch (create from default if it doesn't exist)
   const gitInitScript = [
     `set -e`,
+    // Mark /workspace as safe regardless of ownership (PVC may have been written by a different UID)
+    `git config --global --add safe.directory /workspace`,
     `if [ ! -d /workspace/.git ]; then`,
     `  git clone "${repoUrl}" /workspace`,
     `fi`,
