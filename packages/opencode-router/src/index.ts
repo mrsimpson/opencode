@@ -10,11 +10,17 @@ import { serveStatic } from "./static.js";
  * Returns the 12-char hex hash if the request is on a session subdomain
  * (e.g. Host: abc123def456.opencode-router.no-panic.org → "abc123def456"),
  * or null if on the root domain (the router SPA).
+ *
+ * Works for both production domains and local dev using *.localhost:3002 —
+ * browsers resolve *.localhost to 127.0.0.1 natively (no /etc/hosts needed).
+ * Set ROUTER_DOMAIN=localhost:3002 in .env.local to enable this.
  */
 function getSessionHash(host: string): string | null {
-  // Strip port if present
+  // Strip port from both the incoming Host header and routerDomain before comparing,
+  // so that "abc123.localhost:3002" correctly matches routerDomain "localhost:3002".
   const hostname = host.split(":")[0];
-  const suffix = `.${config.routerDomain}`;
+  const routerHostname = config.routerDomain.split(":")[0];
+  const suffix = `.${routerHostname}`;
   if (!hostname.endsWith(suffix)) return null;
   const sub = hostname.slice(0, hostname.length - suffix.length);
   // Must be exactly a 12-char hex session hash

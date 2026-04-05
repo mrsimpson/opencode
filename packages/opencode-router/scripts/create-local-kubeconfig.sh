@@ -7,8 +7,8 @@
 #   - opencode-router namespace and ServiceAccount already deployed (pulumi up)
 #
 # Usage:
-#   ./scripts/create-local-kubeconfig.sh
-#   # Then: source .env.local && node dist/index.js
+#   ./scripts/create-local-kubeconfig.sh            # 24h token (default)
+#   TOKEN_DURATION=168h ./scripts/create-local-kubeconfig.sh  # 7-day token
 
 set -euo pipefail
 
@@ -51,7 +51,7 @@ EOF
 echo "✓ Kubeconfig written to ${KUBECONFIG_OUT} (valid for ${TOKEN_DURATION})"
 echo ""
 echo "Next steps:"
-echo "  1. Copy .env.local.example to .env.local (already has KUBECONFIG=${KUBECONFIG_OUT})"
-echo "  2. source .env.local && node dist/index.js"
-echo "  3. In another terminal: cd ../opencode-router-app && bun run dev"
-echo "  4. Open http://localhost:5173"
+echo "  1. Ensure .env.local exists (copy from .env.local.example if needed)"
+echo "  2. pnpm dev  (runs tsx directly from source, no build step needed)"
+echo "  3. In another terminal: cd ../opencode-router-app && pnpm dev"
+echo "  4. Open http://localhost:3002"
