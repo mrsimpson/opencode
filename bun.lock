@@ -436,7 +436,6 @@
         "@tsconfig/node22": "^22.0.0",
         "@types/http-proxy": "^1.17.16",
         "@types/node": "^22.0.0",
-        "tsx": "*",
         "typescript": "^5.7.0",
       },
     },
