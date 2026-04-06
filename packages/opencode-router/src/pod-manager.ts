@@ -143,6 +143,12 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   const now = new Date().toISOString();
   const { repoUrl, branch, email } = session;
 
+  // The repo is cloned directly into /workspace (init container) which maps to <PVC>/projects/
+  // via subPath "projects". The main container mounts the full PVC at /root (no subPath), so the
+  // cloned repo is at /root/projects/ inside the main container. We set workingDir accordingly so
+  // opencode serve starts in the git repo and correctly discovers the project.
+  const workspacePath = `/root/projects`;
+
   // Use GIT_SAFE="git -c safe.directory=/workspace" to avoid needing a writable $HOME
   // for "git config --global". The -c flag applies the config inline for each invocation.
   const gitInitScript = [
@@ -212,6 +218,10 @@ export async function ensurePod(session: SessionKey): Promise<string> {
         {
           name: "opencode",
           image: config.opencodeImage,
+          // Start the process in the cloned repo directory so opencode discovers the git project.
+          // The init container clones directly into /workspace (subPath "projects" on the PVC).
+          // The main container mounts the full PVC at /root, so the repo is at /root/projects/.
+          workingDir: workspacePath,
           command: [
             "opencode",
             "serve",
