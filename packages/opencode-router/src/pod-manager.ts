@@ -144,10 +144,10 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   const { repoUrl, branch, email } = session;
 
   // The repo is cloned directly into /workspace (init container) which maps to <PVC>/projects/
-  // via subPath "projects". The main container mounts the full PVC at /root (no subPath), so the
-  // cloned repo is at /root/projects/ inside the main container. We set workingDir accordingly so
-  // opencode serve starts in the git repo and correctly discovers the project.
-  const workspacePath = `/root/projects`;
+  // via subPath "projects". The main container mounts the full PVC at /home/opencode (no subPath),
+  // so the cloned repo is at /home/opencode/projects/ inside the main container. We set workingDir
+  // accordingly so opencode serve starts in the git repo and correctly discovers the project.
+  const workspacePath = `/home/opencode/projects`;
 
   // Use GIT_SAFE="git -c safe.directory=/workspace" to avoid needing a writable $HOME
   // for "git config --global". The -c flag applies the config inline for each invocation.
@@ -220,7 +220,8 @@ export async function ensurePod(session: SessionKey): Promise<string> {
           image: config.opencodeImage,
           // Start the process in the cloned repo directory so opencode discovers the git project.
           // The init container clones directly into /workspace (subPath "projects" on the PVC).
-          // The main container mounts the full PVC at /root, so the repo is at /root/projects/.
+          // The main container mounts the full PVC at /home/opencode, so the repo is at
+          // /home/opencode/projects/.
           workingDir: workspacePath,
           command: [
             "opencode",
@@ -239,8 +240,8 @@ export async function ensurePod(session: SessionKey): Promise<string> {
             seccompProfile: { type: "RuntimeDefault" },
           },
           volumeMounts: [
-            { name: "user-data", mountPath: "/root" },
-            { name: "opencode-config", mountPath: "/root/.opencode", readOnly: true },
+            { name: "user-data", mountPath: "/home/opencode" },
+            { name: "opencode-config", mountPath: "/home/opencode/.opencode", readOnly: true },
           ],
         },
       ],
