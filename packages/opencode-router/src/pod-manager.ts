@@ -316,7 +316,7 @@ export async function listUserSessions(
       repoUrl,
       branch,
       state,
-      url: `${proto}://${hash}.${config.routerDomain}`,
+      url: `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
     });
   }
 

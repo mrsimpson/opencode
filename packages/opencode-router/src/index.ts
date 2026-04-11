@@ -7,20 +7,23 @@ import { serveStatic } from "./static.js";
 
 /**
  * Extract session hash from the Host header.
- * Returns the 12-char hex hash if the request is on a session subdomain
- * (e.g. Host: abc123def456.opencode-router.no-panic.org → "abc123def456"),
+ * Returns the 12-char hex hash if the request is on a session subdomain,
  * or null if on the root domain (the router SPA).
  *
- * Works for both production domains and local dev using *.localhost:3002 —
- * browsers resolve *.localhost to 127.0.0.1 natively (no /etc/hosts needed).
- * Set ROUTER_DOMAIN=localhost:3002 in .env.local to enable this.
+ * Session hostname format: <hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>
+ * e.g. with ROUTE_SUFFIX="-oc" and ROUTER_DOMAIN="no-panic.org":
+ *   abc123def456-oc.no-panic.org → "abc123def456"
+ *
+ * With ROUTE_SUFFIX="" (local dev, ROUTER_DOMAIN="localhost:3002"):
+ *   abc123def456.localhost:3002 → "abc123def456"
  */
 function getSessionHash(host: string): string | null {
   // Strip port from both the incoming Host header and routerDomain before comparing,
-  // so that "abc123.localhost:3002" correctly matches routerDomain "localhost:3002".
+  // so that "abc123-oc.localhost:3002" correctly matches routerDomain "localhost:3002".
   const hostname = host.split(":")[0];
   const routerHostname = config.routerDomain.split(":")[0];
-  const suffix = `.${routerHostname}`;
+  // Full suffix to strip: e.g. "-oc.no-panic.org" or ".localhost"
+  const suffix = `${config.routeSuffix}.${routerHostname}`;
   if (!hostname.endsWith(suffix)) return null;
   const sub = hostname.slice(0, hostname.length - suffix.length);
   // Must be exactly a 12-char hex session hash
