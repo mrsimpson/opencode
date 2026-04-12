@@ -1,0 +1,20 @@
+{
+  "name": "@opencode-ai/homelab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pulumi stack — deploys opencode-router to the homelab Kubernetes cluster",
+  "main": "src/index.ts",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@mrsimpson/homelab-core-components": "^0.1.0",
+    "@pulumi/kubernetes": "^4.18.3",
+    "@pulumi/pulumi": "^3.137.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

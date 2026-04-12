@@ -1,0 +1,21 @@
+{
+  "name": "@opencode-ai/opencode-cloudflare-operator",
+  "version": "0.1.0",
+  "description": "Watches opencode session pods and manages Cloudflare DNS records + tunnel routes",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch --env-file=.env.local dist/index.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^1.0.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

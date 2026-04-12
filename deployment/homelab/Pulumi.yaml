@@ -1,0 +1,24 @@
+name: opencode
+description: opencode-router deployment — per-user isolated OpenCode instances on homelab k8s
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+main: src/
+
+config:
+  # All values use the "code:" namespace prefix (matching the pulumi.Config("code") in src/index.ts)
+  # Set with: pulumi config set code:<key> <value>
+
+  # Stack reference to homelab base stack (provides tunnelCname, cloudflareZoneId, domain)
+  code:homelabStack:
+    value: mrsimpson/homelab/dev
+
+  # Image references — update when new images are built
+  # pulumi config set code:routerImage ghcr.io/mrsimpson/opencode-router:<tag>
+  # pulumi config set code:cfOperatorImage ghcr.io/mrsimpson/opencode-cloudflare-operator:<tag>
+  # pulumi config set code:opencodeImage ghcr.io/mrsimpson/opencode:<tag>
+
+  # Secrets (set with --secret flag):
+  # pulumi config set code:anthropicApiKey <key> --secret
+  # pulumi config set cloudflare:apiToken <token> --secret
