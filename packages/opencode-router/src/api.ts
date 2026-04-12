@@ -23,7 +23,7 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 function sessionUrl(hash: string, req: http.IncomingMessage): string {
   // Derive scheme from X-Forwarded-Proto (set by Traefik) or default to http in dev
   const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
-  return `${proto}://${hash}.${config.routerDomain}`;
+  return `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`;
 }
 
 /**

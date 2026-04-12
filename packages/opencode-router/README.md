@@ -18,9 +18,10 @@ For teams or shared environments, each user needs their own OpenCode instance wi
 `opencode-router` sits between an authentication proxy (e.g. oauth2-proxy) and dynamically provisioned OpenCode pods. It:
 
 1. **Identifies users** via the `X-Auth-Request-Email` header (set by oauth2-proxy after GitHub/Google/OIDC authentication)
-2. **Provisions infrastructure** on first visit — creates a PersistentVolumeClaim and a Pod running `opencode serve` for that user
-3. **Proxies traffic** — forwards all HTTP requests and WebSocket connections to the user's pod
-4. **Cleans up idle pods** — deletes pods that have been inactive beyond a configurable threshold, while preserving PVCs so state persists
+2. **Provisions infrastructure** on first request for a (user, repo, branch) triple — creates a PersistentVolumeClaim and a Pod running `opencode serve`
+3. **Routes by subdomain** — each session gets a dedicated hostname (`<hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>`); the router extracts the hash from the `Host` header and proxies to the correct pod
+4. **Proxies traffic** — forwards all HTTP requests and WebSocket connections to the session's pod
+5. **Cleans up idle pods** — deletes pods that have been inactive beyond a configurable threshold, while preserving PVCs so state persists
 
 ```
 ┌──────────────┐     ┌──────────────────┐     ┌─────────────────────┐
@@ -35,9 +36,9 @@ For teams or shared environments, each user needs their own OpenCode instance wi
 
 ## How It Works
 
-### User-to-Pod Mapping
+### Session-to-Pod Mapping
 
-Each authenticated user's email address is hashed (SHA-256, first 12 hex chars) to produce a deterministic, DNS-safe pod name: `opencode-user-<hash>`. The same hash is used for the PVC name (`opencode-pvc-<hash>`), ensuring a stable mapping across pod restarts.
+Each (email, repoUrl, branch) triple is hashed (SHA-256, first 12 hex chars) to produce a deterministic, DNS-safe identifier. This hash is used for the pod name (`opencode-session-<hash>`), PVC name (`opencode-pvc-<hash>`), and session hostname (`<hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>`), ensuring a stable mapping across pod restarts.
 
 ### Pod Lifecycle
 
@@ -63,19 +64,35 @@ On first pod creation, an init container (`alpine/git`) clones a configurable de
 | Agent configuration | — | K8s ConfigMap |
 | OpenCode config (opencode.json) | — | K8s ConfigMap |
 
+## Session URL Pattern
+
+Each session is identified by a 12-char hex hash of `(email, repoUrl, branch)` and served at a dedicated hostname:
+
+```
+https://<hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>
+```
+
+Examples:
+- Production (`ROUTE_SUFFIX=-oc`, `ROUTER_DOMAIN=no-panic.org`): `https://abc123def456-oc.no-panic.org`
+- Local dev (`ROUTE_SUFFIX=`, `ROUTER_DOMAIN=localhost:3002`): `http://abc123def456.localhost:3002`
+
+The `-oc` suffix keeps session hostnames at the **first subdomain level**, which is covered by a standard `*.<domain>` wildcard TLS certificate. Without the suffix, sessions would be at `<hash>.<router-subdomain>.<domain>` (second level) which requires a more expensive wildcard certificate.
+
 ## Configuration
 
 All configuration is via environment variables on the router pod:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `OPENCODE_IMAGE` | Yes | — | Docker image for user OpenCode pods |
+| `OPENCODE_IMAGE` | Yes | — | Docker image for session OpenCode pods |
+| `ROUTER_DOMAIN` | Yes | — | Base domain for session URLs (e.g. `no-panic.org`) |
+| `ROUTE_SUFFIX` | No | `""` | Suffix appended to hash in session hostname (e.g. `-oc`) |
 | `OPENCODE_NAMESPACE` | No | `opencode` | Kubernetes namespace for all resources |
 | `IDLE_TIMEOUT_MINUTES` | No | `30` | Minutes of inactivity before pod deletion |
 | `API_KEY_SECRET_NAME` | No | `opencode-api-keys` | K8s Secret name containing API keys |
 | `CONFIG_MAP_NAME` | No | `opencode-config-dir` | K8s ConfigMap with shared OpenCode config |
-| `STORAGE_CLASS` | No | `""` (cluster default) | StorageClass for user PVCs |
-| `STORAGE_SIZE` | No | `2Gi` | PVC size per user |
+| `STORAGE_CLASS` | No | `""` (cluster default) | StorageClass for session PVCs |
+| `STORAGE_SIZE` | No | `2Gi` | PVC size per session |
 | `DEFAULT_GIT_REPO` | No | — | Git repo URL to clone into new workspaces |
 | `PORT` | No | `3000` | Port the router listens on |
 
@@ -94,7 +111,7 @@ The router runs as a standard Kubernetes Deployment. It requires a ServiceAccoun
 rules:
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "create", "delete", "patch"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create"]
