@@ -1,0 +1,65 @@
+name: Deploy to homelab
+
+on:
+  # Run after images are built
+  workflow_run:
+    workflows:
+      - "Build opencode-cloudflare-operator image"
+    types:
+      - completed
+    branches:
+      - dev
+      - main
+
+  # Also allow manual deploys with explicit image overrides
+  workflow_dispatch:
+    inputs:
+      routerImage:
+        description: "opencode-router image (leave blank to use current stack config)"
+        type: string
+        required: false
+      cfOperatorImage:
+        description: "cloudflare-operator image (leave blank to use current stack config)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  id-token: write   # for OIDC-based kubeconfig (if used)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Only deploy if the triggering workflow succeeded (or if manually triggered)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
+      - name: Install homelab stack dependencies
+        run: npm install
+        working-directory: deployment/homelab
+
+      - name: Update image tags (if provided)
+        if: ${{ inputs.routerImage != '' || inputs.cfOperatorImage != '' }}
+        run: |
+          cd deployment/homelab
+          [ -n "${{ inputs.routerImage }}" ] && pulumi config set code:routerImage "${{ inputs.routerImage }}"
+          [ -n "${{ inputs.cfOperatorImage }}" ] && pulumi config set code:cfOperatorImage "${{ inputs.cfOperatorImage }}"
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Pulumi up
+        run: pulumi up --yes --non-interactive
+        working-directory: deployment/homelab
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          # HOMELAB_KUBECONFIG: base64-encoded kubeconfig for the homelab cluster.
+          # Set as a repo secret. The Pulumi k8s provider reads KUBECONFIG from env.
+          KUBECONFIG: ${{ secrets.HOMELAB_KUBECONFIG }}
