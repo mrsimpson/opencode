@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import * as k8s from "@kubernetes/client-node"
-import humanId from "human-id"
+import { humanId } from "human-id"
 import { config } from "./config.js"
 
 const kc = new k8s.KubeConfig()
@@ -160,18 +160,27 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   // accordingly so opencode serve starts in the git repo and correctly discovers the project.
   const workspacePath = `/home/opencode/projects`
 
-  // Use GIT_SAFE="git -c safe.directory=/workspace" to avoid needing a writable $HOME
-  // for "git config --global". The -c flag applies the config inline for each invocation.
-  const gitInitScript = [
+  // Single init container using the opencode image (which already has git).
+  // Phase 1 — config seed (idempotent): copy /etc/opencode-defaults → ~/.config/opencode on first start,
+  //   then run any *.sh scripts in init-scripts/ (e.g. skills install). Skipped on pod restart.
+  // Phase 2 — git: clone repo + checkout session branch. Safe.directory avoids needing a writable HOME.
+  const initScript = [
     `set -e`,
+    // --- config phase (idempotent) ---
+    `if [ ! -d /home/opencode/.config/opencode ]; then`,
+    `  mkdir -p /home/opencode/.config/opencode`,
+    `  cp -r /etc/opencode-defaults/. /home/opencode/.config/opencode/`,
+    `  for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
+    `    [ -f "$s" ] && sh "$s" || true`,
+    `  done`,
+    `fi`,
+    // --- git phase ---
     `GIT="git -c safe.directory=/workspace"`,
     `if [ ! -d /workspace/.git ]; then`,
     `  git clone "${repoUrl}" /workspace`,
     `fi`,
     `cd /workspace`,
     `$GIT fetch --all`,
-    // Switch to session branch: if it already exists locally (resume), just check it out.
-    // Otherwise establish the source branch as starting point and create the session branch.
     `if $GIT rev-parse --verify "${branch}" >/dev/null 2>&1; then`,
     `  $GIT checkout "${branch}"`,
     `else`,
@@ -180,25 +189,26 @@ export async function ensurePod(session: SessionKey): Promise<string> {
     `fi`,
   ].join("\n")
 
+  const secCtx: k8s.V1SecurityContext = {
+    runAsUser: 1000,
+    runAsGroup: 1000,
+    allowPrivilegeEscalation: false,
+    runAsNonRoot: true,
+    capabilities: { drop: ["ALL"] },
+    seccompProfile: { type: "RuntimeDefault" },
+  }
+
   const initContainers: k8s.V1Container[] = [
     {
-      name: "git-init",
-      securityContext: {
-        runAsUser: 1000,
-        runAsGroup: 1000,
-        allowPrivilegeEscalation: false,
-        runAsNonRoot: true,
-        capabilities: { drop: ["ALL"] },
-        seccompProfile: { type: "RuntimeDefault" },
-      },
-      image: "alpine/git:latest",
+      name: "init",
+      securityContext: secCtx,
+      image: config.opencodeImage,
       command: ["sh", "-c"],
-      args: [gitInitScript],
-      env: [
-        // Provide a writable HOME so git doesn't try to write to /.gitconfig
-        { name: "HOME", value: "/tmp" },
+      args: [initScript],
+      volumeMounts: [
+        { name: "user-data", mountPath: "/home/opencode" },
+        { name: "user-data", mountPath: "/workspace", subPath: "projects" },
       ],
-      volumeMounts: [{ name: "user-data", mountPath: "/workspace", subPath: "projects" }],
     },
   ]
 
@@ -235,7 +245,13 @@ export async function ensurePod(session: SessionKey): Promise<string> {
           // The main container mounts the full PVC at /home/opencode, so the repo is at
           // /home/opencode/projects/.
           workingDir: workspacePath,
-          command: ["opencode", "serve", "--hostname", "0.0.0.0", "--port", String(config.opencodePort)],
+          // Source /home/opencode/.opencode/.env if present — lets operators inject arbitrary
+          // env vars (e.g. WORKFLOW_AGENTS) via the existing ConfigMap without touching router code.
+          command: [
+            "sh",
+            "-c",
+            `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
+          ],
           ports: [{ containerPort: config.opencodePort }],
           envFrom: [{ secretRef: { name: config.apiKeySecretName } }],
           securityContext: {
@@ -493,7 +509,7 @@ function isConflict(err: unknown): boolean {
 export async function suggestBranch(email: string, repoUrl: string): Promise<string> {
   let candidate = ""
   for (let i = 0; i < 10; i++) {
-    candidate = (humanId as unknown as (opts?: object) => string)({ separator: "-", capitalize: false })
+    candidate = humanId({ separator: "-", capitalize: false })
     const hash = getSessionHash(email, repoUrl, candidate)
     try {
       await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })

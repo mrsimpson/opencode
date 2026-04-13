@@ -39,22 +39,27 @@ MONOREPO_ROOT   := $(DEPLOY_DIR)/..
 # Derived image names
 ROUTER_IMAGE    := ghcr.io/$(GHCR_USER)/opencode-router
 OPERATOR_IMAGE  := ghcr.io/$(GHCR_USER)/opencode-cloudflare-operator
+OPENCODE_IMAGE  := ghcr.io/$(GHCR_USER)/opencode
 
 # Versions read from package.json files
 ROUTER_VERSION   := $(shell node -p "require('$(MONOREPO_ROOT)/packages/opencode-router/package.json').version" 2>/dev/null)
 OPERATOR_VERSION := $(shell node -p "require('$(DEPLOY_DIR)/opencode-cloudflare-operator/package.json').version" 2>/dev/null)
+OPENCODE_VERSION := $(shell node -p "require('$(MONOREPO_ROOT)/packages/opencode/package.json').version" 2>/dev/null)
 
-# Git short SHA for uniqueness
+# Git short SHA for uniqueness — append .dirty when working tree has uncommitted changes
 SHA_SHORT       := $(shell git -C $(MONOREPO_ROOT) rev-parse --short HEAD 2>/dev/null || echo "local")
+GIT_DIRTY       := $(shell git -C $(MONOREPO_ROOT) status --porcelain 2>/dev/null | grep -q . && echo ".dirty" || echo "")
 
-# Final image tags (matches CI pattern: <version>-<branch>.<sha>)
-ROUTER_TAG      := $(ROUTER_VERSION)-local.$(SHA_SHORT)
-OPERATOR_TAG    := $(OPERATOR_VERSION)-local.$(SHA_SHORT)
+# Final image tags (matches CI pattern: <version>-local.<sha>[.dirty])
+ROUTER_TAG      := $(ROUTER_VERSION)-local.$(SHA_SHORT)$(GIT_DIRTY)
+OPERATOR_TAG    := $(OPERATOR_VERSION)-local.$(SHA_SHORT)$(GIT_DIRTY)
+OPENCODE_TAG    := $(OPENCODE_VERSION)-local.$(SHA_SHORT)$(GIT_DIRTY)
 
 ROUTER_FULL     := $(ROUTER_IMAGE):$(ROUTER_TAG)
 OPERATOR_FULL   := $(OPERATOR_IMAGE):$(OPERATOR_TAG)
+OPENCODE_FULL   := $(OPENCODE_IMAGE):$(OPENCODE_TAG)
 
-.PHONY: help build-router build-operator build push-router push-operator push build-push deploy release preview destroy logs
+.PHONY: help build-router build-operator build-opencode build push-router push-operator push-opencode push build-push deploy release preview destroy logs
 
 # Default target
 help:
@@ -64,11 +69,13 @@ help:
 	@echo "Image build targets:"
 	@echo "  build-router    Build opencode-router image (linux/amd64)"
 	@echo "  build-operator  Build opencode-cloudflare-operator image (linux/amd64)"
-	@echo "  build           Build both images"
+	@echo "  build-opencode  Build custom opencode image (linux/amd64)"
+	@echo "  build           Build all images"
 	@echo "  push-router     Push router image to GHCR (requires GITHUB_PAT)"
 	@echo "  push-operator   Push operator image to GHCR (requires GITHUB_PAT)"
-	@echo "  push            Push both images"
-	@echo "  build-push      Build + push both images"
+	@echo "  push-opencode   Push opencode image to GHCR (requires GITHUB_PAT)"
+	@echo "  push            Push all images"
+	@echo "  build-push      Build + push all images"
 	@echo ""
 	@echo "Deployment targets:"
 	@echo "  preview         Pulumi preview (dry-run)"
@@ -82,6 +89,7 @@ help:
 	@echo "  GHCR user  : $(GHCR_USER)"
 	@echo "  Router     : $(ROUTER_FULL)"
 	@echo "  Operator   : $(OPERATOR_FULL)"
+	@echo "  Opencode   : $(OPENCODE_FULL)"
 	@echo ""
 
 # ------------------------------------------------------------------------------
@@ -112,7 +120,19 @@ build-operator:
 		$(DEPLOY_DIR)/opencode-cloudflare-operator
 	@echo "✓ Built $(OPERATOR_FULL)"
 
-build: build-router build-operator
+# Opencode: custom image baking default config — build context is images/opencode/
+build-opencode:
+	@echo "→ Building $(OPENCODE_FULL) ..."
+	docker buildx build \
+		--platform linux/amd64 \
+		--file $(PULUMI_DIR)/images/opencode/Dockerfile \
+		--tag $(OPENCODE_FULL) \
+		--tag $(OPENCODE_IMAGE):latest \
+		--load \
+		$(PULUMI_DIR)/images/opencode
+	@echo "✓ Built $(OPENCODE_FULL)"
+
+build: build-router build-operator build-opencode
 
 # ------------------------------------------------------------------------------
 # Push — requires GITHUB_PAT with write:packages scope
@@ -148,7 +168,18 @@ push-operator: _ghcr-login
 		$(DEPLOY_DIR)/opencode-cloudflare-operator
 	@echo "✓ Pushed $(OPERATOR_FULL)"
 
-push: push-router push-operator
+push-opencode: _ghcr-login
+	@echo "→ Pushing $(OPENCODE_FULL) ..."
+	docker buildx build \
+		--platform linux/amd64 \
+		--file $(PULUMI_DIR)/images/opencode/Dockerfile \
+		--tag $(OPENCODE_FULL) \
+		--tag $(OPENCODE_IMAGE):latest \
+		--push \
+		$(PULUMI_DIR)/images/opencode
+	@echo "✓ Pushed $(OPENCODE_FULL)"
+
+push: push-router push-operator push-opencode
 
 build-push: build push
 
@@ -165,7 +196,8 @@ deploy:
 	@echo "→ Updating Pulumi image config ..."
 	cd $(PULUMI_DIR) && \
 		pulumi config set --stack $(STACK_NAME) code:routerImage "$(ROUTER_FULL)" && \
-		pulumi config set --stack $(STACK_NAME) code:cfOperatorImage "$(OPERATOR_FULL)"
+		pulumi config set --stack $(STACK_NAME) code:cfOperatorImage "$(OPERATOR_FULL)" && \
+		pulumi config set --stack $(STACK_NAME) code:opencodeImage "$(OPENCODE_FULL)"
 	@echo "→ Deploying stack $(STACK_NAME) ..."
 	cd $(PULUMI_DIR) && pulumi up --stack $(STACK_NAME) --yes
 	@echo "✓ Deployed"

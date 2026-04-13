@@ -48,6 +48,9 @@ const opencodeImage = cfg.require("opencodeImage")
 const anthropicApiKey = cfg.requireSecret("anthropicApiKey")
 const defaultGitRepo = cfg.get("defaultGitRepo")
 const storageSize = cfg.get("storageSize") ?? "2Gi"
+// podEnv: optional multiline .env content injected into session pods via ConfigMap.
+// Operators set arbitrary env vars here (e.g. "WORKFLOW_AGENTS=ade\nOPENCODE_MODEL=...").
+const podEnv = cfg.get("podEnv") ?? ""
 const cfApiToken = cloudflareConfig.requireSecret("apiToken")
 
 // ---------------------------------------------------------------------------
@@ -178,6 +181,10 @@ const configMap = new k8s.core.v1.ConfigMap(
         null,
         2,
       ),
+      // .env is sourced by the pod entrypoint before launching opencode.
+      // Operators set arbitrary vars here, e.g. WORKFLOW_AGENTS=ade.
+      // Empty by default — the source command is guarded with "|| true".
+      ".env": podEnv,
     },
   },
   { dependsOn: [ns] },
