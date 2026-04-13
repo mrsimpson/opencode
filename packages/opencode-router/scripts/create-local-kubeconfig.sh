@@ -12,8 +12,8 @@
 
 set -euo pipefail
 
-NAMESPACE="${OPENCODE_NAMESPACE:-opencode-router}"
-SA_NAME="opencode-router"
+NAMESPACE="${OPENCODE_NAMESPACE:-code}"
+SA_NAME="${SA_NAME:-code}"
 KUBECONFIG_OUT="${KUBECONFIG_OUT:-/tmp/opencode-router-local.kubeconfig}"
 TOKEN_DURATION="${TOKEN_DURATION:-24h}"
 

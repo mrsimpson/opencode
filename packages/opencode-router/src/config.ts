@@ -1,7 +1,7 @@
 function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
+  const value = process.env[name]
+  if (!value) throw new Error(`Missing required environment variable: ${name}`)
+  return value
 }
 
 export const config = {
@@ -9,7 +9,7 @@ export const config = {
   namespace: process.env.OPENCODE_NAMESPACE ?? "opencode",
   opencodeImage: required("OPENCODE_IMAGE"),
   opencodePort: 4096,
-  idleTimeoutMinutes: Number(process.env.IDLE_TIMEOUT_MINUTES ?? 30),
+  idleTimeoutMinutes: Number(process.env.IDLE_TIMEOUT_MINUTES ?? 15),
   apiKeySecretName: process.env.API_KEY_SECRET_NAME ?? "opencode-api-keys",
   configMapName: process.env.CONFIG_MAP_NAME ?? "opencode-config-dir",
   imagePullSecretName: process.env.IMAGE_PULL_SECRET_NAME ?? "",
@@ -47,4 +47,4 @@ export const config = {
    * Set this and port-forward the user pod: kubectl port-forward <pod> 4096:4096 -n opencode-router
    */
   devPodProxyTarget: process.env.DEV_POD_PROXY_TARGET,
-} as const;
+} as const
