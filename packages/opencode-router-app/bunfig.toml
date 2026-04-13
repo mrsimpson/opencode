@@ -1,0 +1,3 @@
+[test]
+conditions = ["browser"]
+root = "./src"

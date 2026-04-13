@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src/",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@opencode-ai/ui": "workspace:*",
@@ -16,6 +20,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
     "@tsconfig/node22": "catalog:",
+    "bun-types": "1.3.12",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

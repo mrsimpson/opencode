@@ -1,46 +1,69 @@
-import { Button } from "@opencode-ai/ui/button";
-import { TextField } from "@opencode-ai/ui/text-field";
-import { createSignal } from "solid-js";
-import { createSession } from "./api";
+import { Button } from "@opencode-ai/ui/button"
+import { TextField } from "@opencode-ai/ui/text-field"
+import { useI18n } from "@opencode-ai/ui/context"
+import { Show, createSignal, onMount } from "solid-js"
+import { createSession, suggestBranch } from "./api"
+import { useT } from "./i18n"
+import { buildSessionKey } from "./setup-form-utils"
 
-const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/;
+export { buildSessionKey }
 
-export function SetupForm(props: {
-  email: string;
-  onCreated: (hash: string, url: string) => void;
-}) {
-  const [repoUrl, setRepoUrl] = createSignal("");
-  const [branch, setBranch] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [submitting, setSubmitting] = createSignal(false);
+const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
 
-  const validate = (): string | null => {
-    const url = repoUrl().trim();
-    if (!url) return "Repository URL is required";
-    if (!GIT_URL_PATTERN.test(url)) return "Enter a valid HTTP(S) repository URL";
-    if (!branch().trim()) return "Branch name is required";
-    return null;
-  };
+export function SetupForm(props: { email: string; onCreated: (hash: string, url: string) => void }) {
+  const t = useT(useI18n())
+  const [repoUrl, setRepoUrl] = createSignal("")
+  const [sourceBranch, setSourceBranch] = createSignal("")
+  const [sessionBranch, setSessionBranch] = createSignal("")
+  const [error, setError] = createSignal("")
+  const [submitting, setSubmitting] = createSignal(false)
+
+  // Fetch a suggested session branch name on mount
+  onMount(async () => {
+    try {
+      const { branch } = await suggestBranch("")
+      setSessionBranch(branch)
+    } catch {
+      // silent — will retry when URL is entered
+    }
+  })
+
+  const refreshSessionBranch = async (url: string) => {
+    if (!GIT_URL_PATTERN.test(url.trim())) return
+    try {
+      const { branch } = await suggestBranch(url.trim())
+      setSessionBranch(branch)
+    } catch {
+      // silent
+    }
+  }
 
   const handleSubmit = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
+    e.preventDefault()
+    const validated = buildSessionKey(repoUrl(), sourceBranch(), {
+      repoUrlRequired: t("form.error.repoUrl.required"),
+      repoUrlInvalid: t("form.error.repoUrl.invalid"),
+      sourceBranchRequired: t("form.error.sourceBranch.required"),
+    })
+    if (!validated.valid) {
+      setError(validated.error)
+      return
     }
-
-    setError("");
-    setSubmitting(true);
+    if (!sessionBranch()) {
+      setError(t("form.error.sessionBranch"))
+      return
+    }
+    setError("")
+    setSubmitting(true)
     try {
-      const result = await createSession(repoUrl().trim(), branch().trim());
-      props.onCreated(result.hash, result.url);
+      const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch)
+      props.onCreated(result.hash, result.url)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Network error")
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
-  };
+  }
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-6 w-full">
@@ -50,21 +73,43 @@ export function SetupForm(props: {
         </p>
       </div>
 
+      <div
+        onFocusOut={(e) =>
+          refreshSessionBranch((e.currentTarget.querySelector("input") as HTMLInputElement)?.value ?? repoUrl())
+        }
+      >
+        <TextField
+          autofocus
+          label={t("form.repoUrl.label")}
+          placeholder={t("form.repoUrl.placeholder")}
+          value={repoUrl()}
+          onChange={setRepoUrl}
+          validationState={error() ? "invalid" : undefined}
+          error={error()}
+        />
+      </div>
+
       <TextField
-        autofocus
-        label="Git repository URL"
-        placeholder="https://github.com/org/repo.git"
-        value={repoUrl()}
-        onChange={setRepoUrl}
-        validationState={error() ? "invalid" : undefined}
-        error={error()}
+        label={t("form.sourceBranch.label")}
+        placeholder={t("form.sourceBranch.placeholder")}
+        value={sourceBranch()}
+        onChange={setSourceBranch}
       />
 
-      <TextField label="Branch" placeholder="main" value={branch()} onChange={setBranch} />
+      <Show when={sessionBranch()}>
+        <div class="flex flex-col gap-1">
+          <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
+            {t("form.sessionBranch.label")}
+          </p>
+          <p class="text-13-medium font-mono" style={{ color: "var(--text-base)" }}>
+            {sessionBranch()}
+          </p>
+        </div>
+      </Show>
 
       <Button type="submit" variant="primary" size="large" disabled={submitting()}>
-        {submitting() ? "Starting..." : "Start Session"}
+        {submitting() ? t("form.submitting") : t("form.submit")}
       </Button>
     </form>
-  );
+  )
 }
