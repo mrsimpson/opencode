@@ -1,5 +1,21 @@
 name: Deploy to homelab
 
+# Deploys the opencode stack to the homelab k3s cluster.
+#
+# Uses the reusable workflow from mrsimpson/homelab which handles:
+#   - Tailscale VPN join (to reach the local cluster API)
+#   - kubeconfig setup
+#   - pulumi up / preview
+#
+# Pulumi project: "opencode" (Pulumi.yaml name: opencode)
+# Stack: mrsimpson/opencode/dev
+# Base infra read via: StackReference("mrsimpson/homelab/dev")
+#
+# Required secrets (org-level):
+#   TS_OAUTH_CLIENT_ID, TS_OAUTH_CLIENT_SECRET  — Tailscale OAuth client
+#   KUBECONFIG                                   — base64-encoded kubeconfig (Tailscale address)
+#   PULUMI_ACCESS_TOKEN                          — Pulumi Cloud access token
+
 on:
   # Run after images are built
   workflow_run:
@@ -15,51 +31,73 @@ on:
   workflow_dispatch:
     inputs:
       routerImage:
-        description: "opencode-router image (leave blank to use current stack config)"
+        description: "opencode-router image tag (leave blank to keep current stack config)"
         type: string
         required: false
       cfOperatorImage:
-        description: "cloudflare-operator image (leave blank to use current stack config)"
+        description: "cloudflare-operator image tag (leave blank to keep current stack config)"
         type: string
         required: false
 
 permissions:
   contents: read
-  id-token: write   # for OIDC-based kubeconfig (if used)
 
 jobs:
-  deploy:
+  # Optional pre-step: update image tags in Pulumi stack config before deploying.
+  # Only runs when image overrides are provided via workflow_dispatch.
+  # Skipped entirely on workflow_run triggers (images are already baked into config).
+  update-image-config:
+    name: Update image config
     runs-on: ubuntu-latest
-    # Only deploy if the triggering workflow succeeded (or if manually triggered)
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.routerImage != '' || inputs.cfOperatorImage != '')
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: deployment/homelab/package-lock.json
 
-      - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
-
-      - name: Install homelab stack dependencies
-        run: npm install
+      - name: Install dependencies
+        run: npm ci
         working-directory: deployment/homelab
 
-      - name: Update image tags (if provided)
-        if: ${{ inputs.routerImage != '' || inputs.cfOperatorImage != '' }}
+      - name: Update image tags in Pulumi config
         run: |
-          cd deployment/homelab
-          [ -n "${{ inputs.routerImage }}" ] && pulumi config set code:routerImage "${{ inputs.routerImage }}"
-          [ -n "${{ inputs.cfOperatorImage }}" ] && pulumi config set code:cfOperatorImage "${{ inputs.cfOperatorImage }}"
+          [ -n "${{ inputs.routerImage }}" ] && \
+            pulumi config set code:routerImage "${{ inputs.routerImage }}" \
+            --cwd deployment/homelab
+          [ -n "${{ inputs.cfOperatorImage }}" ] && \
+            pulumi config set code:cfOperatorImage "${{ inputs.cfOperatorImage }}" \
+            --cwd deployment/homelab
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
-      - name: Pulumi up
-        run: pulumi up --yes --non-interactive
-        working-directory: deployment/homelab
-        env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          # HOMELAB_KUBECONFIG: base64-encoded kubeconfig for the homelab cluster.
-          # Set as a repo secret. The Pulumi k8s provider reads KUBECONFIG from env.
-          KUBECONFIG: ${{ secrets.HOMELAB_KUBECONFIG }}
+  # Main deploy job — calls the reusable workflow from the homelab repo.
+  # This is the 1:1 reference implementation of the Tailscale-based CI/CD pattern.
+  deploy:
+    name: Deploy
+    needs: [update-image-config]
+    # Run if: triggered by workflow_run (skip config update) OR config update succeeded
+    if: >
+      always() && (
+        github.event_name != 'workflow_dispatch' ||
+        needs.update-image-config.result == 'success' ||
+        needs.update-image-config.result == 'skipped'
+      ) && (
+        github.event_name != 'workflow_run' ||
+        github.event.workflow_run.conclusion == 'success'
+      )
+    uses: mrsimpson/homelab/.github/workflows/deploy-to-cluster.yml@main
+    with:
+      # Pulumi project "opencode" (from deployment/homelab/Pulumi.yaml "name: opencode")
+      # NOT mrsimpson/homelab/dev — that is the base infra stack read via StackReference
+      pulumi-stack: mrsimpson/opencode/dev
+      working-directory: deployment/homelab
+      pulumi-command: up
+    secrets: inherit
