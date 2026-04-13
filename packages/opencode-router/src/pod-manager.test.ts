@@ -364,7 +364,7 @@ describe("suggestBranch", () => {
     const seq = ["calm-snails-dream", "bold-frogs-dance", "swift-hawks-fly"]
     let idx = 0
     mock.module("human-id", () => ({
-      default: (_opts: object) => seq[idx++ % seq.length],
+      humanId: (_opts: object) => seq[idx++ % seq.length],
     }))
 
     // Pre-populate PVCs for the first two candidates so they collide
@@ -384,7 +384,7 @@ describe("suggestBranch", () => {
     // Mock human-id to always return the same name (infinite collision)
     const fixed = "slow-bears-roam"
     mock.module("human-id", () => ({
-      default: (_opts: object) => fixed,
+      humanId: (_opts: object) => fixed,
     }))
 
     // Pre-populate a PVC for that name so every attempt collides
@@ -435,7 +435,7 @@ describe("SessionKey.sourceBranch", () => {
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
     // Script must checkout the sourceBranch before creating the new sessionBranch
-    expect(script).toContain("main")        // sourceBranch checkout
+    expect(script).toContain("main") // sourceBranch checkout
     expect(script).toContain("calm-snails-dream") // new session branch creation
     // Must NOT try to look up "calm-snails-dream" on remote (it's always a new branch)
     expect(script).not.toContain('ls-remote --exit-code --heads origin "calm-snails-dream"')
