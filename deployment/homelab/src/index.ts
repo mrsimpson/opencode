@@ -1,57 +1,54 @@
-import * as pulumi from "@pulumi/pulumi";
-import * as k8s from "@pulumi/kubernetes";
-import {
-  AuthType,
-  createHomelabContextFromStack,
-} from "@mrsimpson/homelab-core-components";
+import * as pulumi from "@pulumi/pulumi"
+import * as k8s from "@pulumi/kubernetes"
+import { AuthType, createHomelabContextFromStack } from "@mrsimpson/homelab-core-components"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const APP_NAME = "code";
-const NAMESPACE = APP_NAME;
-const ROUTER_PORT = 3000;
-const OPENCODE_PORT = 4096;
+const APP_NAME = "code"
+const NAMESPACE = APP_NAME
+const ROUTER_PORT = 3000
+const OPENCODE_PORT = 4096
 /** Suffix appended to hash for session hostnames: <hash>-oc.<domain> */
-const ROUTE_SUFFIX = "-oc";
+const ROUTE_SUFFIX = "-oc"
 /** In-cluster URL the Cloudflare operator routes session traffic to */
-const ROUTER_SERVICE_URL = `http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80`;
-const CF_OPERATOR_CONTAINER_NAME = "cloudflare-operator";
+const ROUTER_SERVICE_URL = `http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80`
+const CF_OPERATOR_CONTAINER_NAME = "cloudflare-operator"
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const cfg = new pulumi.Config("code");
-const cloudflareConfig = new pulumi.Config("cloudflare");
+const cfg = new pulumi.Config("code")
+const cloudflareConfig = new pulumi.Config("cloudflare")
 
 // StackReference to the homelab base stack — provides tunnelCname, cloudflareZoneId, domain
-const homelabStackName = cfg.get("homelabStack") ?? "mrsimpson/homelab/dev";
-const homelabStack = new pulumi.StackReference(homelabStackName);
+const homelabStackName = cfg.get("homelabStack") ?? "mrsimpson/homelab/dev"
+const homelabStack = new pulumi.StackReference(homelabStackName)
 
 // Read infrastructure facts from homelab stack outputs
-const domain = homelabStack.getOutput("domain") as pulumi.Output<string>;
-const cfZoneId = homelabStack.getOutput("cloudflareZoneId") as pulumi.Output<string>;
+const domain = homelabStack.getOutput("domain") as pulumi.Output<string>
+const cfZoneId = homelabStack.getOutput("cloudflareZoneId") as pulumi.Output<string>
 
 // Tunnel ID — needed by the Cloudflare operator sidecar.
 // Exported from homelab stack as "tunnelId".
-const cfTunnelId = homelabStack.getOutput("tunnelId") as pulumi.Output<string>;
+const cfTunnelId = homelabStack.getOutput("tunnelId") as pulumi.Output<string>
 
 // Build HomelabContext from StackReference — homelab defaults apply
-const homelab = createHomelabContextFromStack(homelabStack);
+const homelab = createHomelabContextFromStack(homelabStack)
 
 // ---------------------------------------------------------------------------
 // App config
 // ---------------------------------------------------------------------------
 
-const routerImage = cfg.require("routerImage");
-const cfOperatorImage = cfg.require("cfOperatorImage");
-const opencodeImage = cfg.require("opencodeImage");
-const anthropicApiKey = cfg.requireSecret("anthropicApiKey");
-const defaultGitRepo = cfg.get("defaultGitRepo");
-const storageSize = cfg.get("storageSize") ?? "2Gi";
-const cfApiToken = cloudflareConfig.requireSecret("apiToken");
+const routerImage = cfg.require("routerImage")
+const cfOperatorImage = cfg.require("cfOperatorImage")
+const opencodeImage = cfg.require("opencodeImage")
+const anthropicApiKey = cfg.requireSecret("anthropicApiKey")
+const defaultGitRepo = cfg.get("defaultGitRepo")
+const storageSize = cfg.get("storageSize") ?? "2Gi"
+const cfApiToken = cloudflareConfig.requireSecret("apiToken")
 
 // ---------------------------------------------------------------------------
 // 1. Namespace (pre-created; passed to ExposedWebApp so it doesn't re-create)
@@ -68,7 +65,7 @@ const ns = new k8s.core.v1.Namespace(`${APP_NAME}-ns`, {
       "pod-security.kubernetes.io/warn-version": "latest",
     },
   },
-});
+})
 
 // ---------------------------------------------------------------------------
 // 2. RBAC — router manages user pods/PVCs; operator sidecar watches pods and
@@ -85,7 +82,7 @@ const serviceAccount = new k8s.core.v1.ServiceAccount(
     },
   },
   { dependsOn: [ns] },
-);
+)
 
 const role = new k8s.rbac.v1.Role(
   `${APP_NAME}-role`,
@@ -104,7 +101,7 @@ const role = new k8s.rbac.v1.Role(
       {
         apiGroups: [""],
         resources: ["persistentvolumeclaims"],
-        verbs: ["get", "list", "create"],
+        verbs: ["get", "list", "create", "delete"],
       },
       {
         apiGroups: ["traefik.io"],
@@ -114,7 +111,7 @@ const role = new k8s.rbac.v1.Role(
     ],
   },
   { dependsOn: [ns] },
-);
+)
 
 const roleBinding = new k8s.rbac.v1.RoleBinding(
   `${APP_NAME}-rolebinding`,
@@ -138,7 +135,7 @@ const roleBinding = new k8s.rbac.v1.RoleBinding(
     ],
   },
   { dependsOn: [role, serviceAccount] },
-);
+)
 
 // ---------------------------------------------------------------------------
 // 3. Secret — Anthropic API key mounted into session pods
@@ -158,7 +155,7 @@ const apiKeysSecret = new k8s.core.v1.Secret(
     },
   },
   { dependsOn: [ns] },
-);
+)
 
 // ---------------------------------------------------------------------------
 // 4. ConfigMap — opencode.json for session pods
@@ -184,7 +181,7 @@ const configMap = new k8s.core.v1.ConfigMap(
     },
   },
   { dependsOn: [ns] },
-);
+)
 
 // ---------------------------------------------------------------------------
 // 5. ExternalSecret — GHCR pull secret
@@ -233,7 +230,7 @@ const pullSecret = new k8s.apiextensions.CustomResource(
     },
   },
   { dependsOn: [ns] },
-);
+)
 
 // ---------------------------------------------------------------------------
 // 6. Secret — Cloudflare credentials for the operator sidecar
@@ -253,7 +250,7 @@ const cfSecret = new k8s.core.v1.Secret(
     },
   },
   { dependsOn: [ns] },
-);
+)
 
 // ---------------------------------------------------------------------------
 // 7. Cloudflare operator sidecar container spec
@@ -309,13 +306,13 @@ const operatorSidecar = [
       limits: { cpu: "200m", memory: "128Mi" },
     },
   },
-];
+]
 
 // ---------------------------------------------------------------------------
 // 8. ExposedWebApp — Deployment, Service, OAuth2-Proxy auth, main DNS CNAME
 // ---------------------------------------------------------------------------
 
-const appDomain = pulumi.interpolate`${APP_NAME}.${domain}`;
+const appDomain = pulumi.interpolate`${APP_NAME}.${domain}`
 
 export const app = homelab.createExposedWebApp(
   APP_NAME,
@@ -349,18 +346,14 @@ export const app = homelab.createExposedWebApp(
       { name: "IMAGE_PULL_SECRET_NAME", value: "ghcr-pull-secret" },
       { name: "ROUTER_DOMAIN", value: domain },
       { name: "ROUTE_SUFFIX", value: ROUTE_SUFFIX },
-      ...(defaultGitRepo
-        ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }]
-        : []),
+      ...(defaultGitRepo ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }] : []),
     ],
     probes: {
       readinessProbe: {
         httpGet: {
           path: "/api/sessions",
           port: ROUTER_PORT,
-          httpHeaders: [
-            { name: "X-Auth-Request-Email", value: "healthcheck@probe" },
-          ],
+          httpHeaders: [{ name: "X-Auth-Request-Email", value: "healthcheck@probe" }],
         },
         initialDelaySeconds: 5,
         periodSeconds: 10,
@@ -370,9 +363,7 @@ export const app = homelab.createExposedWebApp(
         httpGet: {
           path: "/api/sessions",
           port: ROUTER_PORT,
-          httpHeaders: [
-            { name: "X-Auth-Request-Email", value: "healthcheck@probe" },
-          ],
+          httpHeaders: [{ name: "X-Auth-Request-Email", value: "healthcheck@probe" }],
         },
         initialDelaySeconds: 15,
         periodSeconds: 30,
@@ -385,11 +376,11 @@ export const app = homelab.createExposedWebApp(
   {
     dependsOn: [roleBinding, pullSecret, cfSecret, apiKeysSecret, configMap],
   },
-);
+)
 
 // ---------------------------------------------------------------------------
 // Stack outputs
 // ---------------------------------------------------------------------------
 
-export const url = pulumi.interpolate`https://${appDomain}`;
-export const namespace = app.namespace.metadata.name;
+export const url = pulumi.interpolate`https://${appDomain}`
+export const namespace = app.namespace.metadata.name
