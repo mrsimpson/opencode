@@ -1,0 +1,38 @@
+export const dict = {
+  "app.loading": "Loading...",
+  "app.signedInAs": "Signed in as {{email}}",
+  "app.yourSessions": "Your sessions",
+  "app.newSession": "New Session",
+  "app.back": "← Back",
+  "app.error.connect": "Failed to connect",
+
+  "session.state.creating": "creating",
+  "session.state.running": "running",
+  "session.idle.stopsIn": "stops in ~{{minutes}}m",
+  "session.idle.stoppedOn": "stopped on {{date}}",
+  "session.idle.stoppingSoon": "stopping soon",
+
+  "session.action.cancel": "Cancel",
+  "session.action.resume": "Resume",
+  "session.action.terminate": "Terminate",
+  "session.action.terminating": "Terminating…",
+  "session.terminate.title": "Terminate session?",
+  "session.terminate.description": '"{{repo}}" will be permanently deleted — all uncommitted work will be lost.',
+
+  "form.repoUrl.label": "Git repository URL",
+  "form.repoUrl.placeholder": "https://github.com/org/repo.git",
+  "form.sourceBranch.label": "Source branch (start from)",
+  "form.sourceBranch.placeholder": "main",
+  "form.sessionBranch.label": "Your session branch",
+  "form.submit": "Start Session",
+  "form.submitting": "Starting...",
+  "form.error.sessionBranch": "Session branch could not be generated — please try again",
+  "form.error.repoUrl.required": "Repository URL is required",
+  "form.error.repoUrl.invalid": "Enter a valid HTTP(S) repository URL",
+  "form.error.sourceBranch.required": "Source branch is required",
+
+  "loading.title": "Starting your OpenCode session...",
+  "loading.subtitle": "This usually takes a few seconds.",
+} as const
+
+export type DictKey = keyof typeof dict
