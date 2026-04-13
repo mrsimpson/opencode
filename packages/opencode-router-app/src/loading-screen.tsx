@@ -1,24 +1,27 @@
-import { onCleanup, onMount } from "solid-js";
-import { getSessionState } from "./api";
+import { onCleanup, onMount } from "solid-js"
+import { useI18n } from "@opencode-ai/ui/context"
+import { getSessionState } from "./api"
+import { useT } from "./i18n"
 
 export function LoadingScreen(props: { hash: string; url: string }) {
-  let timer: ReturnType<typeof setInterval>;
+  const t = useT(useI18n())
+  let timer: ReturnType<typeof setInterval>
 
   onMount(() => {
     timer = setInterval(async () => {
       try {
-        const session = await getSessionState(props.hash);
+        const session = await getSessionState(props.hash)
         if (session.state === "running") {
-          clearInterval(timer);
-          window.location.replace(props.url);
+          clearInterval(timer)
+          window.location.replace(props.url)
         }
       } catch {
         // Retry on next tick
       }
-    }, 3000);
-  });
+    }, 3000)
+  })
 
-  onCleanup(() => clearInterval(timer));
+  onCleanup(() => clearInterval(timer))
 
   return (
     <div class="flex flex-col items-center gap-4">
@@ -30,11 +33,11 @@ export function LoadingScreen(props: { hash: string; url: string }) {
         }}
       />
       <p class="text-14-medium" style={{ color: "var(--text-base)" }}>
-        Starting your OpenCode session...
+        {t("loading.title")}
       </p>
       <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
-        This usually takes a few seconds.
+        {t("loading.subtitle")}
       </p>
     </div>
-  );
+  )
 }
