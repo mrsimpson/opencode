@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test"
+import { mock, describe, it, expect, beforeAll, beforeEach } from "bun:test"
 
 // Set required env vars before config module is loaded
 process.env.OPENCODE_IMAGE = "test"
@@ -55,10 +55,17 @@ const fakeK8sApi = {
   },
 }
 
-// Import pod-manager source directly (not .js) to avoid being overridden by api.test.ts mock
+// Restore any mocks registered by other test files (e.g. api.test.ts mocks ./pod-manager.js)
+// before importing the real module, so we always get the actual implementation.
+mock.restore()
+
+// Import the real pod-manager implementation (explicit .ts extension bypasses .js mock path)
 const { listUserSessions, terminateSession, resumeSession, suggestBranch, _setApiClient, _setHumanId } =
   await import("./pod-manager.ts")
-_setApiClient(fakeK8sApi as any)
+
+beforeAll(() => {
+  _setApiClient(fakeK8sApi as any)
+})
 
 // --- Helpers ---
 
