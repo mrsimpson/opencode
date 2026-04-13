@@ -1,0 +1,164 @@
+name: Fork validation
+
+# Validates fork-specific packages on every PR and push to main.
+# This is the authoritative CI check for fork contributors.
+#
+# Jobs:
+#   validate-router      — typecheck + test opencode-router (pnpm/Node.js)
+#   validate-router-app  — typecheck + test opencode-router-app (bun)
+#   compatibility-guard  — warn if upstream package files were modified
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-router:
+    name: Validate opencode-router
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/opencode-router
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: ${{ runner.os }}-pnpm-router-${{ hashFiles('packages/opencode-router/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-router-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  validate-router-app:
+    name: Validate opencode-router-app
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      # Install from root so workspace deps (e.g. @opencode-ai/ui) resolve correctly
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun typecheck
+        working-directory: packages/opencode-router-app
+
+      - name: Test
+        run: bun test src/
+        working-directory: packages/opencode-router-app
+
+      - name: Build
+        run: bun run build
+        working-directory: packages/opencode-router-app
+
+  compatibility-guard:
+    name: Compatibility guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/sst/opencode.git
+          git fetch upstream dev --depth=50
+
+      - name: Check for upstream file modifications
+        id: check
+        run: |
+          # Upstream-owned paths — fork should never modify these
+          UPSTREAM_PATHS=(
+            "packages/opencode/"
+            "packages/app/"
+            "packages/ui/"
+            "packages/sdk/"
+            "packages/desktop/"
+          )
+
+          # Files changed in this PR vs the base branch
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+
+          VIOLATIONS=""
+          for path in "${UPSTREAM_PATHS[@]}"; do
+            matches=$(echo "$CHANGED" | grep "^${path}" || true)
+            if [ -n "$matches" ]; then
+              VIOLATIONS="${VIOLATIONS}${matches}\n"
+            fi
+          done
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "violations=true" >> $GITHUB_OUTPUT
+            printf "files<<EOF\n${VIOLATIONS}EOF\n" >> $GITHUB_OUTPUT
+          else
+            echo "violations=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR if upstream files modified
+        if: steps.check.outputs.violations == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = `${{ steps.check.outputs.files }}`.trim()
+            const body = [
+              '## ❌ Compatibility violation',
+              '',
+              'This PR modifies upstream-owned files. These changes will cause **merge conflicts** when syncing with upstream.',
+              '',
+              'Modified upstream files:',
+              '```',
+              files,
+              '```',
+              '',
+              'Please revert changes to upstream-owned paths and keep fork changes in fork-owned paths only.',
+              'Fork-owned paths: `packages/opencode-router/`, `packages/opencode-router-app/`, `deployment/`, `.github/workflows/build-*.yml`, `.github/workflows/deploy-homelab.yml`, `.github/fork/`',
+            ].join('\n')
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            })
+
+            core.setFailed(`Upstream-owned files modified:\n${files}`)

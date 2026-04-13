@@ -1,3 +1,7 @@
+> **This is a fork** — extended with self-hosted Kubernetes infrastructure. See [FORK.md](FORK.md) for fork-specific packages ([opencode-router](packages/opencode-router/README.md), [opencode-router-app](packages/opencode-router-app/), [homelab deployment](deployment/homelab/)), CI setup, and upstream merge instructions.
+
+---
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>
