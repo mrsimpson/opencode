@@ -55,9 +55,9 @@ const fakeK8sApi = {
   },
 }
 
-// Import pod-manager and inject fake client directly — avoids mock.module pnpm resolution issues
+// Import pod-manager source directly (not .js) to avoid being overridden by api.test.ts mock
 const { listUserSessions, terminateSession, resumeSession, suggestBranch, _setApiClient, _setHumanId } =
-  await import("./pod-manager.js")
+  await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
 // --- Helpers ---
