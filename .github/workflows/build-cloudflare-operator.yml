@@ -52,6 +52,7 @@ jobs:
           context: deployment/opencode-cloudflare-operator
           platforms: linux/amd64
           push: true
+          provenance: false
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
             ${{ env.IMAGE_NAME }}:latest
