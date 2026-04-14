@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { spawnSync } from "node:child_process"
+import { resolve } from "node:path"
 
 describe("config defaults", () => {
   it("idleTimeoutMinutes defaults to 15", () => {
@@ -8,7 +9,7 @@ describe("config defaults", () => {
     const result = spawnSync(
       process.execPath,
       ["--eval", "import('./src/config.ts').then(m => process.stdout.write(String(m.config.idleTimeoutMinutes)))"],
-      { env, encoding: "utf-8", cwd: "/Users/oliverjaegle/projects/open-source/opencode/packages/opencode-router" },
+      { env, encoding: "utf-8", cwd: resolve(import.meta.dir, "..") },
     )
     expect(result.stdout.trim()).toBe("15")
   })
