@@ -17,8 +17,7 @@ if (process.versions.bun !== expectedBunVersion) {
   console.warn(`Warning: Bun version ${process.versions.bun} differs from expected ${expectedBunVersion}`);
 }
 '
-# --- fork package checks (scoped; upstream packages have pre-existing type errors we don't own) ---
-
+# Typecheck fork packages only — upstream packages are gated by upstream CI.
 echo "pre-push: typechecking opencode-router..."
 (cd packages/opencode-router && pnpm typecheck)
 
