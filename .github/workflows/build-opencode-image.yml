@@ -3,12 +3,10 @@ name: Build opencode image
 # Builds the fork-customised opencode image that bakes in default config, tools,
 # and MCP servers on top of the upstream ghcr.io/anomalyco/opencode base.
 #
-# Base image tag resolution:
-#   Upstream publishes tags in the format 0.0.0-dev-YYYYMMDDHHMI (UTC).
-#   We find the earliest tag whose embedded timestamp is >= the author date of
-#   the most recent upstream commit reachable from HEAD (i.e. the last merge from
-#   upstream/dev).  This gives us the image that was built from that exact commit
-#   (or the very next one), without requiring OCI labels or package metadata.
+# Base image tag:
+#   Pinned in deployment/homelab/images/opencode/.base-version (format: 0.0.0-dev-YYYYMMDDHHMI).
+#   Updated automatically by the upstream-merge workflow when upstream is merged.
+#   Upstream publishes images as 0.0.0-dev-YYYYMMDDHHMI — not semver.
 
 on:
   push:
@@ -16,7 +14,6 @@ on:
       - main
     paths:
       - deployment/homelab/images/opencode/**
-      - packages/opencode/package.json
       - .github/workflows/build-opencode-image.yml
   workflow_dispatch:
 
@@ -32,11 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/opencode
-      UPSTREAM_IMAGE: ghcr.io/anomalyco/opencode
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -48,62 +42,16 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve base image tag and fork image tag
+      - name: Read versions
         id: version
         run: |
-          # --- Fork image tag (our own output tag) ---
           VERSION=$(node -p "require('./packages/opencode/package.json').version")
           SHA_SHORT=${GITHUB_SHA::7}
+          BASE_TAG=$(cat deployment/homelab/images/opencode/.base-version | tr -d '[:space:]')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${VERSION}-${GITHUB_REF_NAME}.${SHA_SHORT}" >> $GITHUB_OUTPUT
-
-          # --- Upstream base image tag resolution ---
-          # Find the merge-base between HEAD and upstream/dev to get the upstream
-          # commit SHA that was merged in.  Checkout is full-depth so local history
-          # is complete; we only need the tip of upstream/dev to resolve the SHA.
-          git remote add upstream https://github.com/anomalyco/opencode.git
-          git fetch upstream dev --depth=50
-
-          UPSTREAM_SHA=$(git merge-base HEAD upstream/dev || true)
-          if [ -z "$UPSTREAM_SHA" ]; then
-            echo "merge-base not found — falling back to latest" >&2
-            BASE_TAG="latest"
-          else
-            # Author date of that commit (UTC), formatted as the tag timestamp pattern
-            COMMIT_TS=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M" "$UPSTREAM_SHA")
-            echo "upstream commit: $UPSTREAM_SHA  commit_ts: $COMMIT_TS"
-
-            # Fetch all GHCR tags for anomalyco/opencode (paginated)
-            ANON_TOKEN=$(curl -s \
-              "https://ghcr.io/token?scope=repository:anomalyco/opencode:pull&service=ghcr.io" \
-              | jq -r '.token')
-
-            ALL_TAGS=""
-            LAST=""
-            while true; do
-              URL="https://ghcr.io/v2/anomalyco/opencode/tags/list?n=100${LAST:+&last=$LAST}"
-              PAGE=$(curl -s -H "Authorization: Bearer $ANON_TOKEN" "$URL")
-              TAGS=$(echo "$PAGE" | jq -r '.tags[]')
-              ALL_TAGS="${ALL_TAGS}${TAGS}"$'\n'
-              COUNT=$(echo "$TAGS" | wc -l)
-              LAST=$(echo "$TAGS" | tail -1)
-              [ "$COUNT" -lt 100 ] && break
-            done
-
-            # Filter to 0.0.0-dev-* tags, sort ascending, find first one >= commit_ts
-            BASE_TAG=$(echo "$ALL_TAGS" \
-              | grep -E '^0\.0\.0-dev-[0-9]{12}$' \
-              | sort \
-              | awk -v ts="$COMMIT_TS" 'substr($0,11) >= ts {print; exit}')
-
-            if [ -z "$BASE_TAG" ]; then
-              echo "No dev tag found >= $COMMIT_TS — falling back to latest" >&2
-              BASE_TAG="latest"
-            fi
-          fi
-
-          echo "Resolved base image tag: $BASE_TAG"
           echo "base=${BASE_TAG}" >> $GITHUB_OUTPUT
+          echo "Building fork image ${VERSION}-${GITHUB_REF_NAME}.${SHA_SHORT} on top of upstream ${BASE_TAG}"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -119,10 +67,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Output image tag
-        run: |
-          echo "Built and pushed ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} (base: ${{ steps.version.outputs.base }})"
 
       - name: Update Pulumi stack config with new image tag
         run: |

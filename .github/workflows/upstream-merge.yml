@@ -113,6 +113,48 @@ jobs:
             echo "has_conflicts=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Update base image version pin
+        if: steps.info.outputs.up_to_date == 'false' && steps.merge.outputs.has_conflicts == 'false'
+        id: baseversion
+        run: |
+          # Find the 0.0.0-dev-* GHCR tag for anomalyco/opencode that corresponds
+          # to the upstream commit we just merged.  Tag format is YYYYMMDDHHMI (UTC).
+          UPSTREAM_SHA="${{ steps.info.outputs.upstream_sha }}"
+          COMMIT_TS=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M" \
+            "$(git rev-parse upstream/${{ inputs.upstream_ref }})")
+
+          ANON_TOKEN=$(curl -s \
+            "https://ghcr.io/token?scope=repository:anomalyco/opencode:pull&service=ghcr.io" \
+            | jq -r '.token')
+
+          ALL_TAGS="" LAST=""
+          while true; do
+            URL="https://ghcr.io/v2/anomalyco/opencode/tags/list?n=100${LAST:+&last=$LAST}"
+            PAGE=$(curl -s -H "Authorization: Bearer $ANON_TOKEN" "$URL")
+            TAGS=$(echo "$PAGE" | jq -r '.tags[]')
+            ALL_TAGS="${ALL_TAGS}${TAGS}"$'\n'
+            COUNT=$(echo "$TAGS" | wc -l)
+            LAST=$(echo "$TAGS" | tail -1)
+            [ "$COUNT" -lt 100 ] && break
+          done
+
+          BASE_TAG=$(echo "$ALL_TAGS" \
+            | grep -E '^0\.0\.0-dev-[0-9]{12}$' \
+            | sort \
+            | awk -v ts="$COMMIT_TS" 'substr($0,11) >= ts {print; exit}')
+
+          if [ -z "$BASE_TAG" ]; then
+            echo "No dev tag found >= $COMMIT_TS — using latest" >&2
+            BASE_TAG=$(echo "$ALL_TAGS" | grep -E '^0\.0\.0-dev-[0-9]{12}$' | sort | tail -1)
+          fi
+
+          echo "Resolved base tag: $BASE_TAG (upstream commit ts: $COMMIT_TS)"
+          echo "$BASE_TAG" > deployment/homelab/images/opencode/.base-version
+          echo "base_tag=${BASE_TAG}" >> $GITHUB_OUTPUT
+
+          git add deployment/homelab/images/opencode/.base-version
+          git commit --amend --no-edit
+
       - name: Push merge branch
         if: steps.info.outputs.up_to_date == 'false'
         run: git push origin ${{ steps.info.outputs.branch }}
@@ -166,7 +208,7 @@ jobs:
               '  ```sh',
               '  bash .github/fork/disable-upstream-workflows.sh',
               '  ```',
-              '- [ ] Check `deployment/homelab/images/opencode/Dockerfile` — if the upstream `packages/opencode` version changed, update `BASE_VERSION` in the build-opencode-image workflow or bump `packages/opencode/package.json`',
+              '- [ ] `.base-version` has been auto-updated — verify it points to the right upstream image tag',
               '- [ ] Run fork validation locally: `cd packages/opencode-router && pnpm test`',
             ].join('\n')
 

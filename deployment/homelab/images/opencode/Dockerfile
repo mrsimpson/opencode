@@ -1,6 +1,5 @@
-# BASE_VERSION is resolved by CI to the upstream 0.0.0-dev-YYYYMMDDHHMI tag
-# matching the upstream commit at the time of the last upstream merge.
-# Locally defaults to "latest" — override with: docker build --build-arg BASE_VERSION=0.0.0-dev-202604030013
+# BASE_VERSION is read from .base-version by CI and updated by the upstream-merge workflow.
+# Locally defaults to "latest" — override with: docker build --build-arg BASE_VERSION=0.0.0-dev-202604140703
 ARG BASE_VERSION=latest
 FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 
