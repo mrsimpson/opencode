@@ -453,15 +453,13 @@ describe("remoteBranchExists", () => {
   }
 
   function mockFetch(body: string, status = 200) {
-    _setFetch((async () => {
-      return new Response(body, { status })
-    }) as unknown as typeof fetch)
+    _setFetch(async () => new Response(body, { status }))
   }
 
   function mockFetchThrow(err: Error) {
-    _setFetch((async () => {
+    _setFetch(async () => {
       throw err
-    }) as unknown as typeof fetch)
+    })
   }
 
   it("returns true when the branch is advertised as the first ref (\\0 terminator)", async () => {
@@ -487,10 +485,10 @@ describe("remoteBranchExists", () => {
 
   it("tolerates a trailing slash on the repo URL", async () => {
     let capturedUrl = ""
-    _setFetch((async (url: string | URL) => {
-      capturedUrl = url.toString()
+    _setFetch(async (url) => {
+      capturedUrl = url
       return new Response(smartHttpBody(["refs/heads/main"]), { status: 200 })
-    }) as unknown as typeof fetch)
+    })
     expect(await remoteBranchExists("https://github.com/x/y/", "main")).toBe(true)
     expect(capturedUrl).toBe("https://github.com/x/y/info/refs?service=git-upload-pack")
   })
