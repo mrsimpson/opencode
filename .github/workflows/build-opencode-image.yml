@@ -116,7 +116,8 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Output image tag
-        run: echo "Built and pushed ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} (base: ${{ steps.version.outputs.base }})"
+        run: |
+          echo "Built and pushed ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} (base: ${{ steps.version.outputs.base }})"
 
       - name: Update Pulumi stack config with new image tag
         run: |
