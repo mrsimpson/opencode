@@ -14,6 +14,7 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 }
 let k8sApi: k8s.CoreV1Api = kc.makeApiClient(k8s.CoreV1Api)
 let humanId: typeof _humanId = _humanId
+let fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args)
 
 /** For testing only: replace the k8s API client with a fake. */
 export function _setApiClient(client: k8s.CoreV1Api) {
@@ -23,6 +24,11 @@ export function _setApiClient(client: k8s.CoreV1Api) {
 /** For testing only: replace the humanId generator. */
 export function _setHumanId(fn: typeof _humanId) {
   humanId = fn
+}
+
+/** For testing only: replace the fetch implementation used by remoteBranchExists. */
+export function _setFetch(fn: typeof fetch) {
+  fetchImpl = fn
 }
 
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
@@ -510,6 +516,51 @@ function isNotFound(err: unknown): boolean {
 
 function isConflict(err: unknown): boolean {
   return hasCode(err) && err.code === 409
+}
+
+/**
+ * Error thrown when a remote ref lookup cannot be completed (network failure, non-OK HTTP status).
+ * Distinct from "branch missing" (which returns false) so callers can respond with 502 vs 400.
+ */
+export class RemoteRefsUnreachableError extends Error {
+  constructor(repoUrl: string, cause: string) {
+    super(`Could not reach ${repoUrl}: ${cause}`)
+    this.name = "RemoteRefsUnreachableError"
+  }
+}
+
+/**
+ * Check whether a branch exists on a remote git repository via the Smart HTTP protocol.
+ * Queries `<repoUrl>/info/refs?service=git-upload-pack` and scans the advertised refs for
+ * `refs/heads/<branch>`. Works without git installed in the runtime image.
+ *
+ * Returns true if the branch is advertised, false if it isn't.
+ * Throws RemoteRefsUnreachableError if the remote can't be reached or returns non-OK.
+ */
+export async function remoteBranchExists(repoUrl: string, branch: string): Promise<boolean> {
+  const base = repoUrl.trim().replace(/\/+$/, "")
+  const url = `${base}/info/refs?service=git-upload-pack`
+  let res: Response
+  try {
+    res = await fetchImpl(url, { headers: { "User-Agent": "git/opencode-router" } })
+  } catch (err) {
+    throw new RemoteRefsUnreachableError(repoUrl, err instanceof Error ? err.message : String(err))
+  }
+  if (!res.ok) {
+    throw new RemoteRefsUnreachableError(repoUrl, `HTTP ${res.status}`)
+  }
+  const body = await res.text()
+  // Smart HTTP protocol v1 advertises each ref as "<sha> refs/heads/<name>" terminated by
+  // \0 (first ref, before capabilities) or \n (subsequent refs). Match with an explicit
+  // terminator so a branch "foo" doesn't accidentally match "foo-bar".
+  const marker = `refs/heads/${branch}`
+  let idx = 0
+  while ((idx = body.indexOf(marker, idx)) !== -1) {
+    const next = body.charAt(idx + marker.length)
+    if (next === "\0" || next === "\n") return true
+    idx += marker.length
+  }
+  return false
 }
 
 /**

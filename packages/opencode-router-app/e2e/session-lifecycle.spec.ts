@@ -89,6 +89,25 @@ test.describe("new session form", () => {
     await page.getByRole("button", { name: "Start Session" }).click()
     await expect(page.getByText("Source branch is required")).toBeVisible()
   })
+
+  test("source-branch and repo-url inputs disable mobile auto-capitalization", async ({ page }) => {
+    // Mobile keyboards auto-capitalize the first letter by default. Entering a
+    // branch "main" then becomes "Main" and the pod's init container crashloops
+    // on `git checkout origin/Main`. Verify the fields opt out.
+    await goHome(page)
+    await openNewSessionForm(page)
+
+    const repo = page.getByRole("textbox", { name: "Git repository URL" })
+    const source = page.getByRole("textbox", { name: "Source branch (start from)" })
+
+    await expect(repo).toHaveAttribute("autocapitalize", "none")
+    await expect(repo).toHaveAttribute("autocorrect", "off")
+    await expect(repo).toHaveAttribute("spellcheck", "false")
+
+    await expect(source).toHaveAttribute("autocapitalize", "none")
+    await expect(source).toHaveAttribute("autocorrect", "off")
+    await expect(source).toHaveAttribute("spellcheck", "false")
+  })
 })
 
 test.describe("create session", () => {

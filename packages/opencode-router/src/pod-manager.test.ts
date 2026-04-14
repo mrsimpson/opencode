@@ -57,8 +57,17 @@ const fakeK8sApi = {
 
 // pod-manager.test.ts must run in its own bun process (see package.json test script)
 // to avoid api.test.ts's mock.module("./pod-manager.js") poisoning this module import.
-const { listUserSessions, terminateSession, resumeSession, suggestBranch, _setApiClient, _setHumanId } =
-  await import("./pod-manager.ts")
+const {
+  listUserSessions,
+  terminateSession,
+  resumeSession,
+  suggestBranch,
+  remoteBranchExists,
+  RemoteRefsUnreachableError,
+  _setApiClient,
+  _setHumanId,
+  _setFetch,
+} = await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
 // --- Helpers ---
@@ -416,5 +425,87 @@ describe("SessionKey.sourceBranch", () => {
     expect(script).toContain("calm-snails-dream") // new session branch creation
     // Must NOT try to look up "calm-snails-dream" on remote (it's always a new branch)
     expect(script).not.toContain('ls-remote --exit-code --heads origin "calm-snails-dream"')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// remoteBranchExists: verify a branch exists on a remote git repo via Smart HTTP
+// ---------------------------------------------------------------------------
+
+describe("remoteBranchExists", () => {
+  // Helper — build a Smart HTTP v1 info/refs body. The first ref line uses \0
+  // before capabilities, subsequent refs use \n.
+  function smartHttpBody(refs: string[]): string {
+    const lines: string[] = [
+      "001e# service=git-upload-pack\n",
+      "0000",
+    ]
+    refs.forEach((name, i) => {
+      const sha = "a".repeat(40)
+      if (i === 0) {
+        lines.push(`00bd${sha} ${name}\0multi_ack thin-pack side-band side-band-64k symref=HEAD:${name}\n`)
+      } else {
+        lines.push(`003f${sha} ${name}\n`)
+      }
+    })
+    lines.push("0000")
+    return lines.join("")
+  }
+
+  function mockFetch(body: string, status = 200) {
+    _setFetch((async () => {
+      return new Response(body, { status })
+    }) as unknown as typeof fetch)
+  }
+
+  function mockFetchThrow(err: Error) {
+    _setFetch((async () => {
+      throw err
+    }) as unknown as typeof fetch)
+  }
+
+  it("returns true when the branch is advertised as the first ref (\\0 terminator)", async () => {
+    mockFetch(smartHttpBody(["refs/heads/main"]))
+    expect(await remoteBranchExists("https://github.com/x/y", "main")).toBe(true)
+  })
+
+  it("returns true when the branch is advertised as a later ref (\\n terminator)", async () => {
+    mockFetch(smartHttpBody(["refs/heads/main", "refs/heads/feature/foo"]))
+    expect(await remoteBranchExists("https://github.com/x/y", "feature/foo")).toBe(true)
+  })
+
+  it("returns false for a branch that is not advertised (wrong case)", async () => {
+    mockFetch(smartHttpBody(["refs/heads/main"]))
+    // The bug that created the failing pod: "Main" (capital M) passed for a repo with "main".
+    expect(await remoteBranchExists("https://github.com/x/y", "Main")).toBe(false)
+  })
+
+  it("does not false-positive on a prefix match (foo vs foo-bar)", async () => {
+    mockFetch(smartHttpBody(["refs/heads/foo-bar"]))
+    expect(await remoteBranchExists("https://github.com/x/y", "foo")).toBe(false)
+  })
+
+  it("tolerates a trailing slash on the repo URL", async () => {
+    let capturedUrl = ""
+    _setFetch((async (url: string | URL) => {
+      capturedUrl = url.toString()
+      return new Response(smartHttpBody(["refs/heads/main"]), { status: 200 })
+    }) as unknown as typeof fetch)
+    expect(await remoteBranchExists("https://github.com/x/y/", "main")).toBe(true)
+    expect(capturedUrl).toBe("https://github.com/x/y/info/refs?service=git-upload-pack")
+  })
+
+  it("throws RemoteRefsUnreachableError on non-OK HTTP status", async () => {
+    mockFetch("", 404)
+    await expect(remoteBranchExists("https://github.com/x/y", "main")).rejects.toBeInstanceOf(
+      RemoteRefsUnreachableError,
+    )
+  })
+
+  it("throws RemoteRefsUnreachableError on network failure", async () => {
+    mockFetchThrow(new Error("ENOTFOUND"))
+    await expect(remoteBranchExists("https://nope.invalid/x/y", "main")).rejects.toBeInstanceOf(
+      RemoteRefsUnreachableError,
+    )
   })
 })
