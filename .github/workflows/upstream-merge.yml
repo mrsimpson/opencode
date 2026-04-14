@@ -40,6 +40,9 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   merge:
     name: Merge ${{ inputs.upstream_ref }} → ${{ inputs.target_branch }}

@@ -48,6 +48,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # Optional pre-step: update image tags in Pulumi stack config before deploying.
   # Only runs when image overrides are provided via workflow_dispatch (emergency override).
