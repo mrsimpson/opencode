@@ -3,8 +3,12 @@ name: Build opencode image
 # Builds the fork-customised opencode image that bakes in default config, tools,
 # and MCP servers on top of the upstream ghcr.io/anomalyco/opencode base.
 #
-# Base image is pinned to the version in packages/opencode/package.json so the
-# fork always runs the exact opencode version present in this repo.
+# Base image tag resolution:
+#   Upstream publishes tags in the format 0.0.0-dev-YYYYMMDDHHMI (UTC).
+#   We find the earliest tag whose embedded timestamp is >= the author date of
+#   the most recent upstream commit reachable from HEAD (i.e. the last merge from
+#   upstream/dev).  This gives us the image that was built from that exact commit
+#   (or the very next one), without requiring OCI labels or package metadata.
 
 on:
   push:
@@ -28,8 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/opencode
+      UPSTREAM_IMAGE: ghcr.io/anomalyco/opencode
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -41,14 +48,57 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version from package.json
+      - name: Resolve base image tag and fork image tag
         id: version
         run: |
+          # --- Fork image tag (our own output tag) ---
           VERSION=$(node -p "require('./packages/opencode/package.json').version")
           SHA_SHORT=${GITHUB_SHA::7}
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${VERSION}-${GITHUB_REF_NAME}.${SHA_SHORT}" >> $GITHUB_OUTPUT
-          echo "base=v${VERSION}" >> $GITHUB_OUTPUT
+
+          # --- Upstream base image tag resolution ---
+          # Find the latest upstream commit reachable from HEAD by checking the
+          # merge-base with upstream/dev.  Use its author date to find the right
+          # 0.0.0-dev-YYYYMMDDHHMI tag on GHCR.
+          git remote add upstream https://github.com/anomalyco/opencode.git
+          git fetch upstream dev --depth=1
+
+          UPSTREAM_SHA=$(git merge-base HEAD upstream/dev)
+          # Author date of that commit (UTC), formatted as the tag timestamp pattern
+          COMMIT_TS=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M" "$UPSTREAM_SHA")
+          echo "upstream commit: $UPSTREAM_SHA  commit_ts: $COMMIT_TS"
+
+          # Fetch all GHCR tags for anomalyco/opencode (paginated)
+          ANON_TOKEN=$(curl -s \
+            "https://ghcr.io/token?scope=repository:anomalyco/opencode:pull&service=ghcr.io" \
+            | jq -r '.token')
+
+          ALL_TAGS=""
+          LAST=""
+          while true; do
+            URL="https://ghcr.io/v2/anomalyco/opencode/tags/list?n=100${LAST:+&last=$LAST}"
+            PAGE=$(curl -s -H "Authorization: Bearer $ANON_TOKEN" "$URL")
+            TAGS=$(echo "$PAGE" | jq -r '.tags[]')
+            ALL_TAGS="${ALL_TAGS}${TAGS}"$'\n'
+            COUNT=$(echo "$TAGS" | wc -l)
+            LAST=$(echo "$TAGS" | tail -1)
+            [ "$COUNT" -lt 100 ] && break
+          done
+
+          # Filter to 0.0.0-dev-* tags, sort ascending, find first one >= commit_ts
+          BASE_TAG=$(echo "$ALL_TAGS" \
+            | grep -E '^0\.0\.0-dev-[0-9]{12}$' \
+            | sort \
+            | awk -v ts="$COMMIT_TS" 'substr($0,11) >= ts {print; exit}')
+
+          if [ -z "$BASE_TAG" ]; then
+            echo "No dev tag found >= $COMMIT_TS — falling back to latest" >&2
+            BASE_TAG="latest"
+          fi
+
+          echo "Resolved base image tag: $BASE_TAG"
+          echo "base=${BASE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -66,7 +116,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Output image tag
-        run: echo "Built and pushed ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
+        run: echo "Built and pushed ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} (base: ${{ steps.version.outputs.base }})"
 
       - name: Update Pulumi stack config with new image tag
         run: |
