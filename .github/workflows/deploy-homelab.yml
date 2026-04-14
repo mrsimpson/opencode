@@ -8,8 +8,12 @@ name: Deploy to homelab
 #   - pulumi up / preview
 #
 # GitOps flow:
-#   1. Any build-*.yml workflow builds the image and commits the new tag to Pulumi.dev.yaml
-#   2. This workflow triggers via workflow_run and deploys using the updated config
+#   1. Any build-*.yml workflow builds an image and commits the new tag
+#      to deployment/homelab/Pulumi.dev.yaml on main
+#   2. That push triggers this workflow via the path trigger below
+#
+# The workflow_run trigger is kept as a fallback for builds that do not
+# update Pulumi.dev.yaml (e.g. build-only manual runs).
 #
 # Pulumi project: "opencode" (Pulumi.yaml name: opencode)
 # Stack: mrsimpson/opencode/dev
@@ -21,7 +25,16 @@ name: Deploy to homelab
 #   PULUMI_ACCESS_TOKEN                          — Pulumi Cloud access token
 
 on:
-  # Run after images are built and Pulumi config is updated
+  # Primary trigger: any commit that updates the Pulumi stack config on main.
+  # Build workflows update deployment/homelab/Pulumi.dev.yaml after pushing images.
+  push:
+    branches:
+      - main
+    paths:
+      - deployment/homelab/**
+
+  # Fallback: run after a successful image build (covers cases where
+  # the build workflow does not update Pulumi.dev.yaml).
   workflow_run:
     workflows:
       - "Build opencode-router image"
@@ -30,7 +43,6 @@ on:
     types:
       - completed
     branches:
-      - dev
       - main
 
   # Also allow manual deploys with explicit image overrides
@@ -92,15 +104,18 @@ jobs:
   deploy:
     name: Deploy
     needs: [update-image-config]
-    # Run if: triggered by workflow_run (skip config update) OR config update succeeded
+    # Run if:
+    #  - push to deployment/homelab/** on main (primary trigger)
+    #  - workflow_run from a build workflow that succeeded
+    #  - workflow_dispatch (manual), after optional config update step
     if: >
       always() && (
-        github.event_name != 'workflow_dispatch' ||
-        needs.update-image-config.result == 'success' ||
-        needs.update-image-config.result == 'skipped'
-      ) && (
-        github.event_name != 'workflow_run' ||
-        github.event.workflow_run.conclusion == 'success'
+        github.event_name == 'push' ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+        (github.event_name == 'workflow_dispatch' && (
+          needs.update-image-config.result == 'success' ||
+          needs.update-image-config.result == 'skipped'
+        ))
       )
     uses: mrsimpson/homelab/.github/workflows/deploy-to-cluster.yml@main
     with:

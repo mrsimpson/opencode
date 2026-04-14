@@ -75,6 +75,6 @@ jobs:
               -i deployment/homelab/Pulumi.dev.yaml
             git add deployment/homelab/Pulumi.dev.yaml
             git diff --cached --quiet && break
-            git commit -m "chore(deploy): update cfOperatorImage to ${{ steps.version.outputs.tag }} [skip ci]"
+            git commit -m "chore(deploy): update cfOperatorImage to ${{ steps.version.outputs.tag }}"
             git push && break || git reset HEAD~1
           done
