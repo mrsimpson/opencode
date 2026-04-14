@@ -19,6 +19,8 @@ name: Merge upstream into fork
 #      and a reminder to re-run the disable-upstream-workflows.sh script.
 #
 # Required permissions:  contents: write  +  pull-requests: write
+# Required secret:       GH_PAT — classic PAT with repo + workflow scopes
+#                        (GITHUB_TOKEN cannot push branches containing workflow file changes)
 
 on:
   workflow_dispatch:
@@ -37,7 +39,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write
 
 jobs:
   merge:
@@ -50,6 +51,8 @@ jobs:
         with:
           ref: ${{ inputs.target_branch }}
           fetch-depth: 0
+          # PAT needed so the push can include upstream workflow file changes
+          token: ${{ secrets.GH_PAT }}
 
       - name: Configure git identity
         run: |
@@ -126,6 +129,7 @@ jobs:
         if: steps.info.outputs.up_to_date == 'false'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_PAT }}
           script: |
             const hasConflicts = '${{ steps.merge.outputs.has_conflicts }}' === 'true'
             const count = '${{ steps.info.outputs.count }}'
