@@ -1,0 +1,13 @@
+#!/bin/sh
+# Enforce conventional commit message format.
+# Pattern: type(scope)!: description
+# Matches the same spec enforced by amannn/action-semantic-pull-request in CI.
+msg=$(cat "$1")
+pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?: .+'
+if ! echo "$msg" | grep -qE "$pattern"; then
+  echo "commit-msg: commit message does not follow Conventional Commits format." >&2
+  echo "  Expected: type(scope)!: description" >&2
+  echo "  Types:    build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test" >&2
+  echo "  Got:      $msg" >&2
+  exit 1
+fi

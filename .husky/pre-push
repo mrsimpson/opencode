@@ -18,3 +18,37 @@ if (process.versions.bun !== expectedBunVersion) {
 }
 '
 bun typecheck
+
+# --- fork package checks ---
+
+echo "pre-push: typechecking opencode-router..."
+(cd packages/opencode-router && pnpm typecheck)
+
+echo "pre-push: typechecking opencode-router-app..."
+(cd packages/opencode-router-app && bun run typecheck)
+
+echo "pre-push: testing opencode-router..."
+(cd packages/opencode-router && bun test src/config.test.ts src/api.test.ts && bun test src/pod-manager.test.ts)
+
+echo "pre-push: testing opencode-router-app..."
+(cd packages/opencode-router-app && bun test src/)
+
+# --- compatibility guard ---
+# Warn (non-blocking) if upstream-owned paths are touched in commits not yet on the remote.
+UPSTREAM_PATHS="packages/opencode/ packages/app/ packages/ui/ packages/sdk/ packages/desktop/"
+REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+if [ -n "$REMOTE" ]; then
+  CHANGED=$(git diff --name-only "$REMOTE"...HEAD 2>/dev/null || true)
+  VIOLATIONS=""
+  for p in $UPSTREAM_PATHS; do
+    matches=$(echo "$CHANGED" | grep "^${p}" || true)
+    if [ -n "$matches" ]; then
+      VIOLATIONS="${VIOLATIONS}${matches}\n"
+    fi
+  done
+  if [ -n "$VIOLATIONS" ]; then
+    echo "pre-push WARNING: upstream-owned files modified:" >&2
+    printf "%b" "$VIOLATIONS" >&2
+    echo "These changes will fail the compatibility-guard CI job." >&2
+  fi
+fi
