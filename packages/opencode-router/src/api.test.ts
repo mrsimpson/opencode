@@ -14,6 +14,13 @@ process.env.ROUTER_DOMAIN = "test.local"
 // should place the suggest-branch route before the /:hash pattern.
 // ---------------------------------------------------------------------------
 
+class RemoteRefsUnreachableError extends Error {
+  constructor(repoUrl: string, cause: string) {
+    super(`Could not reach ${repoUrl}: ${cause}`)
+    this.name = "RemoteRefsUnreachableError"
+  }
+}
+
 const mocks = {
   listUserSessions: mock((): Promise<object[]> => Promise.resolve([])),
   ensurePVC: mock(() => Promise.resolve()),
@@ -23,6 +30,8 @@ const mocks = {
   terminateSession: mock(() => Promise.resolve()),
   resumeSession: mock(() => Promise.resolve()),
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
+  remoteBranchExists: mock(() => Promise.resolve(true)),
+  RemoteRefsUnreachableError,
 }
 
 mock.module("./pod-manager.js", () => mocks)
@@ -79,6 +88,8 @@ beforeEach(() => {
   mocks.suggestBranch.mockImplementation(() => Promise.resolve("calm-snails-dream"))
   mocks.getPodState.mockReset()
   mocks.getPodState.mockImplementation(() => Promise.resolve("running"))
+  mocks.remoteBranchExists.mockReset()
+  mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
 })
 
 // ---------------------------------------------------------------------------
@@ -299,5 +310,75 @@ describe("POST /api/sessions with sourceBranch", () => {
     expect(handled).toBe(true)
     // WILL FAIL: current impl doesn't require sourceBranch
     expect(res.statusCode).toBe(400)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions verifies sourceBranch exists on the remote
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions verifies sourceBranch on remote", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+  })
+
+  it("calls remoteBranchExists with the supplied repoUrl and sourceBranch", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/x/y",
+      branch: "calm-snails-dream",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(mocks.remoteBranchExists).toHaveBeenCalledTimes(1)
+    expect((mocks.remoteBranchExists as any).mock.calls[0]).toEqual(["https://github.com/x/y", "main"])
+    expect(res.statusCode).toBe(201)
+  })
+
+  it("returns 400 when the source branch is not found on the remote (does NOT create pod/PVC)", async () => {
+    // This is the case that caused pod opencode-session-08ecf7c644a1 to crashloop:
+    // user passed "Main" but the remote's branch is "main".
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(false))
+
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/mrsimpson/opencode",
+      branch: "great-showers-end",
+      sourceBranch: "Main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toContain("Main")
+    expect(body.error).toContain("not found")
+    // Must not have created anything in the cluster
+    expect(mocks.ensurePVC).not.toHaveBeenCalled()
+    expect(mocks.ensurePod).not.toHaveBeenCalled()
+  })
+
+  it("returns 502 when the remote is unreachable", async () => {
+    mocks.remoteBranchExists.mockImplementation(() =>
+      Promise.reject(new RemoteRefsUnreachableError("https://nope.invalid/x/y", "ENOTFOUND")),
+    )
+
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://nope.invalid/x/y",
+      branch: "calm-snails-dream",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(502)
+    expect(mocks.ensurePVC).not.toHaveBeenCalled()
+    expect(mocks.ensurePod).not.toHaveBeenCalled()
   })
 })

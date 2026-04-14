@@ -2,11 +2,13 @@ import type http from "node:http"
 import { config } from "./config.js"
 import {
   type SessionKey,
+  RemoteRefsUnreachableError,
   ensurePVC,
   ensurePod,
   getPodState,
   getSessionHash,
   listUserSessions,
+  remoteBranchExists,
   terminateSession,
   resumeSession,
   suggestBranch,
@@ -79,6 +81,22 @@ export async function handleApi(req: http.IncomingMessage, res: http.ServerRespo
     if (!sourceBranch) {
       json(res, 400, { error: "sourceBranch is required" })
       return true
+    }
+
+    // Verify the source branch actually exists on the remote BEFORE creating PVC/pod.
+    // Otherwise the pod's init container crashloops on `git checkout -B <sourceBranch> origin/<sourceBranch>`.
+    try {
+      const exists = await remoteBranchExists(repoUrl, sourceBranch)
+      if (!exists) {
+        json(res, 400, { error: `Branch "${sourceBranch}" not found on ${repoUrl}` })
+        return true
+      }
+    } catch (err) {
+      if (err instanceof RemoteRefsUnreachableError) {
+        json(res, 502, { error: err.message })
+        return true
+      }
+      throw err
     }
 
     const session: SessionKey = { email, repoUrl, branch, sourceBranch }

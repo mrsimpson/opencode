@@ -86,6 +86,11 @@ export function SetupForm(props: { email: string; onCreated: (hash: string, url:
           onChange={setRepoUrl}
           validationState={error() ? "invalid" : undefined}
           error={error()}
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck={false}
+          autocomplete="off"
+          inputmode="url"
         />
       </div>
 
@@ -94,6 +99,10 @@ export function SetupForm(props: { email: string; onCreated: (hash: string, url:
         placeholder={t("form.sourceBranch.placeholder")}
         value={sourceBranch()}
         onChange={setSourceBranch}
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck={false}
+        autocomplete="off"
       />
 
       <Show when={sessionBranch()}>
