@@ -1,4 +1,7 @@
-FROM ghcr.io/anomalyco/opencode
+# BASE_VERSION is injected by CI from packages/opencode/package.json (e.g. "v1.3.13").
+# Locally defaults to "latest" — override with: docker build --build-arg BASE_VERSION=v1.3.13
+ARG BASE_VERSION=latest
+FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 
 # Install tools as root before switching to the non-root user:
 #   git, curl, bash  — essential dev tools
