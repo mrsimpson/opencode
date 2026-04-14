@@ -14,7 +14,10 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 }
 let k8sApi: k8s.CoreV1Api = kc.makeApiClient(k8s.CoreV1Api)
 let humanId: typeof _humanId = _humanId
-let fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args)
+// Narrow function type — `typeof fetch` differs between Bun and DOM lib
+// (Bun adds a `preconnect` property), which breaks `tsc` in the Docker build.
+type FetchFn = (url: string, init?: RequestInit) => Promise<Response>
+let fetchImpl: FetchFn = (url, init) => globalThis.fetch(url, init)
 
 /** For testing only: replace the k8s API client with a fake. */
 export function _setApiClient(client: k8s.CoreV1Api) {
@@ -27,7 +30,7 @@ export function _setHumanId(fn: typeof _humanId) {
 }
 
 /** For testing only: replace the fetch implementation used by remoteBranchExists. */
-export function _setFetch(fn: typeof fetch) {
+export function _setFetch(fn: FetchFn) {
   fetchImpl = fn
 }
 
