@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import * as k8s from "@kubernetes/client-node"
-import { humanId } from "human-id"
+import { humanId as _humanId } from "human-id"
 import { config } from "./config.js"
 
 const kc = new k8s.KubeConfig()
@@ -12,7 +12,18 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 } else {
   kc.loadFromDefault()
 }
-const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
+let k8sApi: k8s.CoreV1Api = kc.makeApiClient(k8s.CoreV1Api)
+let humanId: typeof _humanId = _humanId
+
+/** For testing only: replace the k8s API client with a fake. */
+export function _setApiClient(client: k8s.CoreV1Api) {
+  k8sApi = client
+}
+
+/** For testing only: replace the humanId generator. */
+export function _setHumanId(fn: typeof _humanId) {
+  humanId = fn
+}
 
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
 const LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"

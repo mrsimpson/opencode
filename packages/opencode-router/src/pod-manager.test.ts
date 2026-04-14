@@ -1,4 +1,4 @@
-import { mock, describe, it, expect, beforeEach } from "bun:test"
+import { describe, it, expect, beforeEach } from "bun:test"
 
 // Set required env vars before config module is loaded
 process.env.OPENCODE_IMAGE = "test"
@@ -55,30 +55,11 @@ const fakeK8sApi = {
   },
 }
 
-// Mock @kubernetes/client-node before any import of pod-manager
-mock.module("@kubernetes/client-node", () => {
-  return {
-    KubeConfig: class {
-      loadFromCluster() {}
-      loadFromDefault() {}
-      makeApiClient(_cls: unknown) {
-        return fakeK8sApi
-      }
-    },
-    CoreV1Api: class {},
-  }
-})
-
-// Also mock fs so the SA token path check doesn't matter
-mock.module("node:fs", () => {
-  return {
-    default: { existsSync: (_path: string) => false },
-    existsSync: (_path: string) => false,
-  }
-})
-
-// Dynamic import AFTER mocks are registered (bun evaluates mock.module synchronously)
-const { listUserSessions, terminateSession, resumeSession, suggestBranch } = await import("./pod-manager.js")
+// pod-manager.test.ts must run in its own bun process (see package.json test script)
+// to avoid api.test.ts's mock.module("./pod-manager.js") poisoning this module import.
+const { listUserSessions, terminateSession, resumeSession, suggestBranch, _setApiClient, _setHumanId } =
+  await import("./pod-manager.ts")
+_setApiClient(fakeK8sApi as any)
 
 // --- Helpers ---
 
@@ -360,12 +341,10 @@ describe("suggestBranch", () => {
   })
 
   it("skips names that already exist as PVC hashes and returns the next unique one", async () => {
-    // Mock human-id to return a fixed sequence: first two collide, third is free
+    // Inject a deterministic humanId that returns a fixed sequence: first two collide, third is free
     const seq = ["calm-snails-dream", "bold-frogs-dance", "swift-hawks-fly"]
     let idx = 0
-    mock.module("human-id", () => ({
-      humanId: (_opts: object) => seq[idx++ % seq.length],
-    }))
+    _setHumanId((_opts?: any) => seq[idx++ % seq.length])
 
     // Pre-populate PVCs for the first two candidates so they collide
     const hash0 = computeHash(EMAIL, REPO, seq[0])
@@ -381,11 +360,9 @@ describe("suggestBranch", () => {
   })
 
   it("returns after at most 10 iterations even if all collide", async () => {
-    // Mock human-id to always return the same name (infinite collision)
+    // Inject a deterministic humanId that always returns the same name (infinite collision)
     const fixed = "slow-bears-roam"
-    mock.module("human-id", () => ({
-      humanId: (_opts: object) => fixed,
-    }))
+    _setHumanId((_opts?: any) => fixed)
 
     // Pre-populate a PVC for that name so every attempt collides
     const hash = computeHash(EMAIL, REPO, fixed)
