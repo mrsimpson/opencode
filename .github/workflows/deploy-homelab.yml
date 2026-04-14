@@ -7,6 +7,11 @@ name: Deploy to homelab
 #   - kubeconfig setup
 #   - pulumi up / preview
 #
+# GitOps flow:
+#   1. build-opencode-router.yml or build-cloudflare-operator.yml builds the image
+#   2. The build workflow commits the new image tag to deployment/homelab/Pulumi.dev.yaml
+#   3. This workflow triggers via workflow_run and deploys using the updated config
+#
 # Pulumi project: "opencode" (Pulumi.yaml name: opencode)
 # Stack: mrsimpson/opencode/dev
 # Base infra read via: StackReference("mrsimpson/homelab/dev")
@@ -17,9 +22,10 @@ name: Deploy to homelab
 #   PULUMI_ACCESS_TOKEN                          — Pulumi Cloud access token
 
 on:
-  # Run after images are built
+  # Run after images are built and Pulumi config is updated
   workflow_run:
     workflows:
+      - "Build opencode-router image"
       - "Build opencode-cloudflare-operator image"
     types:
       - completed
@@ -44,8 +50,8 @@ permissions:
 
 jobs:
   # Optional pre-step: update image tags in Pulumi stack config before deploying.
-  # Only runs when image overrides are provided via workflow_dispatch.
-  # Skipped entirely on workflow_run triggers (images are already baked into config).
+  # Only runs when image overrides are provided via workflow_dispatch (emergency override).
+  # On workflow_run triggers, Pulumi.dev.yaml is already updated by the build workflow.
   update-image-config:
     name: Update image config
     runs-on: ubuntu-latest
