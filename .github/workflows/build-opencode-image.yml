@@ -62,6 +62,7 @@ jobs:
           push: true
           provenance: false
           pull: true
+          github-token: ${{ secrets.GH_PAT }}
           build-args: |
             BASE_VERSION=${{ steps.version.outputs.base }}
           tags: |
