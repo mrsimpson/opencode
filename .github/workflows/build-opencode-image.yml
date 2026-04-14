@@ -58,43 +58,48 @@ jobs:
           echo "tag=${VERSION}-${GITHUB_REF_NAME}.${SHA_SHORT}" >> $GITHUB_OUTPUT
 
           # --- Upstream base image tag resolution ---
-          # Find the latest upstream commit reachable from HEAD by checking the
-          # merge-base with upstream/dev.  Use its author date to find the right
-          # 0.0.0-dev-YYYYMMDDHHMI tag on GHCR.
+          # Find the merge-base between HEAD and upstream/dev to get the upstream
+          # commit SHA that was merged in.  Checkout is full-depth so local history
+          # is complete; we only need the tip of upstream/dev to resolve the SHA.
           git remote add upstream https://github.com/anomalyco/opencode.git
-          git fetch upstream dev --depth=1
+          git fetch upstream dev --depth=50
 
-          UPSTREAM_SHA=$(git merge-base HEAD upstream/dev)
-          # Author date of that commit (UTC), formatted as the tag timestamp pattern
-          COMMIT_TS=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M" "$UPSTREAM_SHA")
-          echo "upstream commit: $UPSTREAM_SHA  commit_ts: $COMMIT_TS"
-
-          # Fetch all GHCR tags for anomalyco/opencode (paginated)
-          ANON_TOKEN=$(curl -s \
-            "https://ghcr.io/token?scope=repository:anomalyco/opencode:pull&service=ghcr.io" \
-            | jq -r '.token')
-
-          ALL_TAGS=""
-          LAST=""
-          while true; do
-            URL="https://ghcr.io/v2/anomalyco/opencode/tags/list?n=100${LAST:+&last=$LAST}"
-            PAGE=$(curl -s -H "Authorization: Bearer $ANON_TOKEN" "$URL")
-            TAGS=$(echo "$PAGE" | jq -r '.tags[]')
-            ALL_TAGS="${ALL_TAGS}${TAGS}"$'\n'
-            COUNT=$(echo "$TAGS" | wc -l)
-            LAST=$(echo "$TAGS" | tail -1)
-            [ "$COUNT" -lt 100 ] && break
-          done
-
-          # Filter to 0.0.0-dev-* tags, sort ascending, find first one >= commit_ts
-          BASE_TAG=$(echo "$ALL_TAGS" \
-            | grep -E '^0\.0\.0-dev-[0-9]{12}$' \
-            | sort \
-            | awk -v ts="$COMMIT_TS" 'substr($0,11) >= ts {print; exit}')
-
-          if [ -z "$BASE_TAG" ]; then
-            echo "No dev tag found >= $COMMIT_TS — falling back to latest" >&2
+          UPSTREAM_SHA=$(git merge-base HEAD upstream/dev || true)
+          if [ -z "$UPSTREAM_SHA" ]; then
+            echo "merge-base not found — falling back to latest" >&2
             BASE_TAG="latest"
+          else
+            # Author date of that commit (UTC), formatted as the tag timestamp pattern
+            COMMIT_TS=$(git log -1 --format="%ad" --date=format:"%Y%m%d%H%M" "$UPSTREAM_SHA")
+            echo "upstream commit: $UPSTREAM_SHA  commit_ts: $COMMIT_TS"
+
+            # Fetch all GHCR tags for anomalyco/opencode (paginated)
+            ANON_TOKEN=$(curl -s \
+              "https://ghcr.io/token?scope=repository:anomalyco/opencode:pull&service=ghcr.io" \
+              | jq -r '.token')
+
+            ALL_TAGS=""
+            LAST=""
+            while true; do
+              URL="https://ghcr.io/v2/anomalyco/opencode/tags/list?n=100${LAST:+&last=$LAST}"
+              PAGE=$(curl -s -H "Authorization: Bearer $ANON_TOKEN" "$URL")
+              TAGS=$(echo "$PAGE" | jq -r '.tags[]')
+              ALL_TAGS="${ALL_TAGS}${TAGS}"$'\n'
+              COUNT=$(echo "$TAGS" | wc -l)
+              LAST=$(echo "$TAGS" | tail -1)
+              [ "$COUNT" -lt 100 ] && break
+            done
+
+            # Filter to 0.0.0-dev-* tags, sort ascending, find first one >= commit_ts
+            BASE_TAG=$(echo "$ALL_TAGS" \
+              | grep -E '^0\.0\.0-dev-[0-9]{12}$' \
+              | sort \
+              | awk -v ts="$COMMIT_TS" 'substr($0,11) >= ts {print; exit}')
+
+            if [ -z "$BASE_TAG" ]; then
+              echo "No dev tag found >= $COMMIT_TS — falling back to latest" >&2
+              BASE_TAG="latest"
+            fi
           fi
 
           echo "Resolved base image tag: $BASE_TAG"
