@@ -1,0 +1,29 @@
+{
+  "conversationId": "opencode-preconfigure-opencode-2z76q4",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-2",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-2.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-2.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-2.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-2.4"
+    }
+  ],
+  "createdAt": "2026-04-13T08:20:52.045Z",
+  "updatedAt": "2026-04-13T08:20:52.045Z"
+}
