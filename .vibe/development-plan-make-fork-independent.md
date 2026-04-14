@@ -61,6 +61,19 @@ Optimize this fork of `sst/opencode` (now `anomalyco/opencode`) so that:
 - This section survives merges if kept minimal (upstream adds to the file's interior; a top-of-file prepend rarely conflicts)
 - Section links to `FORK.md` and each fork package's own README
 
+### Upstream URL
+
+Use `https://github.com/anomalyco/opencode.git` (canonical) everywhere — `sst/opencode` redirects to this but using the canonical URL avoids ambiguity. Updated in `upstream-merge.yml`, `fork-validate.yml`, `disable-upstream-workflows.sh`, and the local `upstream` remote.
+
+### Upstream merge workflow (`upstream-merge.yml`)
+
+- `workflow_dispatch` only — never runs automatically
+- Inputs: `upstream_ref` (default `dev`), `target_branch` (default `main`)
+- Creates branch `upstream-merge/<upstream_ref>-<YYYYMMDD>`, merges with `--no-ff`
+- If merge conflicts: commits with conflict markers and flags PR title/body — human must resolve before merging
+- Early-exit guard: all non-info steps gated on `up_to_date == 'false'` so a no-op run is safe
+- PR body includes: conflict warning (if any), commit count + SHA, last 50 upstream commit log, post-merge checklist (re-run disable script, check Dockerfile base version, run fork validation)
+
 ## Notes
 
 ### Repo context

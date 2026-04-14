@@ -104,7 +104,7 @@ jobs:
 
       - name: Fetch upstream
         run: |
-          git remote add upstream https://github.com/sst/opencode.git
+          git remote add upstream https://github.com/anomalyco/opencode.git
           git fetch upstream dev --depth=50
 
       - name: Check for upstream file modifications
