@@ -46,6 +46,7 @@ disable "triage.yml"               "AI triage bot not configured for fork"
 disable "duplicate-issues.yml"     "duplicate-detection bot adds noise to fork"
 disable "review.yml"               "upstream review bot not appropriate for fork"
 disable "pr-management.yml"        "upstream team-membership checks will fail in fork"
+disable "pr-standards.yml"         "upstream PR template enforcement adds noise to fork PRs"
 disable "opencode.yml"             "/oc slash commands require bot tokens not in fork"
 
 # ── Upstream CI (tests/typechecks/lint for upstream packages) ──────────────
@@ -79,7 +80,6 @@ echo "  fork-validate.yml              — fork PR validation (typecheck, tests,
 echo "  build-opencode-router.yml      — fork Docker image build"
 echo "  build-cloudflare-operator.yml  — fork Docker image build"
 echo "  deploy-homelab.yml             — fork homelab deployment"
-echo "  pr-standards.yml               — conventional commit enforcement (kept)"
 echo "  publish.yml                    — already guarded: if: repo == 'anomalyco/opencode'"
 echo "  stats.yml                      — already guarded: if: repo == 'anomalyco/opencode'"
 echo "  docs-update.yml                — already guarded: if: repo == 'anomalyco/opencode'"

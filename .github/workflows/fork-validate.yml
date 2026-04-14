@@ -4,6 +4,7 @@ name: Fork validation
 # This is the authoritative CI check for fork contributors.
 #
 # Jobs:
+#   pr-title             — conventional commit title check (no comments, blocks merge)
 #   validate-router      — typecheck + test opencode-router (pnpm/Node.js)
 #   validate-router-app  — typecheck + test opencode-router-app (bun)
 #   compatibility-guard  — warn if upstream package files were modified
@@ -25,6 +26,17 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  pr-title:
+    name: PR title (conventional commit)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   validate-router:
     name: Validate opencode-router
     runs-on: ubuntu-latest
