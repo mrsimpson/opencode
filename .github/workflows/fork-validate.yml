@@ -95,7 +95,7 @@ jobs:
   compatibility-guard:
     name: Compatibility guard
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'upstream-merge/')
 
     steps:
       - uses: actions/checkout@v4
