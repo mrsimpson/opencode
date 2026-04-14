@@ -60,10 +60,14 @@ jobs:
 
       - name: Update Pulumi stack config with new image tag
         run: |
-          yq e '.config["code:routerImage"] = "${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"' \
-            -i deployment/homelab/Pulumi.dev.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deployment/homelab/Pulumi.dev.yaml
-          git diff --cached --quiet || git commit -m "chore(deploy): update routerImage to ${{ steps.version.outputs.tag }} [skip ci]"
-          git push
+          for i in 1 2 3; do
+            git pull --rebase origin main
+            yq e '.config["code:routerImage"] = "${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"' \
+              -i deployment/homelab/Pulumi.dev.yaml
+            git add deployment/homelab/Pulumi.dev.yaml
+            git diff --cached --quiet && break
+            git commit -m "chore(deploy): update routerImage to ${{ steps.version.outputs.tag }} [skip ci]"
+            git push && break || git reset HEAD~1
+          done
