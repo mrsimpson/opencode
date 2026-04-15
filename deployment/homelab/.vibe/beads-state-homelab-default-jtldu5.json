@@ -1,0 +1,29 @@
+{
+  "conversationId": "homelab-default-jtldu5",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode/deployment/homelab",
+  "epicId": "opencode-1",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-1.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-1.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-1.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-1.4"
+    }
+  ],
+  "createdAt": "2026-04-15T21:22:59.522Z",
+  "updatedAt": "2026-04-15T21:22:59.522Z"
+}

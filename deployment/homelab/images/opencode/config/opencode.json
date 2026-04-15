@@ -11,5 +11,19 @@
       "type": "local",
       "command": ["npx", "-y", "@codemcp/skills-server"]
     }
+  },
+  "provider": {
+    "openrouter": {
+      "models": {}
+    },
+    "openrouter-free": {
+      "npm": "@ai-sdk/openai-compatible",
+      "env": ["OPENROUTER_FREE_API_KEY"],
+      "options": {
+        "name": "openrouter-free",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "models": {}
+    }
   }
 }
