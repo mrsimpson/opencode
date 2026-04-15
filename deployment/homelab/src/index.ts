@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi"
 import * as k8s from "@pulumi/kubernetes"
 import { AuthType, createHomelabContextFromStack } from "@mrsimpson/homelab-core-components"
+import { fetchFreeModels, fetchPaidModels } from "./models"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -50,6 +51,8 @@ const routerImage = cfg.require("routerImage")
 const cfOperatorImage = cfg.require("cfOperatorImage")
 const opencodeImage = cfg.require("opencodeImage")
 const anthropicApiKey = cfg.requireSecret("anthropicApiKey")
+const openrouterApiKey = cfg.requireSecret("openrouterApiKey")
+const openrouterFreeApiKey = cfg.requireSecret("openrouterFreeApiKey")
 const defaultGitRepo = cfg.get("defaultGitRepo")
 const storageSize = cfg.get("storageSize") ?? "2Gi"
 // podEnv: optional multiline .env content injected into session pods via ConfigMap.
@@ -164,6 +167,8 @@ const apiKeysSecret = new k8s.core.v1.Secret(
     type: "Opaque",
     stringData: {
       ANTHROPIC_API_KEY: anthropicApiKey,
+      OPENROUTER_API_KEY: openrouterApiKey,
+      OPENROUTER_FREE_API_KEY: openrouterFreeApiKey,
     },
   },
   { dependsOn: [ns] },
@@ -171,7 +176,11 @@ const apiKeysSecret = new k8s.core.v1.Secret(
 
 // ---------------------------------------------------------------------------
 // 4. ConfigMap — opencode.json for session pods
+//    Provider model lists are fetched live from OpenRouter at deploy time.
 // ---------------------------------------------------------------------------
+
+const freeModels = pulumi.output(fetchFreeModels())
+const paidModels = pulumi.output(fetchPaidModels())
 
 const configMap = new k8s.core.v1.ConfigMap(
   `${APP_NAME}-config`,
@@ -181,11 +190,25 @@ const configMap = new k8s.core.v1.ConfigMap(
       namespace: NAMESPACE,
       labels: { app: APP_NAME },
     },
-    data: {
+    data: pulumi.all([freeModels, paidModels]).apply(([free, paid]) => ({
       "opencode.json": JSON.stringify(
         {
           $schema: "https://opencode.ai/config.json",
           model: "anthropic/claude-sonnet-4-5",
+          provider: {
+            openrouter: {
+              models: paid,
+            },
+            "openrouter-free": {
+              npm: "@ai-sdk/openai-compatible",
+              options: {
+                name: "openrouter-free",
+                baseURL: "https://openrouter.ai/api/v1",
+                apiKey: "${OPENROUTER_FREE_API_KEY}",
+              },
+              models: free,
+            },
+          },
         },
         null,
         2,
@@ -194,7 +217,7 @@ const configMap = new k8s.core.v1.ConfigMap(
       // Operators set arbitrary vars here, e.g. WORKFLOW_AGENTS=ade.
       // Empty by default — the source command is guarded with "|| true".
       ".env": podEnv,
-    },
+    })),
   },
   { dependsOn: [ns] },
 )
