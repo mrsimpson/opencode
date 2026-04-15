@@ -362,6 +362,7 @@ export const app = homelab.createExposedWebApp(
       { name: "IMAGE_PULL_SECRET_NAME", value: "ghcr-pull-secret" },
       { name: "ROUTER_DOMAIN", value: domain },
       { name: "ROUTE_SUFFIX", value: ROUTE_SUFFIX },
+      { name: "DEBUG_HEADERS", value: "true" },
       ...(defaultGitRepo ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }] : []),
     ],
     probes: {
