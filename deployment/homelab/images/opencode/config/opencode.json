@@ -39,10 +39,10 @@
     },
     "openrouter-free": {
       "npm": "@ai-sdk/openai-compatible",
+      "env": ["OPENROUTER_FREE_API_KEY"],
       "options": {
         "name": "openrouter-free",
-        "baseURL": "https://openrouter.ai/api/v1",
-        "apiKey": "${OPENROUTER_FREE_API_KEY}"
+        "baseURL": "https://openrouter.ai/api/v1"
       },
       "models": {
         "arcee-ai/trinity-large-preview:free": {},

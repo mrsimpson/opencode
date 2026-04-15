@@ -201,10 +201,10 @@ const configMap = new k8s.core.v1.ConfigMap(
             },
             "openrouter-free": {
               npm: "@ai-sdk/openai-compatible",
+              env: ["OPENROUTER_FREE_API_KEY"],
               options: {
                 name: "openrouter-free",
                 baseURL: "https://openrouter.ai/api/v1",
-                apiKey: "${OPENROUTER_FREE_API_KEY}",
               },
               models: free,
             },
