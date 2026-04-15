@@ -65,6 +65,9 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -90,6 +93,7 @@ roleRef:
 - `persistentvolumeclaims: get` — check if a user's PVC exists before creating
 - `persistentvolumeclaims: create` — provision PVCs for new users
 - `persistentvolumeclaims: list` — not strictly required currently but included for operational tooling
+- `secrets: get/create/patch/delete` — manage per-session `opencode-github-<hash>` Secrets that hold the user's GitHub OAuth token so git operations inside the pod are authenticated
 
 The Role is namespace-scoped (not a ClusterRole) — the router can only manage resources in its own namespace.
 
@@ -286,7 +290,7 @@ spec:
             - --upstream=http://opencode-router.opencode.svc.cluster.local
             - --http-address=0.0.0.0:4180
             - --set-xauthrequest=true     # CRITICAL: sets X-Auth-Request-Email header
-            - --pass-access-token=false
+            - --pass-access-token=true    # REQUIRED: forwards GitHub token as X-Auth-Request-Token
             - --cookie-secure=true
             - --cookie-name=_opencode_oauth
           env:
@@ -322,7 +326,8 @@ spec:
 ```
 
 **Important oauth2-proxy config:**
-- `--set-xauthrequest=true` is required — this makes oauth2-proxy set the `X-Auth-Request-Email` header that the router reads
+- `--set-xauthrequest=true` is required — makes oauth2-proxy set the `X-Auth-Request-Email` header that the router reads
+- `--pass-access-token=true` is required — forwards the GitHub OAuth token as `X-Auth-Request-Token`; the router stores this token in a per-session K8s Secret and mounts it into pods so `git push` and the `gh` CLI work inside the container
 - `--upstream` points to the router Service
 - Configure `--github-org` or `--email-domain` to restrict access to your organization
 

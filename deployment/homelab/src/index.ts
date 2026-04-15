@@ -107,6 +107,11 @@ const role = new k8s.rbac.v1.Role(
         verbs: ["get", "list", "create", "delete"],
       },
       {
+        apiGroups: [""],
+        resources: ["secrets"],
+        verbs: ["get", "create", "patch", "delete"],
+      },
+      {
         apiGroups: ["traefik.io"],
         resources: ["ingressroutes"],
         verbs: ["get", "list", "create", "delete"],
@@ -330,7 +335,10 @@ export const app = homelab.createExposedWebApp(
     port: ROUTER_PORT,
     replicas: 1,
     auth: AuthType.OAUTH2_PROXY,
-    oauth2Proxy: { group: "users" },
+    // --pass-access-token=true is required so oauth2-proxy forwards the GitHub OAuth
+    // token as X-Auth-Request-Token. The router stores it in a per-session Secret
+    // (opencode-github-<hash>) and mounts it into pods so git push / gh CLI work.
+    oauth2Proxy: { group: "users", extraArgs: ["--pass-access-token=true"] },
     serviceAccountName: APP_NAME,
     imagePullSecrets: [{ name: "ghcr-pull-secret" }],
     securityContext: {
