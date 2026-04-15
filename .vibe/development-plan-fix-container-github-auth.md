@@ -59,45 +59,8 @@ Pipeline of changes:
    - `ensurePod` — mount Secret, add git credential init to script
    - `resumeSession` — accept + pass token, refresh Secret before pod creation
    - `terminateSession` — delete Secret alongside PVC
-3. **Pulumi / RBAC** — add `secrets` verbs to Role; add `--pass-access-token=true` to oauth2-proxy ✅
-4. **homelab-core-components library** — handled externally by operator (--pass-access-token=true configured directly on homelab) ✅
-
-## homelab-core-components change required
-
-The `createExposedWebApp` function manages the oauth2-proxy Deployment. It needs
-to accept and forward `extraArgs` to oauth2-proxy's container args.
-
-### Change needed in the library
-
-In the `oauth2Proxy` config type, add:
-```typescript
-extraArgs?: string[]
-```
-
-When building the oauth2-proxy container spec, spread `extraArgs` at the end of
-the existing `args` array:
-```typescript
-args: [
-  "--provider=github",
-  "--set-xauthrequest=true",
-  // ... other existing args ...
-  ...(oauth2Proxy.extraArgs ?? []),
-]
-```
-
-### How it is called (already committed in this repo)
-
-`deployment/homelab/src/index.ts`:
-```typescript
-oauth2Proxy: { group: "users", extraArgs: ["--pass-access-token=true"] },
-```
-
-Once the library is updated and the Pulumi stack is redeployed, oauth2-proxy
-will include `--pass-access-token=true`, causing it to forward the GitHub OAuth
-token as `X-Auth-Request-Token` on every authenticated request. The router
-already reads that header and the full Secret lifecycle is in place.
-
----
+3. **Pulumi / RBAC** — add `secrets` verbs to Role ✅
+4. **oauth2-proxy** — `--pass-access-token=true` is now the homelab default; no code change required ✅
 
 ## Git credential setup (init container script addition)
 
