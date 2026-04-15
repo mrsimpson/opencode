@@ -166,7 +166,6 @@ const apiKeysSecret = new k8s.core.v1.Secret(
     },
     type: "Opaque",
     stringData: {
-      ANTHROPIC_API_KEY: anthropicApiKey,
       OPENROUTER_API_KEY: openrouterApiKey,
       OPENROUTER_FREE_API_KEY: openrouterFreeApiKey,
     },
