@@ -80,13 +80,19 @@ const fakeK8sApi = {
     deleteSecretCalls.push(name)
     const idx = (fakeSecrets as any[]).findIndex((s) => s.metadata?.name === name)
     if (idx === -1) {
-      const err: any = new Error("not found"); err.code = 404; throw err
+      const err: any = new Error("not found")
+      err.code = 404
+      throw err
     }
     fakeSecrets = (fakeSecrets as any[]).filter((_, i) => i !== idx)
   },
   readNamespacedSecret: async ({ name }: { name: string }) => {
     const s = (fakeSecrets as any[]).find((s) => s.metadata?.name === name)
-    if (!s) { const err: any = new Error("not found"); err.code = 404; throw err }
+    if (!s) {
+      const err: any = new Error("not found")
+      err.code = 404
+      throw err
+    }
     return s
   },
 }
@@ -608,8 +614,10 @@ describe("deleteIdlePods — session activity from opencode instance resets idle
 
     // Annotation must be refreshed with the recent timestamp from the instance
     expect(patchPodCalls).toHaveLength(1)
-    const patched = (patchPodCalls[0].body as any).metadata.annotations["opencode.ai/last-activity"]
-    expect(new Date(patched).getTime()).toBeGreaterThanOrEqual(recentMs - 1000)
+    const op = (patchPodCalls[0].body as any)[0]
+    expect(op.op).toBe("add")
+    expect(op.path).toBe("/metadata/annotations/opencode.ai~1last-activity")
+    expect(new Date(op.value).getTime()).toBeGreaterThanOrEqual(recentMs - 1000)
   })
 
   it("still deletes a pod when both annotation and instance activity are stale", async () => {
@@ -668,7 +676,10 @@ describe("ensurePod with githubToken", () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+    await (ensurePod as any)(
+      { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      "gho_test_token",
+    )
 
     expect(createSecretCalls).toHaveLength(1)
     const secret = (createSecretCalls[0] as any).body
@@ -681,7 +692,10 @@ describe("ensurePod with githubToken", () => {
     const { ensurePod } = await import("./pod-manager.js")
     const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+    await (ensurePod as any)(
+      { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      "gho_test_token",
+    )
 
     const pod = (createPodCalls[0] as any).body
     const initEnvFrom: any[] = pod.spec.initContainers[0].envFrom ?? []
@@ -696,7 +710,10 @@ describe("ensurePod with githubToken", () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+    await (ensurePod as any)(
+      { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      "gho_test_token",
+    )
 
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]

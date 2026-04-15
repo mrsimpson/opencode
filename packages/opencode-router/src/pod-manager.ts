@@ -448,11 +448,16 @@ export function updateLastActivity(hash: string): void {
     .patchNamespacedPod({
       name,
       namespace: config.namespace,
-      body: {
-        metadata: {
-          annotations: { [ANNOTATION_LAST_ACTIVITY]: new Date(now).toISOString() },
+      body: [
+        {
+          op: "add",
+          path: `/metadata/annotations/${ANNOTATION_LAST_ACTIVITY.replace(/~/g, "~0").replace(/\//g, "~1")}`,
+          value: new Date(now).toISOString(),
         },
-      },
+      ],
+    })
+    .catch((err) => {
+      console.error(`Failed to update last-activity for ${name}:`, err)
     })
     .catch((err) => {
       console.error(`Failed to update last-activity for ${name}:`, err)
@@ -491,7 +496,13 @@ export async function deleteIdlePods(): Promise<void> {
               .patchNamespacedPod({
                 name,
                 namespace: config.namespace,
-                body: { metadata: { annotations: { [ANNOTATION_LAST_ACTIVITY]: new Date(instanceMs).toISOString() } } },
+                body: [
+                  {
+                    op: "add",
+                    path: `/metadata/annotations/${ANNOTATION_LAST_ACTIVITY.replace(/~/g, "~0").replace(/\//g, "~1")}`,
+                    value: new Date(instanceMs).toISOString(),
+                  },
+                ],
               })
               .catch((err) => console.error(`Failed to patch activity for ${name}:`, err))
             continue
@@ -538,11 +549,9 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   await k8sApi.deleteNamespacedPersistentVolumeClaim({ name, namespace: config.namespace })
 
   // Delete per-session github token Secret (ignore NotFound)
-  await k8sApi
-    .deleteNamespacedSecret({ name: githubSecretName(hash), namespace: config.namespace })
-    .catch((err) => {
-      if (!isNotFound(err)) throw err
-    })
+  await k8sApi.deleteNamespacedSecret({ name: githubSecretName(hash), namespace: config.namespace }).catch((err) => {
+    if (!isNotFound(err)) throw err
+  })
 
   activityThrottle.delete(hash)
 }
