@@ -60,7 +60,7 @@ Pipeline of changes:
    - `resumeSession` — accept + pass token, refresh Secret before pod creation
    - `terminateSession` — delete Secret alongside PVC
 3. **Pulumi / RBAC** — add `secrets` verbs to Role; add `--pass-access-token=true` to oauth2-proxy ✅
-4. **homelab-core-components library** — add `extraArgs` support to `createExposedWebApp` (see below) ⬅ outstanding
+4. **homelab-core-components library** — handled externally by operator (--pass-access-token=true configured directly on homelab) ✅
 
 ## homelab-core-components change required
 
