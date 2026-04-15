@@ -40,6 +40,11 @@ function getEmail(req: http.IncomingMessage): string | null {
   return null
 }
 
+function getGithubToken(req: http.IncomingMessage): string | undefined {
+  const header = req.headers["x-auth-request-token"] ?? req.headers["x-forwarded-access-token"]
+  return typeof header === "string" && header.length > 0 ? header : undefined
+}
+
 const proxy = httpProxy.createProxyServer({})
 
 proxy.on("error", (err, _req, res) => {
@@ -87,7 +92,7 @@ const server = http.createServer(async (req, res) => {
     // Router's own API
     const url = req.url ?? "/"
     if (url.startsWith("/api/")) {
-      const handled = await handleApi(req, res, email)
+      const handled = await handleApi(req, res, email, getGithubToken(req))
       if (handled) return
     }
 
