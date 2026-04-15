@@ -47,4 +47,9 @@ export const config = {
    * Set this and port-forward the user pod: kubectl port-forward <pod> 4096:4096 -n opencode-router
    */
   devPodProxyTarget: process.env.DEV_POD_PROXY_TARGET,
+  /**
+   * When true, log all incoming request headers on every API call.
+   * Set DEBUG_HEADERS=true on the deployment to diagnose missing auth headers.
+   */
+  debugHeaders: process.env.DEBUG_HEADERS === "true",
 } as const
