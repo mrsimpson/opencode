@@ -12,8 +12,12 @@ const ROUTER_PORT = 3000
 const OPENCODE_PORT = 4096
 /** Suffix appended to hash for session hostnames: <hash>-oc.<domain> */
 const ROUTE_SUFFIX = "-oc"
-/** In-cluster URL the Cloudflare operator routes session traffic to */
-const ROUTER_SERVICE_URL = `http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80`
+/**
+ * In-cluster URL the Cloudflare operator routes session traffic to.
+ * Must point to Traefik (not the router directly) so that the IngressRoute
+ * middleware chain (ForwardAuth → oauth2-chain) runs for session subdomains.
+ */
+const ROUTER_SERVICE_URL = "http://traefik-controller.traefik-system.svc.cluster.local:80"
 const CF_OPERATOR_CONTAINER_NAME = "cloudflare-operator"
 
 // ---------------------------------------------------------------------------
