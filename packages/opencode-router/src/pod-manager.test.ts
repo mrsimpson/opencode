@@ -8,6 +8,7 @@ process.env.ROUTER_DOMAIN = "test.local"
 let fakePVCs: object[] = []
 let fakePods: object[] = []
 let createPodCalls: object[] = []
+let patchPodCalls: { name: string; body: object }[] = []
 
 const fakeK8sApi = {
   listNamespacedPersistentVolumeClaim: async (_opts: object) => ({ items: fakePVCs }),
@@ -34,6 +35,14 @@ const fakeK8sApi = {
     createPodCalls.push({ namespace, body })
     fakePods = [...(fakePods as any[]), body]
     return body
+  },
+  patchNamespacedPod: async ({ name, body }: { name: string; body: object }) => {
+    patchPodCalls.push({ name, body })
+    // Apply annotation patches to in-memory pod so later reads see the update
+    const pod = (fakePods as any[]).find((p) => p.metadata?.name === name)
+    if (pod && (body as any).metadata?.annotations) {
+      pod.metadata.annotations = { ...pod.metadata.annotations, ...(body as any).metadata.annotations }
+    }
   },
   deleteNamespacedPod: async ({ name }: { name: string }) => {
     const idx = (fakePods as any[]).findIndex((p) => p.metadata?.name === name)
@@ -63,10 +72,12 @@ const {
   resumeSession,
   suggestBranch,
   remoteBranchExists,
+  deleteIdlePods,
   RemoteRefsUnreachableError,
   _setApiClient,
   _setHumanId,
   _setFetch,
+  _setActivityFetch,
 } = await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
@@ -94,7 +105,13 @@ function makePVC(sessionHash: string, email: string, repoUrl: string, branch: st
   }
 }
 
-function makeRunningPod(sessionHash: string, email: string, repoUrl: string, branch: string) {
+function makeRunningPod(
+  sessionHash: string,
+  email: string,
+  repoUrl: string,
+  branch: string,
+  lastActivity = "2025-06-01T12:00:00Z",
+) {
   return {
     metadata: {
       name: `opencode-session-${sessionHash}`,
@@ -104,7 +121,7 @@ function makeRunningPod(sessionHash: string, email: string, repoUrl: string, bra
         "app.kubernetes.io/managed-by": "opencode-router",
       },
       annotations: {
-        "opencode.ai/last-activity": "2025-06-01T12:00:00Z",
+        "opencode.ai/last-activity": lastActivity,
         "opencode.ai/user-email": email,
         "opencode.ai/repo-url": repoUrl,
         "opencode.ai/branch": branch,
@@ -152,6 +169,9 @@ beforeEach(() => {
   fakePVCs = []
   fakePods = []
   createPodCalls = []
+  patchPodCalls = []
+  // Reset activity fetch to a fast no-op so tests that don't care about it don't hang
+  _setActivityFetch(async () => new Response("[]", { status: 200 }))
 })
 
 // ---------------------------------------------------------------------------
@@ -436,10 +456,7 @@ describe("remoteBranchExists", () => {
   // Helper — build a Smart HTTP v1 info/refs body. The first ref line uses \0
   // before capabilities, subsequent refs use \n.
   function smartHttpBody(refs: string[]): string {
-    const lines: string[] = [
-      "001e# service=git-upload-pack\n",
-      "0000",
-    ]
+    const lines: string[] = ["001e# service=git-upload-pack\n", "0000"]
     refs.forEach((name, i) => {
       const sha = "a".repeat(40)
       if (i === 0) {
@@ -505,5 +522,102 @@ describe("remoteBranchExists", () => {
     await expect(remoteBranchExists("https://nope.invalid/x/y", "main")).rejects.toBeInstanceOf(
       RemoteRefsUnreachableError,
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// BUG REPRODUCE: session activity from opencode instance not used for idle check
+//
+// The router currently only calls updateLastActivity() on HTTP requests and
+// WebSocket upgrades. Long-lived WebSocket connections (used for AI sessions)
+// generate no further HTTP traffic after the handshake, so the pod annotation
+// goes stale and the pod is killed — even while the user is actively working.
+//
+// The fix: poll GET /experimental/session?limit=1 on the pod's IP to get the
+// real time.updated from the opencode instance, and use that as the authority
+// for both idle-pod deletion and the lastActivity returned to the UI.
+//
+// These tests assert the CORRECT desired behaviour — they currently FAIL.
+// ---------------------------------------------------------------------------
+
+/** Build a minimal /experimental/session response body. */
+function makeSessionResponse(timeUpdatedMs: number): string {
+  return JSON.stringify([{ time: { updated: timeUpdatedMs } }])
+}
+
+describe("deleteIdlePods — session activity from opencode instance resets idle timer", () => {
+  function mockActivity(timeUpdatedMs: number) {
+    ;(_setActivityFetch as any)(
+      async (_url: string) => new Response(makeSessionResponse(timeUpdatedMs), { status: 200 }),
+    )
+  }
+
+  it("preserves a pod whose annotation is stale but opencode instance has recent activity", async () => {
+    // Annotation is 20 minutes old — beyond the 15-minute default timeout
+    const staleTime = new Date(Date.now() - 20 * 60_000).toISOString()
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH, staleTime)]
+
+    // The opencode instance reports activity just 1 minute ago
+    mockActivity(Date.now() - 1 * 60_000)
+
+    await deleteIdlePods()
+
+    // Pod must NOT be deleted — instance has recent session activity
+    expect(fakePods).toHaveLength(1)
+  })
+
+  it("updates the pod annotation with instance activity time when annotation is stale", async () => {
+    const staleTime = new Date(Date.now() - 20 * 60_000).toISOString()
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH, staleTime)]
+
+    const recentMs = Date.now() - 1 * 60_000
+    mockActivity(recentMs)
+
+    await deleteIdlePods()
+
+    // Annotation must be refreshed with the recent timestamp from the instance
+    expect(patchPodCalls).toHaveLength(1)
+    const patched = (patchPodCalls[0].body as any).metadata.annotations["opencode.ai/last-activity"]
+    expect(new Date(patched).getTime()).toBeGreaterThanOrEqual(recentMs - 1000)
+  })
+
+  it("still deletes a pod when both annotation and instance activity are stale", async () => {
+    const staleTime = new Date(Date.now() - 20 * 60_000).toISOString()
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH, staleTime)]
+
+    // Instance also has no recent activity (20 minutes ago)
+    mockActivity(Date.now() - 20 * 60_000)
+
+    await deleteIdlePods()
+
+    // Pod should be deleted — no activity anywhere
+    expect(fakePods).toHaveLength(0)
+  })
+})
+
+describe("listUserSessions — lastActivity reflects opencode instance session time", () => {
+  function mockActivity(timeUpdatedMs: number) {
+    ;(_setActivityFetch as any)(
+      async (_url: string) => new Response(makeSessionResponse(timeUpdatedMs), { status: 200 }),
+    )
+  }
+
+  it("returns instance session time as lastActivity when it is more recent than annotation", async () => {
+    // Pod annotation is 20 minutes old
+    const staleTime = new Date(Date.now() - 20 * 60_000).toISOString()
+    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH, staleTime)]
+
+    // But the opencode instance has a session touched just 1 minute ago
+    const recentMs = Date.now() - 1 * 60_000
+    mockActivity(recentMs)
+
+    const result = await listUserSessions(EMAIL, fakeReq)
+
+    expect(result).toHaveLength(1)
+    const returned = new Date((result[0] as any).lastActivity).getTime()
+
+    // Must return the recent instance time, not the stale annotation
+    expect(returned).toBeGreaterThanOrEqual(recentMs - 1000)
   })
 })

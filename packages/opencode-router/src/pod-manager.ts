@@ -18,6 +18,7 @@ let humanId: typeof _humanId = _humanId
 // (Bun adds a `preconnect` property), which breaks `tsc` in the Docker build.
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>
 let fetchImpl: FetchFn = (url, init) => globalThis.fetch(url, init)
+let activityFetchImpl: FetchFn = (url, init) => globalThis.fetch(url, init)
 
 /** For testing only: replace the k8s API client with a fake. */
 export function _setApiClient(client: k8s.CoreV1Api) {
@@ -32,6 +33,11 @@ export function _setHumanId(fn: typeof _humanId) {
 /** For testing only: replace the fetch implementation used by remoteBranchExists. */
 export function _setFetch(fn: FetchFn) {
   fetchImpl = fn
+}
+
+/** For testing only: replace the fetch implementation used to poll pod activity. */
+export function _setActivityFetch(fn: FetchFn) {
+  activityFetchImpl = fn
 }
 
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
@@ -353,37 +359,47 @@ export async function listUserSessions(
     if (h) podMap.set(h, pod)
   }
 
-  return userPVCs.map((pvc: k8s.V1PersistentVolumeClaim) => {
-    const ann = pvc.metadata?.annotations ?? {}
-    const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
-    const pod = podMap.get(hash)
+  return Promise.all(
+    userPVCs.map(async (pvc: k8s.V1PersistentVolumeClaim) => {
+      const ann = pvc.metadata?.annotations ?? {}
+      const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
+      const pod = podMap.get(hash)
 
-    let state: PodState
-    if (!pod) {
-      state = "stopped"
-    } else if (pod.status?.phase === "Running" && pod.status?.podIP) {
-      state = "running"
-    } else {
-      state = "creating"
-    }
+      let state: PodState
+      if (!pod) {
+        state = "stopped"
+      } else if (pod.status?.phase === "Running" && pod.status?.podIP) {
+        state = "running"
+      } else {
+        state = "creating"
+      }
 
-    const lastActivity =
-      pod?.metadata?.annotations?.[ANNOTATION_LAST_ACTIVITY] ??
-      ann[ANNOTATION_LAST_ACTIVITY] ??
-      new Date().toISOString()
+      const annotationActivity =
+        pod?.metadata?.annotations?.[ANNOTATION_LAST_ACTIVITY] ??
+        ann[ANNOTATION_LAST_ACTIVITY] ??
+        new Date().toISOString()
 
-    return {
-      hash,
-      email,
-      repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
-      branch: ann[ANNOTATION_BRANCH] ?? "",
-      sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
-      state,
-      url: `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
-      lastActivity,
-      idleTimeoutMinutes: config.idleTimeoutMinutes,
-    }
-  })
+      let lastActivity = annotationActivity
+      if (state === "running" && pod?.status?.podIP) {
+        const instanceMs = await podActivityMs(pod.status.podIP)
+        if (instanceMs !== null && instanceMs > new Date(annotationActivity).getTime()) {
+          lastActivity = new Date(instanceMs).toISOString()
+        }
+      }
+
+      return {
+        hash,
+        email,
+        repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
+        branch: ann[ANNOTATION_BRANCH] ?? "",
+        sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
+        state,
+        url: `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+        lastActivity,
+        idleTimeoutMinutes: config.idleTimeoutMinutes,
+      }
+    }),
+  )
 }
 
 /**
@@ -434,6 +450,24 @@ export async function deleteIdlePods(): Promise<void> {
       if (lastMs < cutoff) {
         const name = pod.metadata?.name
         if (!name) continue
+
+        // Before deleting, poll the instance for real activity (WS sessions don't update annotation)
+        const ip = pod.status?.podIP
+        if (ip) {
+          const instanceMs = await podActivityMs(ip)
+          if (instanceMs !== null && instanceMs >= cutoff) {
+            // Instance has recent activity — refresh annotation and skip deletion
+            await k8sApi
+              .patchNamespacedPod({
+                name,
+                namespace: config.namespace,
+                body: { metadata: { annotations: { [ANNOTATION_LAST_ACTIVITY]: new Date(instanceMs).toISOString() } } },
+              })
+              .catch((err) => console.error(`Failed to patch activity for ${name}:`, err))
+            continue
+          }
+        }
+
         console.log(`Deleting idle pod ${name} (last activity: ${lastActivity})`)
         await k8sApi
           .deleteNamespacedPod({ name, namespace: config.namespace })
@@ -519,6 +553,18 @@ function isNotFound(err: unknown): boolean {
 
 function isConflict(err: unknown): boolean {
   return hasCode(err) && err.code === 409
+}
+
+/** Poll a running pod's /experimental/session endpoint. Returns time.updated ms or null. */
+async function podActivityMs(ip: string): Promise<number | null> {
+  try {
+    const res = await activityFetchImpl(`http://${ip}:${config.opencodePort}/experimental/session?limit=1`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { time: { updated: number } }[]
+    return data[0]?.time?.updated ?? null
+  } catch {
+    return null
+  }
 }
 
 /**

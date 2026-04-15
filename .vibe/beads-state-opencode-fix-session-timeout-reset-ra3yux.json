@@ -1,0 +1,34 @@
+{
+  "conversationId": "opencode-fix-session-timeout-reset-ra3yux",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-4",
+  "phaseTasks": [
+    {
+      "phaseId": "reproduce",
+      "phaseName": "Reproduce",
+      "taskId": "opencode-4.1"
+    },
+    {
+      "phaseId": "analyze",
+      "phaseName": "Analyze",
+      "taskId": "opencode-4.2"
+    },
+    {
+      "phaseId": "fix",
+      "phaseName": "Fix",
+      "taskId": "opencode-4.3"
+    },
+    {
+      "phaseId": "verify",
+      "phaseName": "Verify",
+      "taskId": "opencode-4.4"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-4.5"
+    }
+  ],
+  "createdAt": "2026-04-14T21:55:42.308Z",
+  "updatedAt": "2026-04-14T21:55:42.308Z"
+}
