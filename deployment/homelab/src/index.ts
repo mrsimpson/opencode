@@ -339,7 +339,7 @@ export const app = homelab.createExposedWebApp(
     port: ROUTER_PORT,
     replicas: 1,
     auth: AuthType.OAUTH2_PROXY,
-    oauth2Proxy: { group: "users" },
+    oauth2Proxy: { group: "developers" },
     serviceAccountName: APP_NAME,
     imagePullSecrets: [{ name: "ghcr-pull-secret" }],
     securityContext: {
