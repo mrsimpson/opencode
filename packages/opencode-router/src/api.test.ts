@@ -382,3 +382,70 @@ describe("POST /api/sessions verifies sourceBranch on remote", () => {
     expect(mocks.ensurePod).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// githubToken threading
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions passes githubToken to ensurePod", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+  })
+
+  it("passes the githubToken to ensurePod when present", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/x/y",
+      branch: "calm-snails-dream",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(201)
+    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
+    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_test_token")
+  })
+
+  it("passes undefined to ensurePod when githubToken is absent", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/x/y",
+      branch: "calm-snails-dream",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(201)
+    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
+    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+  })
+})
+
+describe("POST /api/sessions/:hash/resume passes githubToken to resumeSession", () => {
+  it("passes the githubToken to resumeSession when present", async () => {
+    const req = fakeReq("POST", "/api/sessions/abc123456789/resume")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(200)
+    expect(mocks.resumeSession).toHaveBeenCalledTimes(1)
+    expect((mocks.resumeSession as any).mock.calls[0][2]).toBe("gho_test_token")
+  })
+
+  it("passes undefined to resumeSession when githubToken is absent", async () => {
+    const req = fakeReq("POST", "/api/sessions/abc123456789/resume")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(200)
+    expect(mocks.resumeSession).toHaveBeenCalledTimes(1)
+    expect((mocks.resumeSession as any).mock.calls[0][2]).toBeUndefined()
+  })
+})

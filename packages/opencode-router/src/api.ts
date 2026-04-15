@@ -44,7 +44,7 @@ function sessionUrl(hash: string, req: http.IncomingMessage): string {
  *   POST /api/sessions          → create a session {repoUrl, branch} → {hash, url, state}
  *   GET  /api/sessions/:hash    → get state of a specific session
  */
-export async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, email: string): Promise<boolean> {
+export async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, email: string, githubToken?: string): Promise<boolean> {
   const url = req.url ?? "/"
 
   // GET /api/sessions — list all sessions for this user, always includes email
@@ -103,7 +103,7 @@ export async function handleApi(req: http.IncomingMessage, res: http.ServerRespo
     const hash = getSessionHash(email, repoUrl, branch)
 
     await ensurePVC(session)
-    await ensurePod(session)
+    await ensurePod(session, githubToken)
 
     json(res, 201, { hash, url: sessionUrl(hash, req), state: "creating" })
     return true
@@ -148,7 +148,7 @@ export async function handleApi(req: http.IncomingMessage, res: http.ServerRespo
   if (resumeMatch && req.method === "POST") {
     const hash = resumeMatch[1]
     try {
-      await resumeSession(hash, email)
+      await resumeSession(hash, email, githubToken)
     } catch (err) {
       const code = errorCode(err)
       if (code === "Forbidden") {

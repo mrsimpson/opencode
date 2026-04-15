@@ -107,6 +107,11 @@ const role = new k8s.rbac.v1.Role(
         verbs: ["get", "list", "create", "delete"],
       },
       {
+        apiGroups: [""],
+        resources: ["secrets"],
+        verbs: ["get", "create", "patch", "delete"],
+      },
+      {
         apiGroups: ["traefik.io"],
         resources: ["ingressroutes"],
         verbs: ["get", "list", "create", "delete"],

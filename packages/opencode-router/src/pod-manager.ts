@@ -100,6 +100,25 @@ function sessionLabels(hash: string): Record<string, string> {
   }
 }
 
+function githubSecretName(hash: string): string {
+  return `opencode-github-${hash}`
+}
+
+async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
+  const name = githubSecretName(hash)
+  const secret: k8s.V1Secret = {
+    metadata: { name, namespace: config.namespace, labels: sessionLabels(hash) },
+    type: "Opaque",
+    stringData: { GITHUB_TOKEN: token },
+  }
+  try {
+    await k8sApi.createNamespacedSecret({ namespace: config.namespace, body: secret })
+  } catch (err) {
+    if (!isConflict(err)) throw err
+    await k8sApi.patchNamespacedSecret({ name, namespace: config.namespace, body: secret })
+  }
+}
+
 /**
  * Create PVC for a session if it doesn't exist. Idempotent.
  */
@@ -166,7 +185,7 @@ export async function getPodState(hash: string): Promise<PodState> {
  * - Clones repoUrl into /workspace if not already cloned
  * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
  */
-export async function ensurePod(session: SessionKey): Promise<string> {
+export async function ensurePod(session: SessionKey, githubToken?: string): Promise<string> {
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
@@ -176,6 +195,8 @@ export async function ensurePod(session: SessionKey): Promise<string> {
   } catch (err) {
     if (!isNotFound(err)) throw err
   }
+
+  if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
 
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
@@ -199,6 +220,11 @@ export async function ensurePod(session: SessionKey): Promise<string> {
     `  for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
     `    [ -f "$s" ] && sh "$s" || true`,
     `  done`,
+    `fi`,
+    // --- git credentials (from per-session Secret mounted as GITHUB_TOKEN) ---
+    `if [ -n "$GITHUB_TOKEN" ]; then`,
+    `  git config --global credential.helper store`,
+    `  printf 'https://oauth2:%s@github.com\\n' "$GITHUB_TOKEN" > /home/opencode/.git-credentials`,
     `fi`,
     // --- git phase ---
     `GIT="git -c safe.directory=/workspace"`,
@@ -231,6 +257,7 @@ export async function ensurePod(session: SessionKey): Promise<string> {
       image: config.opencodeImage,
       command: ["sh", "-c"],
       args: [initScript],
+      ...(githubToken ? { envFrom: [{ secretRef: { name: githubSecretName(hash) } }] } : {}),
       volumeMounts: [
         { name: "user-data", mountPath: "/home/opencode" },
         { name: "user-data", mountPath: "/workspace", subPath: "projects" },
@@ -279,7 +306,10 @@ export async function ensurePod(session: SessionKey): Promise<string> {
             `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
           ],
           ports: [{ containerPort: config.opencodePort }],
-          envFrom: [{ secretRef: { name: config.apiKeySecretName } }],
+          envFrom: [
+            { secretRef: { name: config.apiKeySecretName } },
+            ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
+          ],
           securityContext: {
             allowPrivilegeEscalation: false,
             runAsNonRoot: true,
@@ -507,6 +537,13 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   // Delete PVC
   await k8sApi.deleteNamespacedPersistentVolumeClaim({ name, namespace: config.namespace })
 
+  // Delete per-session github token Secret (ignore NotFound)
+  await k8sApi
+    .deleteNamespacedSecret({ name: githubSecretName(hash), namespace: config.namespace })
+    .catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+
   activityThrottle.delete(hash)
 }
 
@@ -515,7 +552,7 @@ export async function terminateSession(hash: string, email: string): Promise<voi
  * Idempotent — safe to call when pod already exists.
  * Only the session owner may resume.
  */
-export async function resumeSession(hash: string, email: string): Promise<void> {
+export async function resumeSession(hash: string, email: string, githubToken?: string): Promise<void> {
   const name = pvcName(hash)
   let pvc: k8s.V1PersistentVolumeClaim
   try {
@@ -535,7 +572,8 @@ export async function resumeSession(hash: string, email: string): Promise<void> 
     sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
   }
 
-  await ensurePod(session)
+  if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
+  await ensurePod(session, githubToken)
 }
 
 function hasCode(err: unknown): err is { code: number } {

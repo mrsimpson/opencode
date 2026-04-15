@@ -9,6 +9,10 @@ let fakePVCs: object[] = []
 let fakePods: object[] = []
 let createPodCalls: object[] = []
 let patchPodCalls: { name: string; body: object }[] = []
+let fakeSecrets: object[] = []
+let createSecretCalls: object[] = []
+let patchSecretCalls: object[] = []
+let deleteSecretCalls: string[] = []
 
 const fakeK8sApi = {
   listNamespacedPersistentVolumeClaim: async (_opts: object) => ({ items: fakePVCs }),
@@ -61,6 +65,29 @@ const fakeK8sApi = {
       throw err
     }
     fakePVCs = (fakePVCs as any[]).filter((_, i) => i !== idx)
+  },
+  createNamespacedSecret: async ({ namespace, body }: { namespace: string; body: any }) => {
+    createSecretCalls.push({ namespace, body })
+    fakeSecrets = [...fakeSecrets, body]
+    return body
+  },
+  patchNamespacedSecret: async ({ name, namespace, body }: { name: string; namespace: string; body: any }) => {
+    patchSecretCalls.push({ name, namespace, body })
+    const s = (fakeSecrets as any[]).find((s) => s.metadata?.name === name)
+    if (s) Object.assign(s.stringData ?? (s.stringData = {}), body.stringData ?? {})
+  },
+  deleteNamespacedSecret: async ({ name }: { name: string }) => {
+    deleteSecretCalls.push(name)
+    const idx = (fakeSecrets as any[]).findIndex((s) => s.metadata?.name === name)
+    if (idx === -1) {
+      const err: any = new Error("not found"); err.code = 404; throw err
+    }
+    fakeSecrets = (fakeSecrets as any[]).filter((_, i) => i !== idx)
+  },
+  readNamespacedSecret: async ({ name }: { name: string }) => {
+    const s = (fakeSecrets as any[]).find((s) => s.metadata?.name === name)
+    if (!s) { const err: any = new Error("not found"); err.code = 404; throw err }
+    return s
   },
 }
 
@@ -170,6 +197,10 @@ beforeEach(() => {
   fakePods = []
   createPodCalls = []
   patchPodCalls = []
+  fakeSecrets = []
+  createSecretCalls = []
+  patchSecretCalls = []
+  deleteSecretCalls = []
   // Reset activity fetch to a fast no-op so tests that don't care about it don't hang
   _setActivityFetch(async () => new Response("[]", { status: 200 }))
 })
@@ -619,5 +650,129 @@ describe("listUserSessions — lastActivity reflects opencode instance session t
 
     // Must return the recent instance time, not the stale annotation
     expect(returned).toBeGreaterThanOrEqual(recentMs - 1000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ensurePod with githubToken — Secret lifecycle
+// ---------------------------------------------------------------------------
+
+describe("ensurePod with githubToken", () => {
+  beforeEach(() => {
+    fakeSecrets = []
+    createSecretCalls = []
+  })
+
+  it("creates a github token Secret when githubToken is provided", async () => {
+    fakePVCs = []
+    fakePods = []
+    const { ensurePod } = await import("./pod-manager.js")
+
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+
+    expect(createSecretCalls).toHaveLength(1)
+    const secret = (createSecretCalls[0] as any).body
+    expect(secret.metadata.name).toBe(`opencode-github-${computeHash(EMAIL, REPO, "calm-snails-dream")}`)
+    expect(secret.stringData?.GITHUB_TOKEN).toBe("gho_test_token")
+  })
+
+  it("mounts the Secret via envFrom on both init and main containers", async () => {
+    fakePods = []
+    const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
+
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+
+    const pod = (createPodCalls[0] as any).body
+    const initEnvFrom: any[] = pod.spec.initContainers[0].envFrom ?? []
+    const mainEnvFrom: any[] = pod.spec.containers[0].envFrom ?? []
+    const secretName = `opencode-github-${hash}`
+
+    expect(initEnvFrom.some((e: any) => e.secretRef?.name === secretName)).toBe(true)
+    expect(mainEnvFrom.some((e: any) => e.secretRef?.name === secretName)).toBe(true)
+  })
+
+  it("init script contains git credential helper setup", async () => {
+    fakePods = []
+    const { ensurePod } = await import("./pod-manager.js")
+
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, "gho_test_token")
+
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    expect(script).toContain("credential.helper store")
+    expect(script).toContain(".git-credentials")
+    expect(script).toContain("GITHUB_TOKEN")
+  })
+
+  it("does NOT create a Secret when githubToken is absent", async () => {
+    fakePods = []
+    const { ensurePod } = await import("./pod-manager.js")
+
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+
+    expect(createSecretCalls).toHaveLength(0)
+  })
+
+  it("does NOT add github secret envFrom when githubToken is absent", async () => {
+    fakePods = []
+    const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
+
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+
+    const pod = (createPodCalls[0] as any).body
+    const mainEnvFrom: any[] = pod.spec.containers[0].envFrom ?? []
+    const secretName = `opencode-github-${hash}`
+    expect(mainEnvFrom.some((e: any) => e.secretRef?.name === secretName)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// terminateSession — deletes github token Secret
+// ---------------------------------------------------------------------------
+
+describe("terminateSession — deletes github token Secret", () => {
+  it("deletes the github token Secret when it exists", async () => {
+    const hash = SESSION_HASH
+    const secretName = `opencode-github-${hash}`
+    fakePVCs = [makePVC(hash, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(hash, EMAIL, REPO, BRANCH)]
+    fakeSecrets = [{ metadata: { name: secretName, namespace: "opencode" }, stringData: { GITHUB_TOKEN: "gho_test" } }]
+
+    await (terminateSession as any)(hash, EMAIL)
+
+    expect(deleteSecretCalls).toContain(secretName)
+  })
+
+  it("succeeds even if github token Secret does not exist (404 ignored)", async () => {
+    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    fakePods = []
+    fakeSecrets = [] // no secret
+
+    await expect((terminateSession as any)(SESSION_HASH, EMAIL)).resolves.toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resumeSession — refreshes github token Secret
+// ---------------------------------------------------------------------------
+
+describe("resumeSession — refreshes github token Secret", () => {
+  it("upserts the github token Secret with the new token before recreating pod", async () => {
+    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    fakePods = []
+    fakeSecrets = []
+
+    await (resumeSession as any)(SESSION_HASH, EMAIL, "gho_refreshed_token")
+
+    // Secret must have been created (or patched)
+    const secretName = `opencode-github-${SESSION_HASH}`
+    const created = (createSecretCalls as any[]).some((c) => c.body?.metadata?.name === secretName)
+    const patched = (patchSecretCalls as any[]).some((c) => c.name === secretName)
+    expect(created || patched).toBe(true)
+
+    // Pod must also have been created
+    expect(createPodCalls).toHaveLength(1)
   })
 })
