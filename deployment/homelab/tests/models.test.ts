@@ -6,10 +6,10 @@ import { filterFreeModels, filterPaidModels, PAID_MODELS } from "../src/models"
 // ---------------------------------------------------------------------------
 
 function model(id: string, prompt = "3", completion = "15") {
-  return { id, pricing: { prompt, completion } }
+  return { id, pricing: { prompt, completion }, supported_parameters: [] as string[] }
 }
-function free(id: string) {
-  return model(id, "0", "0")
+function free(id: string, tools = true) {
+  return { id, pricing: { prompt: "0", completion: "0" }, supported_parameters: tools ? ["tools"] : [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,16 @@ describe("filterFreeModels", () => {
     expect(Object.keys(filterFreeModels(input))).toHaveLength(1)
   })
 
+  it("drops models that do not support tools", () => {
+    const input = [free("a/no-tools:free", false), free("b/tools:free", true)]
+    expect(Object.keys(filterFreeModels(input))).toHaveLength(1)
+  })
+
+  it("drops models with absent supported_parameters", () => {
+    const input = [{ id: "a/no-params:free", pricing: { prompt: "0", completion: "0" } }]
+    expect(filterFreeModels(input as Parameters<typeof filterFreeModels>[0])).toEqual({})
+  })
+
   it("returns empty object when all models are filtered out", () => {
     const input = [
       free("openrouter/free"),
@@ -55,6 +65,7 @@ describe("filterFreeModels", () => {
       free("meta/guard"),
       free("google/lyria-3"),
       model("x/paid"),
+      free("a/no-tools:free", false),
     ]
     expect(filterFreeModels(input)).toEqual({})
   })

@@ -24,7 +24,7 @@ Both model lists are generated dynamically at `pulumi up` time by fetching the O
 - **Two new Pulumi secrets**: `openrouterApiKey` (paid, `OPENROUTER_API_KEY`) and `openrouterFreeApiKey` (free, `OPENROUTER_FREE_API_KEY`). Both added to `opencode-api-keys` Kubernetes Secret and mounted into session pods.
 - **Config shape**: `openrouter-free` uses `provider.openrouter-free.options.apiKey` pointing to `OPENROUTER_FREE_API_KEY` env var. `openrouter` uses its native env-var pickup of `OPENROUTER_API_KEY` with an explicit `models` allowlist.
 - **Two config locations updated**: `images/opencode/config/opencode.json` (static baked snapshot) and the Pulumi ConfigMap in `src/index.ts` (live, overrides the baked file at runtime).
-- **`openrouter-free` in opencode.json config**: Uses `npm: "@ai-sdk/openai-compatible"` and `options.baseURL: "https://openrouter.ai/api/v1"` and `options.apiKey` pointing to the env var.
+- **Free model filter — tools requirement added**: The OpenRouter API exposes `supported_parameters` per model. Added `.filter(m => m.supported_parameters?.includes("tools"))` to `filterFreeModels()` so only tool-calling-capable models are included. This reduced the free list from ~24 to ~14 models and removes noise models that can't function as coding assistants.
 
 ## Notes
 

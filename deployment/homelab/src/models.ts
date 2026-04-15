@@ -3,7 +3,11 @@
 // Pure filter functions are exported for testing; fetch wrappers call them.
 // ---------------------------------------------------------------------------
 
-type RawModel = { id: string; pricing: { prompt: string; completion: string } }
+type RawModel = {
+  id: string
+  pricing: { prompt: string; completion: string }
+  supported_parameters?: string[]
+}
 type LiveModel = { id: string }
 
 const EXCLUDED = new Set(["openrouter/free", "openrouter/elephant-alpha"])
@@ -37,6 +41,7 @@ export function filterFreeModels(models: RawModel[]): Record<string, object> {
     models
       .filter((m) => m.pricing.prompt === "0" && m.pricing.completion === "0")
       .filter((m) => !EXCLUDED.has(m.id) && !m.id.startsWith("google/lyria-") && !m.id.includes("guard"))
+      .filter((m) => m.supported_parameters?.includes("tools") ?? false)
       .map((m) => [m.id, {}]),
   )
 }
