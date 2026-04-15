@@ -41,7 +41,10 @@ function getEmail(req: http.IncomingMessage): string | null {
 }
 
 function getGithubToken(req: http.IncomingMessage): string | undefined {
-  const header = req.headers["x-auth-request-token"] ?? req.headers["x-forwarded-access-token"]
+  const header =
+    req.headers["x-auth-request-access-token"] ??
+    req.headers["x-auth-request-token"] ??
+    req.headers["x-forwarded-access-token"]
   return typeof header === "string" && header.length > 0 ? header : undefined
 }
 
@@ -57,7 +60,7 @@ proxy.on("error", (err, _req, res) => {
 const server = http.createServer(async (req, res) => {
   if (config.debugHeaders) {
     console.log(
-      `[debug] ${req.method} ${req.headers.host}${req.url} email=${req.headers["x-auth-request-email"] ?? "MISSING"} token=${req.headers["x-auth-request-token"] ? "PRESENT" : "MISSING"}`,
+      `[debug] ${req.method} ${req.headers.host}${req.url} email=${req.headers["x-auth-request-email"] ?? "MISSING"} token=${req.headers["x-auth-request-access-token"] ? "PRESENT" : "MISSING"}`,
     )
   }
   const email = getEmail(req)
