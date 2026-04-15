@@ -115,7 +115,8 @@ async function ensureGithubTokenSecret(hash: string, token: string): Promise<voi
     await k8sApi.createNamespacedSecret({ namespace: config.namespace, body: secret })
   } catch (err) {
     if (!isConflict(err)) throw err
-    await k8sApi.patchNamespacedSecret({ name, namespace: config.namespace, body: secret })
+    // Secret exists (resume with a new token) — replace it with a PUT.
+    await k8sApi.replaceNamespacedSecret({ name, namespace: config.namespace, body: secret })
   }
 }
 
