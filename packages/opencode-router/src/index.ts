@@ -55,6 +55,11 @@ proxy.on("error", (err, _req, res) => {
 })
 
 const server = http.createServer(async (req, res) => {
+  if (config.debugHeaders) {
+    console.log(
+      `[debug] ${req.method} ${req.headers.host}${req.url} email=${req.headers["x-auth-request-email"] ?? "MISSING"} token=${req.headers["x-auth-request-token"] ? "PRESENT" : "MISSING"}`,
+    )
+  }
   const email = getEmail(req)
   if (!email) {
     res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")
@@ -92,13 +97,6 @@ const server = http.createServer(async (req, res) => {
     // Router's own API
     const url = req.url ?? "/"
     if (url.startsWith("/api/")) {
-      if (config.debugHeaders) {
-        const token = req.headers["x-auth-request-token"]
-        const fwdToken = req.headers["x-forwarded-access-token"]
-        console.log(
-          `[debug] ${req.method} ${url} x-auth-request-token=${JSON.stringify(token)} x-forwarded-access-token=${JSON.stringify(fwdToken)}`,
-        )
-      }
       const handled = await handleApi(req, res, email, getGithubToken(req))
       if (handled) return
     }
