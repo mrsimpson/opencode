@@ -1,0 +1,15 @@
+{
+  "conversationId": "homelab-default-jtldu5",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode/deployment/homelab",
+  "gitBranch": "default",
+  "currentPhase": "code",
+  "planFilePath": "/Users/oliverjaegle/projects/open-source/opencode/deployment/homelab/.vibe/development-plan-default.md",
+  "workflowName": "epcc",
+  "requireReviewsBeforePhaseTransition": false,
+  "createdAt": "2026-04-15T21:22:57.658Z",
+  "updatedAt": "2026-04-15T21:41:33.369Z",
+  "sessionMetadata": {
+    "referenceId": "ses_26cf9cc18ffe9BZyD7g42M0FzL",
+    "createdAt": "2026-04-15T21:22:30.537Z"
+  }
+}
