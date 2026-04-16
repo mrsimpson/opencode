@@ -183,6 +183,21 @@ const apiKeysSecret = new k8s.core.v1.Secret(
 const freeModels = pulumi.output(fetchFreeModels())
 const paidModels = pulumi.output(fetchPaidModels())
 
+async function fetchFlinkerModels() {
+  try {
+    const res = await fetch("http://flinker:8080/v1/models")
+    const data = (await res.json()) as { models: { name: string }[] }
+    const models: Record<string, object> = {}
+    for (const m of data.models) {
+      models[m.name] = {}
+    }
+    return models
+  } catch {
+    return {}
+  }
+}
+const flinkerModels = pulumi.output(fetchFlinkerModels())
+
 const configMap = new k8s.core.v1.ConfigMap(
   `${APP_NAME}-config`,
   {
@@ -191,7 +206,7 @@ const configMap = new k8s.core.v1.ConfigMap(
       namespace: NAMESPACE,
       labels: { app: APP_NAME },
     },
-    data: pulumi.all([freeModels, paidModels]).apply(([free, paid]) => ({
+    data: pulumi.all([freeModels, paidModels, flinkerModels]).apply(([free, paid, flinker]) => ({
       // This file is deep-merged into the baked opencode.json by the init container.
       // Only contains the parts that need to be dynamic (model lists).
       "opencode.json": JSON.stringify(
@@ -202,6 +217,11 @@ const configMap = new k8s.core.v1.ConfigMap(
             },
             "openrouter-free": {
               models: free,
+            },
+            flinker: {
+              name: "Flinker LLMs",
+              api: "http://flinker:8080/v1",
+              models: flinker,
             },
           },
         },
