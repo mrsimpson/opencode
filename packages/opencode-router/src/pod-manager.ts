@@ -237,6 +237,12 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
     `if [ -n "$GITHUB_TOKEN" ]; then`,
     `  git config --global credential.helper store`,
     `  printf 'https://oauth2:%s@github.com\\n' "$GITHUB_TOKEN" > /home/opencode/.git-credentials`,
+    `  GH_USER=$(gh api /user 2>/dev/null)`,
+    `  GH_NAME=$(printf '%s' "$GH_USER" | jq -r '.name // .login')`,
+    `  GH_LOGIN=$(printf '%s' "$GH_USER" | jq -r '.login')`,
+    `  GH_ID=$(printf '%s' "$GH_USER" | jq -r '.id')`,
+    `  git config --global user.name "$GH_NAME"`,
+    `  git config --global user.email "\${GH_ID}+\${GH_LOGIN}@users.noreply.github.com"`,
     `fi`,
     // --- git phase ---
     `GIT="git -c safe.directory=/workspace"`,

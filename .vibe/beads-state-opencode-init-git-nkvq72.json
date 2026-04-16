@@ -1,0 +1,24 @@
+{
+  "conversationId": "opencode-init-git-nkvq72",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-5",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-5.1"
+    },
+    {
+      "phaseId": "implement",
+      "phaseName": "Implement",
+      "taskId": "opencode-5.2"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-5.3"
+    }
+  ],
+  "createdAt": "2026-04-16T12:18:03.636Z",
+  "updatedAt": "2026-04-16T12:18:03.636Z"
+}
