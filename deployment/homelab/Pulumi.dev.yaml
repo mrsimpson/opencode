@@ -3,8 +3,6 @@ config:
   code:cfOperatorImage: ghcr.io/mrsimpson/opencode-cloudflare-operator:0.1.0-local.37092d70f.dirty
   code:opencodeImage: ghcr.io/mrsimpson/opencode:1.4.3-main.ffb75b2
   code:homelabStack: mrsimpson/homelab/dev
-  code:anthropicApiKey:
-    secure: AAABAG/9eXalNNef/hxPr5yv8F9phJnv6c/p7GVpY8Rnutzox59WLEkwutX7RtF7djYUqqXHf7jRoR7PYDkf0Kx1dr8OF+coy/u3i/S+Cz3DpQzfwQrhRCyx/AtSC3AIUiteAfzlxK/UDAse2MabbOuk8W733qZVhFuBDkqxYgm3Du9kFZD97anwz1Y=
   cloudflare:apiToken:
     secure: AAABAHpX+bs29JxwbLtL7Cu+4PeyLIFW8m3sAmwgIPsTJvuiynbDXfOa05NYvVTZBjwuVaiRuwtq4t3qhXFipKRKmGRU4c7q
   code:openrouterFreeApiKey:

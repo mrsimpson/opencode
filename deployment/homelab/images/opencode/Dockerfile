@@ -11,7 +11,7 @@ FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 #   gh               — GitHub CLI (linux/amd64 tarball from GitHub releases)
 #   bd               — beads task-management CLI (https://github.com/steveyegge/beads)
 
-RUN apk add --no-cache git curl bash nodejs npm pnpm python3 && \
+RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
     # gh CLI — resolve latest version tag, fetch and extract just the binary
     GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
       | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/') && \

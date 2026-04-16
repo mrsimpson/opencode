@@ -174,8 +174,10 @@ const apiKeysSecret = new k8s.core.v1.Secret(
 )
 
 // ---------------------------------------------------------------------------
-// 4. ConfigMap — opencode.json for session pods
-//    Provider model lists are fetched live from OpenRouter at deploy time.
+// 4. ConfigMap — dynamic config overrides for session pods
+//    Contains only dynamic parts (model lists) that change at deploy time.
+//    These are merged with baked config (/etc/opencode-defaults/) by the
+//    init container using jq deep merge.
 // ---------------------------------------------------------------------------
 
 const freeModels = pulumi.output(fetchFreeModels())
@@ -190,21 +192,15 @@ const configMap = new k8s.core.v1.ConfigMap(
       labels: { app: APP_NAME },
     },
     data: pulumi.all([freeModels, paidModels]).apply(([free, paid]) => ({
+      // This file is deep-merged into the baked opencode.json by the init container.
+      // Only contains the parts that need to be dynamic (model lists).
       "opencode.json": JSON.stringify(
         {
-          $schema: "https://opencode.ai/config.json",
-          model: "anthropic/claude-sonnet-4-5",
           provider: {
             openrouter: {
               models: paid,
             },
             "openrouter-free": {
-              npm: "@ai-sdk/openai-compatible",
-              env: ["OPENROUTER_FREE_API_KEY"],
-              options: {
-                name: "openrouter-free",
-                baseURL: "https://openrouter.ai/api/v1",
-              },
               models: free,
             },
           },
