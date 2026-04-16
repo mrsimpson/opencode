@@ -20,5 +20,4 @@ config:
   # pulumi config set code:opencodeImage ghcr.io/mrsimpson/opencode:<tag>
 
   # Secrets (set with --secret flag):
-  # pulumi config set code:anthropicApiKey <key> --secret
   # pulumi config set cloudflare:apiToken <token> --secret

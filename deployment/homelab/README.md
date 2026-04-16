@@ -34,6 +34,7 @@ homelab/                           github.com/mrsimpson/homelab
 ```
 
 The `homelab/` stack:
+
 1. References the homelab base stack via [Pulumi StackReference](https://www.pulumi.com/docs/concepts/stack/#stackreferences) to get shared infrastructure facts (Cloudflare tunnel CNAME, zone ID, domain)
 2. Uses [`@mrsimpson/homelab-core-components`](https://www.npmjs.com/package/@mrsimpson/homelab-core-components) — a published npm package from the homelab repo — to deploy the router as an `ExposedWebApp` (Traefik OAuth2-Proxy routes, Cloudflare DNS, Pod Security Standards, etc.)
 3. Adds the cloudflare-operator as an `extraContainer` sidecar on the router pod
@@ -79,21 +80,36 @@ The `deploy` target automatically updates the Pulumi stack config with the newly
 
 Stack config lives in `Pulumi.dev.yaml`. Secrets are encrypted by Pulumi.
 
-| Key | Description |
-|---|---|
-| `code:routerImage` | opencode-router container image (tag updated by `make deploy`) |
-| `code:cfOperatorImage` | cloudflare-operator container image |
-| `code:opencodeImage` | opencode session pod image |
-| `code:anthropicApiKey` | Anthropic API key (secret) |
-| `code:homelabStack` | Pulumi StackReference to the homelab base stack |
-| `cloudflare:apiToken` | Cloudflare API token (secret) |
+| Key                    | Description                                                    |
+| ---------------------- | -------------------------------------------------------------- |
+| `code:routerImage`     | opencode-router container image (tag updated by `make deploy`) |
+| `code:cfOperatorImage` | cloudflare-operator container image                            |
+| `code:opencodeImage`   | opencode session pod image                                     |
+| `code:homelabStack`    | Pulumi StackReference to the homelab base stack                |
+| `cloudflare:apiToken`  | Cloudflare API token (secret)                                  |
 
 ## CI/CD
 
 Images are built and pushed automatically by GitHub Actions:
+
 - [`build-opencode-router.yml`](../.github/workflows/build-opencode-router.yml) — triggers on changes to `packages/opencode-router/`
 - [`build-cloudflare-operator.yml`](../.github/workflows/build-cloudflare-operator.yml) — triggers on changes to `packages/opencode-cloudflare-operator/`
 - [`deploy-homelab.yml`](../.github/workflows/deploy-homelab.yml) — runs `pulumi up` after the operator image build succeeds
+
+## Session pod configuration
+
+opencode has two config layers:
+
+- **Static config** (agents, skills, plugins, MCP) is baked into the image at `images/opencode/config/opencode.json`
+- **Dynamic config** (model lists from OpenRouter API) is fetched at deploy time by Pulumi and stored in the `opencode-config-dir` ConfigMap
+
+The init container merges them with `jq -s '.[0] * .[1]'` — ConfigMap wins on conflicts.
+
+| Layer               | Where                                                         |
+| ------------------- | ------------------------------------------------------------- |
+| Static config       | `images/opencode/config/opencode.json`                        |
+| Dynamic (ConfigMap) | `src/index.ts` → `opencode-config-dir`                        |
+| Init merge logic    | `packages/opencode-router/src/pod-manager.ts` → `ensurePod()` |
 
 ## Related
 

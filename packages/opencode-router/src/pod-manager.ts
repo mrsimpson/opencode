@@ -210,14 +210,25 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
 
   // Single init container using the opencode image (which already has git).
   // Phase 1 — config seed (idempotent): copy /etc/opencode-defaults → ~/.config/opencode on first start,
-  //   then run any *.sh scripts in init-scripts/ (e.g. skills install). Skipped on pod restart.
+  //   then merge dynamic ConfigMap overrides, then run any *.sh scripts in init-scripts/ (e.g. skills install).
+  //   Skipped on pod restart.
   // Phase 2 — git: clone repo + checkout session branch. Safe.directory avoids needing a writable HOME.
   const initScript = [
     `set -e`,
     // --- config phase (idempotent) ---
     `if [ ! -d /home/opencode/.config/opencode ]; then`,
     `  mkdir -p /home/opencode/.config/opencode`,
+    // Copy baked config as base
     `  cp -r /etc/opencode-defaults/. /home/opencode/.config/opencode/`,
+    // Merge dynamic ConfigMap overrides (if present) — deep merge, ConfigMap wins
+    `  if [ -f /home/opencode/.opencode/opencode.json ]; then`,
+    `    if command -v jq >/dev/null 2>&1; then`,
+    `      merged=$(jq -s '.[0] * .[1]' /home/opencode/.config/opencode/opencode.json /home/opencode/.opencode/opencode.json)`,
+    `      echo "$merged" > /home/opencode/.config/opencode/opencode.json`,
+    `    else`,
+    `      echo "Warning: jq not found, using baked config only" >&2`,
+    `    fi`,
+    `  fi`,
     `  for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
     `    [ -f "$s" ] && sh "$s" || true`,
     `  done`,
@@ -456,9 +467,6 @@ export function updateLastActivity(hash: string): void {
           value: new Date(now).toISOString(),
         },
       ],
-    })
-    .catch((err) => {
-      console.error(`Failed to update last-activity for ${name}:`, err)
     })
     .catch((err) => {
       console.error(`Failed to update last-activity for ${name}:`, err)
