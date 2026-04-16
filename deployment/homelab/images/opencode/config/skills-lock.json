@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "adr-nygard": {
+      "source": "./.ade/skills/adr-nygard",
+      "sourceType": "local",
+      "computedHash": "13cd33eb604e9e090057cce458469b2a1b609a6db3313a03df88d91776095b19"
+    },
+    "application-design": {
+      "source": "./.ade/skills/application-design",
+      "sourceType": "local",
+      "computedHash": "7dd5472cfe091b667b11ddbbfe1781108116eb52065cd3b16d47f780ac2652a9"
+    },
+    "architecture": {
+      "source": "./.ade/skills/architecture",
+      "sourceType": "local",
+      "computedHash": "bef57c6c92279da5bda3a9cd77c5414fb9b13de96b8be5bb9e76d4bfda951517"
+    },
+    "coding": {
+      "source": "./.ade/skills/coding",
+      "sourceType": "local",
+      "computedHash": "818e66c8f492f94b7f763e262e72d1622cf0583076b88746bdbf27c1ee6822db"
+    },
+    "conventional-commits": {
+      "source": "./.ade/skills/conventional-commits",
+      "sourceType": "local",
+      "computedHash": "bf79e931b5259564f56da9dd28c22069e9953603466870bbea244a3961cdafa3"
+    },
+    "starting-project": {
+      "source": "./.ade/skills/starting-project",
+      "sourceType": "local",
+      "computedHash": "c563b7ff950c4f5ebd474b80338f2f520c01723b224b59a418387d82e37c56a1"
+    },
+    "testing": {
+      "source": "./.ade/skills/testing",
+      "sourceType": "local",
+      "computedHash": "1b4b23675060b11b7e74350c4903d673d2bcfcbe2105406dbf878d4322b2e55c"
+    }
+  }
+}

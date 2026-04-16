@@ -9,7 +9,18 @@
     "agentskills": {
       "type": "local",
       "command": ["npx", "-y", "@codemcp/skills-server"]
+    },
+    "workflows": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "environment": {
+        "VIBE_WORKFLOW_DOMAINS": "skilled"
+      }
     }
+  },
+  "tools": {
+    "workflows*": false
   },
   "provider": {
     "openrouter": {

@@ -1,0 +1,6 @@
+choices:
+  process: codemcp-workflows-skilled
+  architecture: other
+  practices:
+    - conventional-commits
+    - adr-nygard

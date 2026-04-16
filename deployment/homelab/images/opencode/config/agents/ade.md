@@ -1,6 +1,8 @@
 ---
 name: ade
 description: ADE — Agentic Development Environment agent with project conventions and tools
+tools:
+  "workflows*": true
 permission:
   "*start_development": ask
   "*proceed_to_phase": ask

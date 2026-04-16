@@ -1,0 +1,358 @@
+version: 1
+generated_at: 2026-04-16T12:52:11.803Z
+choices:
+  process: codemcp-workflows-skilled
+  architecture: other
+  practices:
+    - conventional-commits
+    - adr-nygard
+logical_config:
+  mcp_servers:
+    - ref: workflows
+      command: npx
+      args:
+        - "@codemcp/workflows-server@latest"
+      env:
+        VIBE_WORKFLOW_DOMAINS: skilled
+      allowedTools:
+        - whats_next
+        - conduct_review
+        - list_workflows
+        - get_tool_info
+    - ref: knowledge
+      command: npx
+      args:
+        - -y
+        - "@codemcp/knowledge-server"
+      env: {}
+    - ref: agentskills
+      command: npx
+      args:
+        - -y
+        - "@codemcp/skills-server"
+      env: {}
+  instructions:
+    - >-
+      You are an AI assistant that helps users develop software features using
+      the workflows server.
+
+      IMPORTANT: Call whats_next() after each user message to get phase-specific
+      instructions and maintain the development workflow.
+
+      Each tool call returns a JSON response with an "instructions" field.
+      Follow these instructions immediately after you receive them.
+
+      Use the development plan which you will retrieve via whats_next() to
+      record important insights and decisions as per the structure of the plan.
+
+      Do not use your own task management tools.
+  cli_actions: []
+  knowledge_sources:
+    - name: conventional-commits-spec
+      origin: https://github.com/conventional-commits/conventionalcommits.org.git
+      description: The Conventional Commits specification
+  skills:
+    - name: starting-project
+      description: Conventions and tooling to expect when starting a new project
+      body: >-
+        # Starting a New Project
+
+
+        ## Project Setup
+
+        - Check for an existing README, architecture doc, or requirements doc
+        before doing anything else
+
+        - Prefer monorepo tooling (pnpm workspaces, nx, turborepo) for
+        multi-package projects
+
+        - Use a `.editorconfig` and a linter/formatter config (ESLint +
+        Prettier, Biome, etc.) from day one
+
+        - Store secrets in environment variables — never commit them; provide a
+        `.env.example`
+
+
+        ## Conventions
+
+        - Follow the language/framework conventions already present in the
+        project
+
+        - If no conventions exist yet, propose them and document them before
+        writing code
+
+        - Prefer explicit over implicit: clear naming, documented interfaces,
+        typed APIs
+
+
+        ## First Steps Checklist
+
+        1. Read all existing documentation
+
+        2. Understand the intended architecture (ask if unclear)
+
+        3. Confirm the tech stack and tooling
+
+        4. Set up the development environment and verify it works
+
+        5. Identify and create the initial project skeleton if needed
+    - name: architecture
+      description: Architectural conventions and decision-making guidelines
+      body: >-
+        # Architecture
+
+
+        ## Principles
+
+        - Prefer simple, proven architectural patterns over novel ones
+
+        - Separate concerns: domain logic, infrastructure, and presentation must
+        not be mixed
+
+        - Design for testability: business logic must be testable without I/O
+
+        - Apply the dependency rule: inner layers must not depend on outer
+        layers
+
+
+        ## Decision Making
+
+        - Document significant architecture decisions as ADRs (Architecture
+        Decision Records)
+
+        - Evaluate alternatives before committing to an approach
+
+        - Consider non-functional requirements: scalability, maintainability,
+        operability
+
+
+        ## Boundaries
+
+        - Define clear module/package boundaries with explicit public APIs
+
+        - Avoid circular dependencies between modules
+
+        - Keep infrastructure concerns (DB, HTTP, queues) behind interfaces
+    - name: application-design
+      description: Design patterns for authentication, routing, error handling, and forms
+      body: >-
+        # Application Design
+
+
+        ## Authentication & Authorization
+
+        - Authenticate at the edge (middleware/guard) — never inside business
+        logic
+
+        - Use short-lived tokens (JWT or session) with refresh strategies
+
+        - Apply the principle of least privilege for all role/permission checks
+
+
+        ## Routing
+
+        - Use declarative, file-based or configuration-driven routing where
+        available
+
+        - Protect routes with auth guards rather than ad-hoc checks
+
+        - Keep route handlers thin — delegate to services immediately
+
+
+        ## Error Handling
+
+        - Distinguish between operational errors (expected) and programmer
+        errors (bugs)
+
+        - Return structured error responses with consistent shape (code,
+        message, details)
+
+        - Log errors with context (request id, user id, stack trace) for
+        observability
+
+        - Never expose internal stack traces or sensitive data to clients
+
+
+        ## Forms & Validation
+
+        - Validate input at the boundary (schema-first with Zod, Yup, Joi, etc.)
+
+        - Show inline, field-level validation errors in the UI
+
+        - Prevent double-submission by disabling submit controls during
+        in-flight requests
+    - name: coding
+      description: Code style, patterns, and implementation conventions
+      body: >-
+        # Coding
+
+
+        ## Style
+
+        - Follow the project's existing code style and linter rules
+        unconditionally
+
+        - Write self-documenting code: prefer expressive names over comments
+        that explain *what*
+
+        - Use comments only to explain *why* when the reason is non-obvious
+
+
+        ## Patterns
+
+        - Prefer pure functions and immutable data structures
+
+        - Keep functions small and focused on a single responsibility
+
+        - Avoid deep nesting — use early returns, guard clauses, and extraction
+
+        - Prefer composition over inheritance
+
+
+        ## Quality Gates
+
+        - Run the linter and type-checker before declaring a task done
+
+        - Fix all warnings, not just errors
+
+        - Ensure the build passes end-to-end before moving on
+    - name: testing
+      description: Testing strategy, patterns, and execution conventions
+      body: >-
+        # Testing
+
+
+        ## Strategy
+
+        - Follow the test pyramid: many unit tests, fewer integration tests,
+        fewest E2E tests
+
+        - Write tests alongside the code — not as an afterthought
+
+        - Each test must be independent: no shared mutable state between tests
+
+
+        ## Unit Tests
+
+        - Test one unit of behavior per test case
+
+        - Use descriptive test names that read as specifications
+
+        - Mock only direct dependencies, not transitive ones
+
+
+        ## Integration & E2E Tests
+
+        - Test real interactions between components (DB, HTTP, queue) in
+        integration tests
+
+        - Use realistic data and environments — avoid fake setups that hide real
+        issues
+
+        - Clean up test data after each test to keep tests isolated
+
+
+        ## Execution
+
+        - All tests must pass before committing
+
+        - Run the full test suite after refactoring, even if only small changes
+        were made
+
+        - Treat a flaky test as a bug — fix or delete it, never ignore it
+    - name: conventional-commits
+      description: Conventional Commits specification for structured commit messages
+      body: |-
+        # Conventional Commits
+
+        ## Format
+        ```
+        <type>[optional scope]: <description>
+
+        [optional body]
+
+        [optional footer(s)]
+        ```
+
+        ## Types
+        - `feat`: A new feature (correlates with MINOR in SemVer)
+        - `fix`: A bug fix (correlates with PATCH in SemVer)
+        - `docs`: Documentation only changes
+        - `style`: Changes that do not affect the meaning of the code
+        - `refactor`: A code change that neither fixes a bug nor adds a feature
+        - `perf`: A code change that improves performance
+        - `test`: Adding missing tests or correcting existing tests
+        - `chore`: Changes to the build process or auxiliary tools
+
+        ## Rules
+        - Subject line must not exceed 72 characters
+        - Use imperative mood in the subject line ("add" not "added")
+        - Do not end the subject line with a period
+        - Separate subject from body with a blank line
+        - Use the body to explain what and why, not how
+        - `BREAKING CHANGE:` footer or `!` after type/scope for breaking changes
+    - name: adr-nygard
+      description: Architecture Decision Records following Nygard's lightweight template
+      body: >-
+        # Architecture Decision Records (Nygard)
+
+
+        ## When to Write an ADR
+
+        - When making a significant architectural decision
+
+        - When choosing between multiple viable options
+
+        - When the decision will be hard to reverse
+
+        - When future developers will ask "why did we do this?"
+
+
+        ## Template
+
+        Store ADRs in `docs/adr/` as numbered markdown files:
+        `NNNN-title-with-dashes.md`
+
+
+        ```markdown
+
+        # N. Title
+
+
+        ## Status
+
+        Proposed | Accepted | Deprecated | Superseded by [ADR-NNNN]
+
+
+        ## Context
+
+        What is the issue that we're seeing that is motivating this decision or
+        change?
+
+
+        ## Decision
+
+        What is the change that we're proposing and/or doing?
+
+
+        ## Consequences
+
+        What becomes easier or more difficult to do because of this change?
+
+        ```
+
+
+        ## Rules
+
+        - ADRs are immutable once accepted — supersede, don't edit
+
+        - Keep context focused on forces at play at the time of the decision
+
+        - Write consequences as both positive and negative impacts
+
+        - Number sequentially, never reuse numbers
+
+        - Title should be a short noun phrase (e.g. "Use PostgreSQL for
+        persistence")
+  git_hooks: []
+  setup_notes: []
