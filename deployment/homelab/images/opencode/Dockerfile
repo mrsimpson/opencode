@@ -10,6 +10,7 @@ FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 #   python3          — Python interpreter (for MCP servers, scripts)
 #   gh               — GitHub CLI (linux/amd64 tarball from GitHub releases)
 #   bd               — beads task-management CLI (https://github.com/steveyegge/beads)
+#   bun              — fast typescript toolchain
 
 RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
     # gh CLI — resolve latest version tag, fetch and extract just the binary
@@ -21,7 +22,10 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
     curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash && \
     # Ensure all installed binaries are owned by root and world-executable
     chown root:root /usr/local/bin/bd /usr/local/bin/beads /usr/local/bin/gh && \
-    chmod 755 /usr/local/bin/bd /usr/local/bin/beads /usr/local/bin/gh
+    chmod 755 /usr/local/bin/bd /usr/local/bin/beads /usr/local/bin/gh && \
+    # bun — install then move binary to a system-wide path so all users can access it
+    curl -fsSL https://bun.sh/install | bash && \
+    mv /root/.bun/bin/bun /usr/local/bin/bun
 
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
