@@ -202,11 +202,11 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
 
-  // The repo is cloned directly into /workspace (init container) which maps to <PVC>/projects/
-  // via subPath "projects". The main container mounts the full PVC at /home/opencode (no subPath),
-  // so the cloned repo is at /home/opencode/projects/ inside the main container. We set workingDir
+  // The repo is cloned directly into /workspace (init container) which maps to <PVC>/repo/
+  // via subPath "repo". The main container mounts the full PVC at /home/opencode (no subPath),
+  // so the cloned repo is at /home/opencode/repo/ inside the main container. We set workingDir
   // accordingly so opencode serve starts in the git repo and correctly discovers the project.
-  const workspacePath = `/home/opencode/projects`
+  const workspacePath = `/home/opencode/repo`
 
   // Single init container using the opencode image (which already has git).
   // Phase 1 — config seed (idempotent): copy /etc/opencode-defaults → ~/.config/opencode on first start,
@@ -278,7 +278,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
       ...(githubToken ? { envFrom: [{ secretRef: { name: githubSecretName(hash) } }] } : {}),
       volumeMounts: [
         { name: "user-data", mountPath: "/home/opencode" },
-        { name: "user-data", mountPath: "/workspace", subPath: "projects" },
+        { name: "user-data", mountPath: "/workspace", subPath: "repo" },
       ],
     },
   ]
@@ -312,9 +312,9 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           name: "opencode",
           image: config.opencodeImage,
           // Start the process in the cloned repo directory so opencode discovers the git project.
-          // The init container clones directly into /workspace (subPath "projects" on the PVC).
+          // The init container clones directly into /workspace (subPath "repo" on the PVC).
           // The main container mounts the full PVC at /home/opencode, so the repo is at
-          // /home/opencode/projects/.
+          // /home/opencode/repo/.
           workingDir: workspacePath,
           // Source /home/opencode/.opencode/.env if present — lets operators inject arbitrary
           // env vars (e.g. WORKFLOW_AGENTS) via the existing ConfigMap without touching router code.
