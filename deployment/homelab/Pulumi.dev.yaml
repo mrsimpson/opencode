@@ -9,3 +9,4 @@ config:
     secure: AAABABvw9kis9mzg456qoVI6K/9nvyYjIPR6JzCqs3yYrmUhwQpZOfaa2h1Ei0VqNYPl4cv0Opt7vY6qAvCjuqS5RptD0HjGggxeZNZJsgWZc0ahndu+9zNZBjLCUp9gmTENSRU1sgKl
   code:openrouterApiKey:
     secure: AAABAOdADNtfH1LatKF3L9tDI8bcYGPLYdQzyK6jdamklNskzu+ooiIkkQeEYICnoYXf+LO10mZkYAGYNEuh8192KuzbrODgT6cS8tv6RRppz5DyFwwPiGQECztB7J4M0RX1MGsw/8pV
+  code:podenv: WORKFLOW_AGENTS=workflow
