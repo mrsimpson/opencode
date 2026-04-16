@@ -17,10 +17,19 @@
       "environment": {
         "VIBE_WORKFLOW_DOMAINS": "skilled"
       }
+    },
+    "office_workflows": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "environment": {
+        "VIBE_WORKFLOW_DOMAINS": "office"
+      }
     }
   },
   "tools": {
-    "workflows*": false
+    "workflows*": false,
+    "office_workflows*": false
   },
   "provider": {
     "openrouter": {
