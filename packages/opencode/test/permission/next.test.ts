@@ -509,6 +509,81 @@ test("disabled - specific allow overrides wildcard deny", () => {
   expect(result.has("read")).toBe(true)
 })
 
+// MCP tool filtering tests
+
+test("disabled - filters MCP workflow tools with wildcard permission", () => {
+  const mcpTools = [
+    "workflows_start_development",
+    "workflows_proceed_to_phase",
+    "workflows_whats_next",
+    "workflows_conduct_review",
+    "workflows_list_workflows",
+  ]
+  const result = Permission.disabled(mcpTools, [{ permission: "workflows_*", pattern: "*", action: "deny" }])
+  expect(result.has("workflows_start_development")).toBe(true)
+  expect(result.has("workflows_proceed_to_phase")).toBe(true)
+  expect(result.has("workflows_whats_next")).toBe(true)
+  expect(result.has("workflows_conduct_review")).toBe(true)
+  expect(result.has("workflows_list_workflows")).toBe(true)
+})
+
+test("disabled - filters MCP office_workflow tools with wildcard permission", () => {
+  const mcpTools = ["office_workflows_start_development", "office_workflows_whats_next"]
+  const result = Permission.disabled(mcpTools, [{ permission: "office_workflows_*", pattern: "*", action: "deny" }])
+  expect(result.has("office_workflows_start_development")).toBe(true)
+  expect(result.has("office_workflows_whats_next")).toBe(true)
+})
+
+test("disabled - allows specific MCP tool when wildcard denied but specific allowed", () => {
+  const result = Permission.disabled(
+    ["workflows_start_development", "workflows_whats_next"],
+    [
+      { permission: "workflows_*", pattern: "*", action: "deny" },
+      { permission: "workflows_start_development", pattern: "*", action: "allow" },
+    ],
+  )
+  expect(result.has("workflows_start_development")).toBe(false)
+  expect(result.has("workflows_whats_next")).toBe(true)
+})
+
+test("disabled - does not filter MCP tools when action is ask", () => {
+  const result = Permission.disabled(
+    ["workflows_start_development", "office_workflows_whats_next"],
+    [{ permission: "workflows_*", pattern: "*", action: "ask" }],
+  )
+  expect(result.has("workflows_start_development")).toBe(false)
+  expect(result.has("office_workflows_whats_next")).toBe(false)
+})
+
+test("disabled - filters mixed MCP and built-in tools", () => {
+  const tools = ["workflows_start_development", "bash", "edit", "office_workflows_whats_next"]
+  const result = Permission.disabled(tools, [
+    { permission: "workflows_*", pattern: "*", action: "deny" },
+    { permission: "office_workflows_*", pattern: "*", action: "deny" },
+    { permission: "bash", pattern: "*", action: "deny" },
+  ])
+  expect(result.has("workflows_start_development")).toBe(true)
+  expect(result.has("office_workflows_whats_next")).toBe(true)
+  expect(result.has("bash")).toBe(true)
+  expect(result.has("edit")).toBe(false)
+})
+
+test("disabled - allows MCP tools by default when no rules match", () => {
+  const result = Permission.disabled(
+    ["workflows_start_development", "knowledge_search_docs"],
+    [{ permission: "bash", pattern: "*", action: "deny" }],
+  )
+  expect(result.has("workflows_start_development")).toBe(false)
+  expect(result.has("knowledge_search_docs")).toBe(false)
+})
+
+test("evaluate - wildcard permission pattern matches MCP tool names", () => {
+  const result = Permission.evaluate("workflows_start_development", "*", [
+    { permission: "workflows_*", pattern: "*", action: "ask" },
+  ])
+  expect(result.action).toBe("ask")
+})
+
 // ask tests
 
 it.live("ask - resolves immediately when action is allow", () =>
