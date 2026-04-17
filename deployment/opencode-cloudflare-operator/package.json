@@ -9,8 +9,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "node --watch --env-file=.env.local dist/index.js",
     "start": "node dist/index.js",
-    "test": "vitest",
-    "test:run": "vitest run"
+    "test": "vitest run"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.0.0"
