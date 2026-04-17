@@ -27,9 +27,17 @@
       }
     }
   },
-  "tools": {
-    "workflows*": false,
-    "office_workflows*": false
+  "permission": {
+    "workflows_start_development": "deny",
+    "workflows_proceed_to_phase": "deny",
+    "workflows_whats_next": "deny",
+    "workflows_conduct_review": "deny",
+    "workflows_list_workflows": "deny",
+    "office_workflows_start_development": "deny",
+    "office_workflows_proceed_to_phase": "deny",
+    "office_workflows_whats_next": "deny",
+    "office_workflows_conduct_review": "deny",
+    "office_workflows_list_workflows": "deny"
   },
   "provider": {
     "openrouter": {

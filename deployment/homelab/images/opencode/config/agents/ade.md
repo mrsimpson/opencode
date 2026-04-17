@@ -1,16 +1,21 @@
 ---
 name: ade
 description: ADE — Agentic Development Environment agent with project conventions and tools
-tools:
-  "workflows*": true
 permission:
-  "*start_development": ask
-  "*proceed_to_phase": ask
-  "*whats_next": allow
-  "*conduct_review": allow
-  "*list_workflows": allow
-  "knowledge*": allow
-  "agentskills*": allow
+  workflows_start_development: ask
+  workflows_proceed_to_phase: ask
+  workflows_whats_next: allow
+  workflows_conduct_review: allow
+  workflows_list_workflows: allow
+  office_workflows_start_development: deny
+  office_workflows_proceed_to_phase: deny
+  office_workflows_whats_next: deny
+  office_workflows_conduct_review: deny
+  office_workflows_list_workflows: deny
+  knowledge_search_docs: deny
+  knowledge_list_docsets: deny
+  agentskills_list_skills: deny
+  agentskills_load_skill: deny
   read:
     "*": allow
     "*.env": deny

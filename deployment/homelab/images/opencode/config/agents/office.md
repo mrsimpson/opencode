@@ -1,8 +1,12 @@
 ---
 name: office
 description: Office workflows
-tools:
-  "office_workflows*": true
+permission:
+  office_workflows_start_development: ask
+  office_workflows_proceed_to_phase: ask
+  office_workflows_whats_next: allow
+  office_workflows_conduct_review: allow
+  office_workflows_list_workflows: allow
 ---
 
 You are an office assistant that helps users to create better documents, slides and posts using the workflows server.
