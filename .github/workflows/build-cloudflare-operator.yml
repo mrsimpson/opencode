@@ -33,6 +33,14 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-operator-npm-${{ hashFiles('deployment/opencode-cloudflare-operator/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-operator-npm-
+
       - name: Install dependencies
         run: |
           cd deployment/opencode-cloudflare-operator
