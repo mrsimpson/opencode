@@ -12,10 +12,6 @@ permission:
   office_workflows_whats_next: deny
   office_workflows_conduct_review: deny
   office_workflows_list_workflows: deny
-  knowledge_search_docs: deny
-  knowledge_list_docsets: deny
-  agentskills_list_skills: deny
-  agentskills_load_skill: deny
   read:
     "*": allow
     "*.env": deny
