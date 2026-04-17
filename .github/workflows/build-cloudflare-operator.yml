@@ -24,7 +24,26 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: recent
+
+      - name: Install dependencies
+        run: bun install --cwd deployment/opencode-cloudflare-operator
+
+      - name: Run tests
+        run: bun test --cwd deployment/opencode-cloudflare-operator
+
+      - name: Type check
+        run: bun typecheck --cwd deployment/opencode-cloudflare-operator
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/opencode-cloudflare-operator
