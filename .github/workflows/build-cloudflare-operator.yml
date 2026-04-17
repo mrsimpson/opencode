@@ -34,13 +34,19 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm ci --cwd deployment/opencode-cloudflare-operator
+        run: |
+          cd deployment/opencode-cloudflare-operator
+          npm ci
 
       - name: Run tests
-        run: npm test --cwd deployment/opencode-cloudflare-operator
+        run: |
+          cd deployment/opencode-cloudflare-operator
+          npm test
 
       - name: Type check
-        run: npm run typecheck --cwd deployment/opencode-cloudflare-operator
+        run: |
+          cd deployment/opencode-cloudflare-operator
+          npm run typecheck
 
   build:
     needs: test
