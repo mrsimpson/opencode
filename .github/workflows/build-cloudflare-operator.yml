@@ -37,10 +37,14 @@ jobs:
         run: bun install --cwd deployment/opencode-cloudflare-operator
 
       - name: Run tests
-        run: bunx vitest run --cwd deployment/opencode-cloudflare-operator
+        run: |
+          cd deployment/opencode-cloudflare-operator
+          bun run test:run
 
       - name: Type check
-        run: bun run typecheck --cwd deployment/opencode-cloudflare-operator
+        run: |
+          cd deployment/opencode-cloudflare-operator
+          bun run typecheck
 
   build:
     needs: test
