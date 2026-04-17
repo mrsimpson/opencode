@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd deployment/opencode-cloudflare-operator
-          npm ci
+          npm install --ignore-scripts
 
       - name: Run tests
         run: |
