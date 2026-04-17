@@ -1,25 +1,21 @@
-// Store original env and set test values before imports
-const originalEnv = { ...process.env }
-const testEnv = {
-  CF_API_TOKEN: "test-token",
-  CF_ZONE_ID: "zone123",
-  CF_TUNNEL_ID: "tunnel123",
-  DOMAIN: "no-panic.org",
-  ROUTER_SERVICE_URL: "http://traefik-controller.traefik-system.svc.cluster.local:80",
-  WATCH_NAMESPACE: "code",
-  POD_LABEL_SELECTOR: "app.kubernetes.io/managed-by=opencode-router",
-  INGRESSROUTE_NAMESPACE: "code",
-  OAUTH2_CHAIN_MIDDLEWARE: "code-oauth2-chain",
-  ROUTER_SERVICE_NAME: "code",
-  HEALTH_PORT: "8080",
-  ROUTE_SUFFIX: "-oc",
-}
-
-for (const [key, value] of Object.entries(testEnv)) {
-  process.env[key] = value
-}
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+// Store original env
+const originalEnv = { ...process.env }
+const testEnvKeys = [
+  "CF_API_TOKEN",
+  "CF_ZONE_ID",
+  "CF_TUNNEL_ID",
+  "DOMAIN",
+  "ROUTER_SERVICE_URL",
+  "WATCH_NAMESPACE",
+  "POD_LABEL_SELECTOR",
+  "INGRESSROUTE_NAMESPACE",
+  "OAUTH2_CHAIN_MIDDLEWARE",
+  "ROUTER_SERVICE_NAME",
+  "HEALTH_PORT",
+  "ROUTE_SUFFIX",
+]
 
 // ---------------------------------------------------------------------------
 // Mocks (must be before imports)
@@ -203,14 +199,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // Restore original env
+  // Restore original env - remove test vars, restore originals
   for (const key of Object.keys(process.env)) {
-    if (!(key in testEnv)) {
+    if (testEnvKeys.includes(key)) {
       delete process.env[key]
     }
   }
   for (const [key, value] of Object.entries(originalEnv)) {
-    process.env[key] = value
+    if (testEnvKeys.includes(key)) {
+      process.env[key] = value
+    }
   }
 })
 
