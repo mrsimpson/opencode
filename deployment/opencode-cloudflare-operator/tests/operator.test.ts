@@ -1,18 +1,25 @@
-// Set environment variables BEFORE importing modules
-process.env.CF_API_TOKEN = "test-token"
-process.env.CF_ZONE_ID = "zone123"
-process.env.CF_TUNNEL_ID = "tunnel123"
-process.env.DOMAIN = "no-panic.org"
-process.env.ROUTER_SERVICE_URL = "http://traefik-controller.traefik-system.svc.cluster.local:80"
-process.env.WATCH_NAMESPACE = "code"
-process.env.POD_LABEL_SELECTOR = "app.kubernetes.io/managed-by=opencode-router"
-process.env.INGRESSROUTE_NAMESPACE = "code"
-process.env.OAUTH2_CHAIN_MIDDLEWARE = "code-oauth2-chain"
-process.env.ROUTER_SERVICE_NAME = "code"
-process.env.HEALTH_PORT = "8080"
-process.env.ROUTE_SUFFIX = "-oc"
+// Store original env and set test values before imports
+const originalEnv = { ...process.env }
+const testEnv = {
+  CF_API_TOKEN: "test-token",
+  CF_ZONE_ID: "zone123",
+  CF_TUNNEL_ID: "tunnel123",
+  DOMAIN: "no-panic.org",
+  ROUTER_SERVICE_URL: "http://traefik-controller.traefik-system.svc.cluster.local:80",
+  WATCH_NAMESPACE: "code",
+  POD_LABEL_SELECTOR: "app.kubernetes.io/managed-by=opencode-router",
+  INGRESSROUTE_NAMESPACE: "code",
+  OAUTH2_CHAIN_MIDDLEWARE: "code-oauth2-chain",
+  ROUTER_SERVICE_NAME: "code",
+  HEALTH_PORT: "8080",
+  ROUTE_SUFFIX: "-oc",
+}
 
-import { beforeEach, describe, expect, it, vi } from "vitest"
+for (const [key, value] of Object.entries(testEnv)) {
+  process.env[key] = value
+}
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // ---------------------------------------------------------------------------
 // Mocks (must be before imports)
@@ -193,6 +200,18 @@ function pvc(hash = HASH) {
 beforeEach(() => {
   resetState()
   vi.clearAllMocks()
+})
+
+afterEach(() => {
+  // Restore original env
+  for (const key of Object.keys(process.env)) {
+    if (!(key in testEnv)) {
+      delete process.env[key]
+    }
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    process.env[key] = value
+  }
 })
 
 // ---------------------------------------------------------------------------
