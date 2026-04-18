@@ -1,12 +1,12 @@
 ---
 name: workflow
-description: Workflow based engineering
+description: Workflow based engineering. Uses the native workflow-plugin tools instead of the mcp tools
 permission:
-  "*start_development": ask
-  "*proceed_to_phase": ask
-  "*whats_next": allow
-  "*conduct_review": allow
-  "*list_workflows": allow
+  "start_development": "ask"
+  "proceed_to_phase": "ask"
+  "conduct_review": "allow"
+  "reset_development": "ask"
+  "setup_project_docs": "ask"
   "knowledge*": allow
   "agentskills*": allow
   read:
