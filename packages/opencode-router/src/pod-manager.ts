@@ -321,7 +321,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           command: [
             "sh",
             "-c",
-            `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
+            `git config --global --add safe.directory /home/opencode/repo; set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
           ],
           ports: [{ containerPort: config.opencodePort }],
           envFrom: [
