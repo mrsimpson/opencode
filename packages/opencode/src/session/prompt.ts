@@ -439,14 +439,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           })
         }
 
-        // Filter MCP tools by permissions (same as built-in tools)
-        const ruleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
-        const disabled = Permission.disabled(Object.keys(yield* mcp.tools()), ruleset)
-
         for (const [key, item] of Object.entries(yield* mcp.tools())) {
           const execute = item.execute
           if (!execute) continue
-          if (disabled.has(key)) continue
 
           const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
           const transformed = ProviderTransform.schema(input.model, schema)
