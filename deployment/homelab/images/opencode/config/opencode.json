@@ -11,12 +11,12 @@
       "type": "local",
       "command": ["npx", "-y", "@codemcp/skills-server"]
     },
-    "skilled_workflows": {
+    "architecture_workflows": {
       "type": "local",
       "enabled": true,
       "command": ["npx", "@codemcp/workflows-server@latest"],
       "environment": {
-        "VIBE_WORKFLOW_DOMAINS": "skilled"
+        "VIBE_WORKFLOW_DOMAINS": "architecture"
       }
     },
     "office_workflows": {
@@ -26,11 +26,26 @@
       "environment": {
         "VIBE_WORKFLOW_DOMAINS": "office"
       }
+    },
+    "skilled_workflows": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "environment": {
+        "VIBE_WORKFLOW_DOMAINS": "skilled"
+      }
+    },
+    "vibe_workflows": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "@codemcp/workflows-server@latest"]
     }
   },
   "permission": {
-    "skilled_workflows_*": "deny",
+    "architecture_workflows_*": "deny",
     "office_workflows_*": "deny",
+    "skilled_workflows_*": "deny",
+    "vibe_workflows_*": "deny",
     "start_development": "deny",
     "proceed_to_phase": "deny",
     "conduct_review": "deny",
