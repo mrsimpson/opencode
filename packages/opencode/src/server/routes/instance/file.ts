@@ -1,6 +1,5 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
-import { Effect } from "effect"
 import z from "zod"
 import { File } from "@/file"
 import { Ripgrep } from "@/file/ripgrep"

@@ -121,10 +121,6 @@ export function createMainWindow() {
     win.show()
   })
 
-  win.once("ready-to-show", () => {
-    win.show()
-  })
-
   return win
 }
 

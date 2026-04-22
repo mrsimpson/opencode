@@ -67,48 +67,6 @@ async function onceBus<D extends BusEvent.Definition>(def: D) {
   }
 }
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    LSP.defaultLayer,
-    FileTime.defaultLayer,
-    AppFileSystem.defaultLayer,
-    Format.defaultLayer,
-    Bus.layer,
-    Truncate.defaultLayer,
-    Agent.defaultLayer,
-  ),
-)
-
-afterAll(async () => {
-  await runtime.dispose()
-})
-
-const resolve = () =>
-  runtime.runPromise(
-    Effect.gen(function* () {
-      const info = yield* EditTool
-      return yield* info.init()
-    }),
-  )
-
-const readFileTime = (sessionID: SessionID, filepath: string) =>
-  runtime.runPromise(FileTime.Service.use((ft) => ft.read(sessionID, filepath)))
-
-const subscribeBus = <D extends BusEvent.Definition>(def: D, callback: () => unknown) =>
-  runtime.runPromise(Bus.Service.use((bus) => bus.subscribeCallback(def, callback)))
-
-async function onceBus<D extends BusEvent.Definition>(def: D) {
-  const result = Promise.withResolvers<void>()
-  const unsub = await subscribeBus(def, () => {
-    unsub()
-    result.resolve()
-  })
-  return {
-    wait: result.promise,
-    unsub,
-  }
-}
-
 describe("tool.edit", () => {
   describe("creating new files", () => {
     test("creates new file when oldString is empty", async () => {

@@ -43,7 +43,6 @@ import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
 import { Npm } from "@/npm"
-import { InstanceRef } from "@/effect/instance-ref"
 
 const log = Log.create({ service: "config" })
 

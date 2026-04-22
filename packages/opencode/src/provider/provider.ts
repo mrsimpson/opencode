@@ -166,6 +166,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           if (value.cost.input === 0) continue
           delete input.models[key]
         }
+      }
 
       return {
         autoload: Object.keys(input.models).length > 0,
@@ -266,51 +267,17 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           process.env.AWS_BEARER_TOKEN_BEDROCK = auth.key
           return auth.key
         }
-      }),
-      openai: () =>
-        Effect.succeed({
-          autoload: false,
-          async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-            return sdk.responses(modelID)
-          },
-          options: {},
-        }),
-      xai: () =>
-        Effect.succeed({
-          autoload: false,
-          async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-            return sdk.responses(modelID)
-          },
-          options: {},
-        }),
-      "github-copilot": () =>
-        Effect.succeed({
-          autoload: false,
-          async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-            if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-            return shouldUseCopilotResponsesApi(modelID) ? sdk.responses(modelID) : sdk.chat(modelID)
-          },
-          options: {},
-        }),
-      azure: Effect.fnUntraced(function* (provider: Info) {
-        const env = yield* dep.env()
-        const resource = iife(() => {
-          const name = provider.options?.resourceName
-          if (typeof name === "string" && name.trim() !== "") return name
-          return env["AZURE_RESOURCE_NAME"]
-        })
+        return undefined
+      })
 
       const awsWebIdentityTokenFile = env["AWS_WEB_IDENTITY_TOKEN_FILE"]
 
-        // Region precedence: 1) config file, 2) env var, 3) default
-        const configRegion = providerConfig?.options?.region
-        const envRegion = env["AWS_REGION"]
-        const defaultRegion = configRegion ?? envRegion ?? "us-east-1"
+      const containerCreds = Boolean(
+        process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
+      )
 
-        // Profile: config file takes precedence over env var
-        const configProfile = providerConfig?.options?.profile
-        const envProfile = env["AWS_PROFILE"]
-        const profile = configProfile ?? envProfile
+      if (!profile && !awsAccessKeyId && !awsBearerToken && !awsWebIdentityTokenFile && !containerCreds)
+        return { autoload: false }
 
       const { fromNodeProviderChain } = yield* Effect.promise(() => import("@aws-sdk/credential-providers"))
 
@@ -318,132 +285,29 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         region: defaultRegion,
       }
 
-        // TODO: Using process.env directly because Env.set only updates a process.env shallow copy,
-        // until the scope of the Env API is clarified (test only or runtime?)
-        const awsBearerToken = iife(() => {
-          const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
-          if (envToken) return envToken
-          if (auth?.type === "api") {
-            process.env.AWS_BEARER_TOKEN_BEDROCK = auth.key
-            return auth.key
-          }
-          return undefined
-        })
+      // Only use credential chain if no bearer token exists
+      // Bearer token takes precedence over credential chain (profiles, access keys, IAM roles, web identity tokens)
+      if (!awsBearerToken) {
+        // Build credential provider options (only pass profile if specified)
+        const credentialProviderOptions = profile ? { profile } : {}
 
-        const awsWebIdentityTokenFile = env["AWS_WEB_IDENTITY_TOKEN_FILE"]
+        providerOptions.credentialProvider = fromNodeProviderChain(credentialProviderOptions)
+      }
 
-        const containerCreds = Boolean(
-          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
-        )
+      // Add custom endpoint if specified (endpoint takes precedence over baseURL)
+      const endpoint = providerConfig?.options?.endpoint ?? providerConfig?.options?.baseURL
+      if (endpoint) {
+        providerOptions.baseURL = endpoint
+      }
 
-        if (!profile && !awsAccessKeyId && !awsBearerToken && !awsWebIdentityTokenFile && !containerCreds)
-          return { autoload: false }
-
-        const providerOptions: AmazonBedrockProviderSettings = {
-          region: defaultRegion,
-        }
-
-        // Only use credential chain if no bearer token exists
-        // Bearer token takes precedence over credential chain (profiles, access keys, IAM roles, web identity tokens)
-        if (!awsBearerToken) {
-          // Build credential provider options (only pass profile if specified)
-          const credentialProviderOptions = profile ? { profile } : {}
-
-          providerOptions.credentialProvider = fromNodeProviderChain(credentialProviderOptions)
-        }
-
-        // Add custom endpoint if specified (endpoint takes precedence over baseURL)
-        const endpoint = providerConfig?.options?.endpoint ?? providerConfig?.options?.baseURL
-        if (endpoint) {
-          providerOptions.baseURL = endpoint
-        }
-
-        return {
-          autoload: true,
-          options: providerOptions,
-          async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-            // Skip region prefixing if model already has a cross-region inference profile prefix
-            // Models from models.dev may already include prefixes like us., eu., global., etc.
-            const crossRegionPrefixes = ["global.", "us.", "eu.", "jp.", "apac.", "au."]
-            if (crossRegionPrefixes.some((prefix) => modelID.startsWith(prefix))) {
-              return sdk.languageModel(modelID)
-            }
-
-            // Region resolution precedence (highest to lowest):
-            // 1. options.region from opencode.json provider config
-            // 2. defaultRegion from AWS_REGION environment variable
-            // 3. Default "us-east-1" (baked into defaultRegion)
-            const region = options?.region ?? defaultRegion
-
-            let regionPrefix = region.split("-")[0]
-
-            switch (regionPrefix) {
-              case "us": {
-                const modelRequiresPrefix = [
-                  "nova-micro",
-                  "nova-lite",
-                  "nova-pro",
-                  "nova-premier",
-                  "nova-2",
-                  "claude",
-                  "deepseek",
-                ].some((m) => modelID.includes(m))
-                const isGovCloud = region.startsWith("us-gov")
-                if (modelRequiresPrefix && !isGovCloud) {
-                  modelID = `${regionPrefix}.${modelID}`
-                }
-                break
-              }
-              case "eu": {
-                const regionRequiresPrefix = [
-                  "eu-west-1",
-                  "eu-west-2",
-                  "eu-west-3",
-                  "eu-north-1",
-                  "eu-central-1",
-                  "eu-south-1",
-                  "eu-south-2",
-                ].some((r) => region.includes(r))
-                const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "llama3", "pixtral"].some((m) =>
-                  modelID.includes(m),
-                )
-                if (regionRequiresPrefix && modelRequiresPrefix) {
-                  modelID = `${regionPrefix}.${modelID}`
-                }
-                break
-              }
-              case "ap": {
-                const isAustraliaRegion = ["ap-southeast-2", "ap-southeast-4"].includes(region)
-                const isTokyoRegion = region === "ap-northeast-1"
-                if (
-                  isAustraliaRegion &&
-                  ["anthropic.claude-sonnet-4-5", "anthropic.claude-haiku"].some((m) => modelID.includes(m))
-                ) {
-                  regionPrefix = "au"
-                  modelID = `${regionPrefix}.${modelID}`
-                } else if (isTokyoRegion) {
-                  // Tokyo region uses jp. prefix for cross-region inference
-                  const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "nova-pro"].some((m) =>
-                    modelID.includes(m),
-                  )
-                  if (modelRequiresPrefix) {
-                    regionPrefix = "jp"
-                    modelID = `${regionPrefix}.${modelID}`
-                  }
-                } else {
-                  // Other APAC regions use apac. prefix
-                  const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "nova-pro"].some((m) =>
-                    modelID.includes(m),
-                  )
-                  if (modelRequiresPrefix) {
-                    regionPrefix = "apac"
-                    modelID = `${regionPrefix}.${modelID}`
-                  }
-                }
-                break
-              }
-            }
-
+      return {
+        autoload: true,
+        options: providerOptions,
+        async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
+          // Skip region prefixing if model already has a cross-region inference profile prefix
+          // Models from models.dev may already include prefixes like us., eu., global., etc.
+          const crossRegionPrefixes = ["global.", "us.", "eu.", "jp.", "apac.", "au."]
+          if (crossRegionPrefixes.some((prefix) => modelID.startsWith(prefix))) {
             return sdk.languageModel(modelID)
           }
 
@@ -719,109 +583,9 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             if (workflowRef) {
               model.selectedModelRef = workflowRef
             }
-          },
-          options: {
-            project,
-            location,
-            fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-              const auth = new GoogleAuth()
-              const client = await auth.getApplicationDefault()
-              const token = await client.credential.getAccessToken()
-
-              const headers = new Headers(init?.headers)
-              headers.set("Authorization", `Bearer ${token.token}`)
-
-              return fetch(input, { ...init, headers })
-            },
-          },
-          async getModel(sdk: any, modelID: string) {
-            const id = String(modelID).trim()
-            return sdk.languageModel(id)
-          },
-        }
-      }),
-      "google-vertex-anthropic": Effect.fnUntraced(function* () {
-        const env = yield* dep.env()
-        const project = env["GOOGLE_CLOUD_PROJECT"] ?? env["GCP_PROJECT"] ?? env["GCLOUD_PROJECT"]
-        const location = env["GOOGLE_CLOUD_LOCATION"] ?? env["VERTEX_LOCATION"] ?? "global"
-        const autoload = Boolean(project)
-        if (!autoload) return { autoload: false }
-        return {
-          autoload: true,
-          options: {
-            project,
-            location,
-          },
-          async getModel(sdk: any, modelID) {
-            const id = String(modelID).trim()
-            return sdk.languageModel(id)
-          },
-        }
-      }),
-      "sap-ai-core": Effect.fnUntraced(function* () {
-        const auth = yield* dep.auth("sap-ai-core")
-        // TODO: Using process.env directly because Env.set only updates a shallow copy (not process.env),
-        // until the scope of the Env API is clarified (test only or runtime?)
-        const envServiceKey = iife(() => {
-          const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
-          if (envAICoreServiceKey) return envAICoreServiceKey
-          if (auth?.type === "api") {
-            process.env.AICORE_SERVICE_KEY = auth.key
-            return auth.key
+            return model
           }
-          return undefined
-        })
-        const deploymentId = process.env.AICORE_DEPLOYMENT_ID
-        const resourceGroup = process.env.AICORE_RESOURCE_GROUP
-
-        return {
-          autoload: !!envServiceKey,
-          options: envServiceKey ? { deploymentId, resourceGroup } : {},
-          async getModel(sdk: any, modelID: string) {
-            return sdk(modelID)
-          },
-        }
-      }),
-      zenmux: () =>
-        Effect.succeed({
-          autoload: false,
-          options: {
-            headers: {
-              "HTTP-Referer": "https://opencode.ai/",
-              "X-Title": "opencode",
-            },
-          },
-        }),
-      gitlab: Effect.fnUntraced(function* (input: Info) {
-        const instanceUrl = (yield* dep.get("GITLAB_INSTANCE_URL")) || "https://gitlab.com"
-
-        const auth = yield* dep.auth(input.id)
-        const apiKey = yield* Effect.sync(() => {
-          if (auth?.type === "oauth") return auth.access
-          if (auth?.type === "api") return auth.key
-          return undefined
-        })
-        const token = apiKey ?? (yield* dep.get("GITLAB_TOKEN"))
-
-        const providerConfig = (yield* dep.config()).provider?.["gitlab"]
-
-        const aiGatewayHeaders = {
-          "User-Agent": `opencode/${Installation.VERSION} gitlab-ai-provider/${GITLAB_PROVIDER_VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`,
-          "anthropic-beta": "context-1m-2025-08-07",
-          ...(providerConfig?.options?.aiGatewayHeaders || {}),
-        }
-
-        const featureFlags = {
-          duo_agent_platform_agentic_chat: true,
-          duo_agent_platform: true,
-          ...(providerConfig?.options?.featureFlags || {}),
-        }
-
-        return {
-          autoload: !!token,
-          options: {
-            instanceUrl,
-            apiKey: token,
+          return sdk.agenticChat(modelID, {
             aiGatewayHeaders,
             featureFlags,
           })
@@ -849,98 +613,52 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
                     }
                   : null,
               })
-              if (workflowRef) {
-                model.selectedModelRef = workflowRef
-              }
-              return model
-            }
-            return sdk.agenticChat(modelID, {
-              aiGatewayHeaders,
-              featureFlags,
-            })
-          },
-          async discoverModels(): Promise<Record<string, Model>> {
-            if (!apiKey) {
-              log.info("gitlab model discovery skipped: no apiKey")
               return {}
             }
 
-            try {
-              const token = apiKey
-              const getHeaders = (): Record<string, string> =>
-                auth?.type === "api" ? { "PRIVATE-TOKEN": token } : { Authorization: `Bearer ${token}` }
-
-              log.info("gitlab model discovery starting", { instanceUrl })
-              const result = await discoverWorkflowModels(
-                { instanceUrl, getHeaders },
-                { workingDirectory: Instance.directory },
-              )
-
-              if (!result.models.length) {
-                log.info("gitlab model discovery skipped: no models found", {
-                  project: result.project
-                    ? {
-                        id: result.project.id,
-                        path: result.project.pathWithNamespace,
-                      }
-                    : null,
-                })
-                return {}
-              }
-
-              const models: Record<string, Model> = {}
-              for (const m of result.models) {
-                if (!input.models[m.id]) {
-                  models[m.id] = {
-                    id: ModelID.make(m.id),
-                    providerID: ProviderID.make("gitlab"),
-                    name: `Agent Platform (${m.name})`,
-                    family: "",
-                    api: {
-                      id: m.id,
-                      url: instanceUrl,
-                      npm: "gitlab-ai-provider",
+            const models: Record<string, Model> = {}
+            for (const m of result.models) {
+              if (!input.models[m.id]) {
+                models[m.id] = {
+                  id: ModelID.make(m.id),
+                  providerID: ProviderID.make("gitlab"),
+                  name: `Agent Platform (${m.name})`,
+                  family: "",
+                  api: {
+                    id: m.id,
+                    url: instanceUrl,
+                    npm: "gitlab-ai-provider",
+                  },
+                  status: "active",
+                  headers: {},
+                  options: { workflowRef: m.ref },
+                  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+                  limit: { context: m.context, output: m.output },
+                  capabilities: {
+                    temperature: false,
+                    reasoning: true,
+                    attachment: true,
+                    toolcall: true,
+                    input: {
+                      text: true,
+                      audio: false,
+                      image: true,
+                      video: false,
+                      pdf: true,
                     },
-                    status: "active",
-                    headers: {},
-                    options: { workflowRef: m.ref },
-                    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-                    limit: { context: m.context, output: m.output },
-                    capabilities: {
-                      temperature: false,
-                      reasoning: true,
-                      attachment: true,
-                      toolcall: true,
-                      input: {
-                        text: true,
-                        audio: false,
-                        image: true,
-                        video: false,
-                        pdf: true,
-                      },
-                      output: {
-                        text: true,
-                        audio: false,
-                        image: false,
-                        video: false,
-                        pdf: false,
-                      },
-                      interleaved: false,
+                    output: {
+                      text: true,
+                      audio: false,
+                      image: false,
+                      video: false,
+                      pdf: false,
                     },
-                    release_date: "",
-                    variants: {},
-                  }
+                    interleaved: false,
+                  },
+                  release_date: "",
+                  variants: {},
                 }
               }
-
-              log.info("gitlab model discovery complete", {
-                count: Object.keys(models).length,
-                models: Object.keys(models),
-              })
-              return models
-            } catch (e) {
-              log.warn("gitlab model discovery failed", { error: e })
-              return {}
             }
 
             log.info("gitlab model discovery complete", {
@@ -1060,18 +778,13 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
       }
 
-        const auth = yield* dep.auth(input.id)
-        const env = yield* dep.env()
-        const accountId = env["CLOUDFLARE_ACCOUNT_ID"] || (auth?.type === "api" ? auth.metadata?.accountId : undefined)
-        if (!accountId)
-          return {
-            autoload: false,
-            async getModel() {
-              throw new Error(
-                "CLOUDFLARE_ACCOUNT_ID is missing. Set it with: export CLOUDFLARE_ACCOUNT_ID=<your-account-id>",
-              )
-            },
-          }
+      const aigateway = createAiGateway({
+        accountId,
+        gateway,
+        apiKey: apiToken,
+        ...(Object.values(opts).some((v) => v !== undefined) ? { options: opts } : {}),
+      })
+      const unified = createUnified()
 
       return {
         autoload: true,

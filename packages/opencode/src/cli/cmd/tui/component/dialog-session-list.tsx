@@ -20,8 +20,6 @@ import { DialogSessionDeleteFailed } from "./dialog-session-delete-failed"
 
 type WorkspaceStatus = "connected" | "connecting" | "disconnected" | "error"
 
-type WorkspaceStatus = "connected" | "connecting" | "disconnected" | "error"
-
 export function DialogSessionList() {
   const dialog = useDialog()
   const route = useRoute()

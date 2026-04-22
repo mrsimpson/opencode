@@ -416,53 +416,6 @@ wintest("ignores terminal suspend bindings on Windows", async () => {
   expect(config.keybinds?.input_undo).toBe("ctrl+z,ctrl+-,super+z")
 })
 
-wintest("defaults Ctrl+Z to input undo on Windows", async () => {
-  await using tmp = await tmpdir()
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await TuiConfig.get()
-      expect(config.keybinds?.terminal_suspend).toBe("none")
-      expect(config.keybinds?.input_undo).toBe("ctrl+z,ctrl+-,super+z")
-    },
-  })
-})
-
-wintest("keeps explicit input undo overrides on Windows", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(path.join(dir, "tui.json"), JSON.stringify({ keybinds: { input_undo: "ctrl+y" } }))
-    },
-  })
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await TuiConfig.get()
-      expect(config.keybinds?.terminal_suspend).toBe("none")
-      expect(config.keybinds?.input_undo).toBe("ctrl+y")
-    },
-  })
-})
-
-wintest("ignores terminal suspend bindings on Windows", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(path.join(dir, "tui.json"), JSON.stringify({ keybinds: { terminal_suspend: "alt+z" } }))
-    },
-  })
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await TuiConfig.get()
-      expect(config.keybinds?.terminal_suspend).toBe("none")
-      expect(config.keybinds?.input_undo).toBe("ctrl+z,ctrl+-,super+z")
-    },
-  })
-})
-
 test("OPENCODE_TUI_CONFIG provides settings when no project config exists", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

@@ -633,47 +633,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               if (part.state.status === "running") {
                 yield* sessions.updatePart({
                   ...part,
-                  type: "tool",
-                  state: { ...part.state, ...val },
+                  state: {
+                    status: "error",
+                    error: "Cancelled",
+                    time: { start: part.state.time.start, end: Date.now() },
+                    metadata: part.state.metadata,
+                    input: part.state.input,
+                  },
                 } satisfies MessageV2.ToolPart)
-              }),
-            ask: (req: any) =>
-              permission
-                .ask({
-                  ...req,
-                  sessionID,
-                  ruleset: Permission.merge(taskAgent.permission, session.permission ?? []),
-                })
-                .pipe(Effect.orDie),
-          })
-          .pipe(
-            Effect.catchCause((cause) => {
-              const defect = Cause.squash(cause)
-              error = defect instanceof Error ? defect : new Error(String(defect))
-              log.error("subtask execution failed", { error, agent: task.agent, description: task.description })
-              return Effect.void
+              }
             }),
-            Effect.onInterrupt(() =>
-              Effect.gen(function* () {
-                taskAbort.abort()
-                assistantMessage.finish = "tool-calls"
-                assistantMessage.time.completed = Date.now()
-                yield* sessions.updateMessage(assistantMessage)
-                if (part.state.status === "running") {
-                  yield* sessions.updatePart({
-                    ...part,
-                    state: {
-                      status: "error",
-                      error: "Cancelled",
-                      time: { start: part.state.time.start, end: Date.now() },
-                      metadata: part.state.metadata,
-                      input: part.state.input,
-                    },
-                  } satisfies MessageV2.ToolPart)
-                }
-              }),
-            ),
-          )
+          ),
+        )
 
       const attachments = result?.attachments?.map((attachment) => ({
         ...attachment,

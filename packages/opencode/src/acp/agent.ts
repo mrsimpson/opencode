@@ -1689,38 +1689,6 @@ function parseUri(
       text: uri,
     }
   }
-
-  function buildConfigOptions(input: {
-    currentModelId: string
-    availableModels: ModelOption[]
-    modes?: { availableModes: ModeOption[]; currentModeId: string } | undefined
-  }): SessionConfigOption[] {
-    const options: SessionConfigOption[] = [
-      {
-        id: "model",
-        name: "Model",
-        category: "model",
-        type: "select",
-        currentValue: input.currentModelId,
-        options: input.availableModels.map((m) => ({ value: m.modelId, name: m.name })),
-      },
-    ]
-    if (input.modes) {
-      options.push({
-        id: "mode",
-        name: "Session Mode",
-        category: "mode",
-        type: "select",
-        currentValue: input.modes.currentModeId,
-        options: input.modes.availableModes.map((m) => ({
-          value: m.id,
-          name: m.name,
-          ...(m.description ? { description: m.description } : {}),
-        })),
-      })
-    }
-    return options
-  }
 }
 
 function getNewContent(fileOriginal: string, unifiedDiff: string): string | undefined {

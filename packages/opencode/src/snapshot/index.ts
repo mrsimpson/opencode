@@ -717,49 +717,6 @@ export const layer: Layer.Layer<
                     deletions: row.deletions,
                     status: row.status,
                   })
-
-                // Filter out files that are now gitignored
-                if (rows.length > 0) {
-                  const files = rows.map((r) => r.file)
-                  const checkArgs = [
-                    ...quote,
-                    "--git-dir",
-                    path.join(state.worktree, ".git"),
-                    "--work-tree",
-                    state.worktree,
-                    "check-ignore",
-                    "--no-index",
-                    "--",
-                    ...files,
-                  ]
-                  const check = yield* git(checkArgs, { cwd: state.directory })
-                  if (check.code === 0) {
-                    const ignored = new Set(check.text.trim().split("\n").filter(Boolean))
-                    const filtered = rows.filter((r) => !ignored.has(r.file))
-                    rows.length = 0
-                    rows.push(...filtered)
-                  }
-                }
-
-                const step = 100
-                const patch = (file: string, before: string, after: string) =>
-                  formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
-
-                for (let i = 0; i < rows.length; i += step) {
-                  const run = rows.slice(i, i + step)
-                  const text = yield* load(run)
-
-                  for (const row of run) {
-                    const hit = text?.get(row.file) ?? { before: "", after: "" }
-                    const [before, after] = row.binary ? ["", ""] : text ? [hit.before, hit.after] : yield* show(row)
-                    result.push({
-                      file: row.file,
-                      patch: row.binary ? "" : patch(row.file, before, after),
-                      additions: row.additions,
-                      deletions: row.deletions,
-                      status: row.status,
-                    })
-                  }
                 }
               }
 

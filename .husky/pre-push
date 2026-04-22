@@ -19,7 +19,7 @@ if (process.versions.bun !== expectedBunVersion) {
 '
 # Typecheck fork packages only — upstream packages are gated by upstream CI.
 echo "pre-push: typechecking opencode-router..."
-(cd packages/opencode-router && pnpm typecheck)
+(cd packages/opencode-router && bun run typecheck)
 
 echo "pre-push: typechecking opencode-router-app..."
 (cd packages/opencode-router-app && bun run typecheck)

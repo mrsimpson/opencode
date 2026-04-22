@@ -35,15 +35,6 @@ const summary = Layer.succeed(
   }),
 )
 
-const summary = Layer.succeed(
-  SessionSummary.Service,
-  SessionSummary.Service.of({
-    summarize: () => Effect.void,
-    diff: () => Effect.succeed([]),
-    computeDiff: () => Effect.succeed([]),
-  }),
-)
-
 const ref = {
   providerID: ProviderID.make("test"),
   modelID: ModelID.make("test-model"),
