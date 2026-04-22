@@ -29,6 +29,7 @@ permission:
   codesearch: ask
   bash:
     "*": ask
+    "bd *": allow
     "grep *": allow
     "rg *": allow
     "find *": allow
@@ -67,6 +68,7 @@ permission:
     "yq *": allow
     "mkdir *": allow
     "touch *": allow
+    "git diff *": allow
     "git status *": allow
     "git log *": allow
     "git commit *": allow
