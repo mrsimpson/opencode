@@ -10,9 +10,10 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "@/util/queue"
 import { Instance } from "../../project/instance"
 import { Installation } from "@/installation"
-import { Log } from "../../util/log"
+import { InstallationVersion } from "@/installation/version"
+import { Log } from "../../util"
 import { lazy } from "../../util/lazy"
-import { Config } from "../../config/config"
+import { Config } from "../../config"
 import { errors } from "../error"
 
 const log = Log.create({ service: "server" })
@@ -89,7 +90,7 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json({ healthy: true, version: Installation.VERSION })
+        return c.json({ healthy: true, version: InstallationVersion })
       },
     )
     .get(
@@ -146,7 +147,7 @@ export const GlobalRoutes = lazy(() =>
             description: "Get global config info",
             content: {
               "application/json": {
-                schema: resolver(Config.Info),
+                schema: resolver(Config.Info.zod),
               },
             },
           },
@@ -167,14 +168,14 @@ export const GlobalRoutes = lazy(() =>
             description: "Successfully updated global config",
             content: {
               "application/json": {
-                schema: resolver(Config.Info),
+                schema: resolver(Config.Info.zod),
               },
             },
           },
           ...errors(400),
         },
       }),
-      validator("json", Config.Info),
+      validator("json", Config.Info.zod),
       async (c) => {
         const config = c.req.valid("json")
         const next = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal(config)))
