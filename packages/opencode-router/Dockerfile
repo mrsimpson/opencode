@@ -66,15 +66,11 @@ COPY packages/opencode-router/src/ packages/opencode-router/src/
 RUN bun run --cwd packages/opencode-router build
 
 # Stage 3: Final image
-# Use node:22-alpine for a lean runtime; copy compiled dist + node_modules from build stage
+# All dependencies are bundled into dist/index.js — no node_modules needed at runtime
 FROM node:22-alpine
 WORKDIR /app
-# Copy compiled JS output
+# Copy bundled JS output
 COPY --from=router-build /monorepo/packages/opencode-router/dist ./dist
-# Copy package.json for runtime metadata (type:module)
-COPY packages/opencode-router/package.json ./
-# Copy production node_modules from bun's workspace install
-COPY --from=router-build /monorepo/node_modules ./node_modules
 COPY --from=spa-build /monorepo/packages/opencode-router-app/dist ./public
 EXPOSE 3000
 USER 1000
