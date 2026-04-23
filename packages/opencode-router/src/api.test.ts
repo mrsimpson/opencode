@@ -449,3 +449,17 @@ describe("POST /api/sessions/:hash/resume passes githubToken to resumeSession", 
     expect((mocks.resumeSession as any).mock.calls[0][2]).toBeUndefined()
   })
 })
+
+describe("GET /api/ports returns listening ports", () => {
+  it("returns ports >3000 from /proc/net/tcp", async () => {
+    const req = fakeReq("GET", "/api/ports")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body as string)
+    expect(body).toHaveProperty("ports")
+    expect(Array.isArray(body.ports)).toBe(true)
+  })
+})

@@ -1,15 +1,16 @@
 function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
+  const value = process.env[name]
+  if (!value) throw new Error(`Missing required environment variable: ${name}`)
+  return value
 }
 
 export const config = {
+  /** Opencode session container internal port (default opencode serve port) */
+  opencodePort: Number(process.env.OPENCODE_PORT ?? 4096),
   /** Kubernetes namespace to watch for session pods */
   watchNamespace: process.env.WATCH_NAMESPACE ?? "opencode-router",
   /** Label selector identifying session pods */
-  podLabelSelector:
-    process.env.POD_LABEL_SELECTOR ?? "app.kubernetes.io/managed-by=opencode-router",
+  podLabelSelector: process.env.POD_LABEL_SELECTOR ?? "app.kubernetes.io/managed-by=opencode-router",
   /** Label key holding the 12-char hex session hash */
   sessionHashLabel: "opencode.ai/session-hash",
   /** Cloudflare API token (DNS:Edit + Zone:Read) */
@@ -44,9 +45,17 @@ export const config = {
    * to the correct pod based on the hash in the hostname.
    */
   routerServiceName: process.env.ROUTER_SERVICE_NAME ?? "opencode-router",
-};
+}
 
 /** Compute the public hostname for a given session hash */
 export function sessionHostname(hash: string): string {
-  return `${hash}${config.routeSuffix}.${config.domain}`;
+  return `${hash}${config.routeSuffix}.${config.domain}`
+}
+
+/**
+ * Compute the public hostname for a session hash with explicit dev server port.
+ * e.g., hash="abc123def456", port=5173 → "5173-abc123def456-oc.no-panic.org"
+ */
+export function sessionPortHostname(hash: string, port: number): string {
+  return `${port}-${hash}${config.routeSuffix}.${config.domain}`
 }
