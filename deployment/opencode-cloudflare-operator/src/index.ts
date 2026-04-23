@@ -1,11 +1,26 @@
 import http from "node:http"
 import * as k8s from "@kubernetes/client-node"
-import { config, sessionHostname } from "./config.js"
+import { config, sessionHostname, sessionPortHostname } from "./config.js"
 import { createDnsRecord, createTunnelRoute, deleteDnsRecord, deleteTunnelRoute, getTunnelCname } from "./cloudflare.js"
 import { createIngressRoutes, deleteIngressRoutes } from "./ingressroute.js"
 
 /** Label selector for session PVCs (used to detect termination) */
 const PVC_LABEL_SELECTOR = "app.kubernetes.io/managed-by=opencode-router"
+
+/**
+ * Poll the session pod for listening ports (>3000).
+ * Returns array of port numbers.
+ */
+export async function pollPodPorts(podIP: string): Promise<number[]> {
+  try {
+    const res = await fetch(`http://${podIP}:${config.opencodePort}/api/ports`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { ports: number[] }
+    return data.ports ?? []
+  } catch {
+    return []
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Kubernetes client
@@ -24,7 +39,8 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 // ---------------------------------------------------------------------------
 
 /**
- * Provision Cloudflare DNS record + tunnel route for a new session pod.
+ * Provision Cloudflare DNS record + tunnel route + IngressRoutes for a new session pod.
+ * Also polls for user-started dev server ports (>3000) and creates per-port routes.
  */
 async function onPodAdded(pod: k8s.V1Pod): Promise<void> {
   const hash = pod.metadata?.labels?.[config.sessionHashLabel]
@@ -35,13 +51,35 @@ async function onPodAdded(pod: k8s.V1Pod): Promise<void> {
 
   try {
     const tunnelCname = await getTunnelCname()
-    // Create DNS record, tunnel route, and Traefik IngressRoutes in parallel
+
+    // Create main session route (port 4096)
     await Promise.all([
       createDnsRecord(hostname, tunnelCname),
       createTunnelRoute(hostname),
       createIngressRoutes(hostname),
     ])
-    console.log(`Provisioned ${hostname}`)
+    console.log(`Provisioned ${hostname} (main port)`)
+
+    // Poll for dev server ports and create per-port routes
+    const podIP = pod.status?.podIP
+    if (podIP) {
+      const ports = await pollPodPorts(podIP)
+      console.log(`Found dev server ports for ${hash}: ${ports.join(", ") || "none"}`)
+
+      for (const port of ports) {
+        const portHostname = sessionPortHostname(hash, port)
+        try {
+          await Promise.all([
+            createDnsRecord(portHostname, tunnelCname),
+            createTunnelRoute(portHostname),
+            createIngressRoutes(portHostname),
+          ])
+          console.log(`Provisioned ${portHostname} (port ${port})`)
+        } catch (err) {
+          console.error(`Failed to provision ${portHostname}:`, err)
+        }
+      }
+    }
   } catch (err) {
     console.error(`Failed to provision ${hostname}:`, err)
   }

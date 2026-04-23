@@ -7,29 +7,42 @@ import { deleteIdlePods, getPodIP, updateLastActivity } from "./pod-manager.js"
 import { serveStatic } from "./static.js"
 
 /**
- * Extract session hash from the Host header.
- * Returns the 12-char hex hash if the request is on a session subdomain,
- * or null if on the root domain (the router SPA).
+ * Extract session hash and optional port from the Host header.
+ * Returns {hash, port} where port is either a number >3000 (for dev servers) or null (defaults to config.opencodePort).
  *
- * Session hostname format: <hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>
- * e.g. with ROUTE_SUFFIX="-oc" and ROUTER_DOMAIN="no-panic.org":
- *   abc123def456-oc.no-panic.org → "abc123def456"
+ * Session hostname format:
+ *   <hash>-oc.<domain>         → hash only (defaults to port 4096)
+ *   <port>-<hash>-oc.<domain>  → explicit dev server port (e.g., 5173-abc123... → port 5173)
  *
  * With ROUTE_SUFFIX="" (local dev, ROUTER_DOMAIN="localhost:3002"):
- *   abc123def456.localhost:3002 → "abc123def456"
+ *   abc123-oc.localhost:3002       → hash, port 4096
+ *   5173-abc123-oc.localhost:3002 → hash, port 5173
  */
-function getSessionHash(host: string): string | null {
-  // Strip port from both the incoming Host header and routerDomain before comparing,
-  // so that "abc123-oc.localhost:3002" correctly matches routerDomain "localhost:3002".
+function getSessionInfo(host: string): { hash: string | null; port: number | null } {
+  // Strip port from both the incoming Host header and routerDomain before comparing
   const hostname = host.split(":")[0]
   const routerHostname = config.routerDomain.split(":")[0]
-  // Full suffix to strip: e.g. "-oc.no-panic.org" or ".localhost"
   const suffix = `${config.routeSuffix}.${routerHostname}`
-  if (!hostname.endsWith(suffix)) return null
+  if (!hostname.endsWith(suffix)) return { hash: null, port: null }
+
   const sub = hostname.slice(0, hostname.length - suffix.length)
-  // Must be exactly a 12-char hex session hash
-  if (/^[a-f0-9]{12}$/.test(sub)) return sub
-  return null
+
+  // Check for <port>-<hash> pattern (port is 4+ digits at start)
+  const portMatch = sub.match(/^([1-9][0-9]{3,})-(.+)$/)
+  if (portMatch) {
+    const port = parseInt(portMatch[1], 10)
+    const hashPart = portMatch[2]
+    if (/^[a-f0-9]{12}$/.test(hashPart)) {
+      return { hash: hashPart, port }
+    }
+  }
+
+  // Default: just <hash>
+  if (/^[a-f0-9]{12}$/.test(sub)) {
+    return { hash: sub, port: null }
+  }
+
+  return { hash: null, port: null }
 }
 
 function getEmail(req: http.IncomingMessage): string | null {
@@ -71,27 +84,28 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const host = req.headers.host ?? ""
-    const sessionHash = getSessionHash(host)
+    const { hash, port } = getSessionInfo(host)
 
-    if (sessionHash) {
+    if (hash) {
       // ── Session subdomain: <hash>.opencode-router.domain ──────────────────
       // All traffic (HTTP + WS) is proxied directly to the session's pod.
       // No path stripping — opencode is rooted at /.
+      const targetPort = port ?? config.opencodePort
       let target: string | null = null
       if (devProxy.enabled) {
         // Dev mode: pod IPs aren't routable; use kubectl port-forward
-        target = await devProxy.target(sessionHash)
+        target = await devProxy.target(hash)
       } else {
-        const ip = await getPodIP(sessionHash)
-        if (ip) target = `http://${ip}:${config.opencodePort}`
+        const ip = await getPodIP(hash)
+        if (ip) target = `http://${ip}:${targetPort}`
       }
       if (!target) {
         res
           .writeHead(503, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ error: "session not ready", hash: sessionHash }))
+          .end(JSON.stringify({ error: "session not ready", hash }))
         return
       }
-      updateLastActivity(sessionHash)
+      updateLastActivity(hash)
       proxy.web(req, res, { target })
       return
     }
@@ -127,22 +141,23 @@ server.on("upgrade", async (req, socket, head) => {
 
   try {
     const host = req.headers.host ?? ""
-    const sessionHash = getSessionHash(host)
+    const { hash, port } = getSessionInfo(host)
 
-    if (sessionHash) {
+    if (hash) {
       // WebSocket on a session subdomain — proxy to the pod
+      const targetPort = port ?? config.opencodePort
       let target: string | null = null
       if (devProxy.enabled) {
-        target = await devProxy.target(sessionHash)
+        target = await devProxy.target(hash)
       } else {
-        const ip = await getPodIP(sessionHash)
-        if (ip) target = `http://${ip}:${config.opencodePort}`
+        const ip = await getPodIP(hash)
+        if (ip) target = `http://${ip}:${targetPort}`
       }
       if (!target) {
         socket.destroy()
         return
       }
-      updateLastActivity(sessionHash)
+      updateLastActivity(hash)
       proxy.ws(req, socket, head, { target })
       return
     }

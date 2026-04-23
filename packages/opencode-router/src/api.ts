@@ -1,4 +1,6 @@
 import type http from "node:http"
+import * as net from "node:net"
+import * as fs from "node:fs"
 import { config } from "./config.js"
 import {
   type SessionKey,
@@ -37,6 +39,40 @@ function sessionUrl(hash: string, req: http.IncomingMessage): string {
 }
 
 /**
+ * Read listening ports from /proc/net/tcp and filter for ports >3000.
+ * Used by the Cloudflare operator to discover user-started dev servers.
+ */
+async function getListeningPorts(): Promise<number[]> {
+  const MIN_PORT = 3000
+  try {
+    const content = await fs.promises.readFile("/proc/net/tcp", "utf-8")
+    const ports = new Set<number>()
+
+    for (const line of content.split("\n").slice(1)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+
+      // /proc/net/tcp format: sl local_address rem_address st ...
+      // local_address is hex:IP (e.g., "00000000:1BB0" = 0.0.0.0:7104)
+      const parts = trimmed.split(/\s+/)
+      const localAddr = parts[1] ?? ""
+      const hexPort = localAddr.split(":")[1]
+      if (!hexPort) continue
+
+      const port = parseInt(hexPort, 16)
+      // Filter: port >3000 and valid (1024-65535)
+      if (port > MIN_PORT && port > 1024 && port <= 65535) {
+        ports.add(port)
+      }
+    }
+
+    return Array.from(ports).sort((a, b) => a - b)
+  } catch {
+    return []
+  }
+}
+
+/**
  * Handle API routes. Returns true if the route was handled.
  *
  * Routes:
@@ -44,8 +80,20 @@ function sessionUrl(hash: string, req: http.IncomingMessage): string {
  *   POST /api/sessions          → create a session {repoUrl, branch} → {hash, url, state}
  *   GET  /api/sessions/:hash    → get state of a specific session
  */
-export async function handleApi(req: http.IncomingMessage, res: http.ServerResponse, email: string, githubToken?: string): Promise<boolean> {
+export async function handleApi(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  email: string,
+  githubToken?: string,
+): Promise<boolean> {
   const url = req.url ?? "/"
+
+  // GET /api/ports — return listening ports >3000 from /proc/net/tcp
+  if (url === "/api/ports" && req.method === "GET") {
+    const ports = await getListeningPorts()
+    json(res, 200, { ports })
+    return true
+  }
 
   // GET /api/sessions — list all sessions for this user, always includes email
   if (url === "/api/sessions" && req.method === "GET") {
