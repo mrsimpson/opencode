@@ -324,6 +324,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
             `git config --global --add safe.directory /home/opencode/repo; set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
           ],
           ports: [{ containerPort: config.opencodePort }],
+          env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
@@ -338,6 +339,28 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
             { name: "user-data", mountPath: "/home/opencode" },
             { name: "opencode-config", mountPath: "/home/opencode/.opencode", readOnly: true },
           ],
+        },
+        {
+          name: "chromium",
+          image: config.chromiumImage,
+          args: [
+            "--remote-debugging-address=0.0.0.0",
+            "--remote-debugging-port=9222",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--headless",
+          ],
+          ports: [{ containerPort: 9222 }],
+          securityContext: {
+            allowPrivilegeEscalation: false,
+            runAsNonRoot: true,
+            capabilities: { drop: ["ALL"] },
+            seccompProfile: { type: "RuntimeDefault" },
+          },
+          resources: {
+            requests: { cpu: "100m", memory: "256Mi" },
+            limits: { cpu: "1000m", memory: "1Gi" },
+          },
         },
       ],
       volumes: [

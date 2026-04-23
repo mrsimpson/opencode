@@ -37,8 +37,7 @@ COPY config/ /etc/opencode-defaults/
 RUN npm install -g \
       @codemcp/knowledge-server \
       @codemcp/skills-server \
-      @playwright/cli@latest && \
-    npx playwright install --with-deps chromium
+      @playwright/cli@latest
 
 # Non-root user matching the opencode-router pod security context (UID 1000).
 RUN addgroup -S opencode && \

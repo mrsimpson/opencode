@@ -8,6 +8,7 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   namespace: process.env.OPENCODE_NAMESPACE ?? "opencode",
   opencodeImage: required("OPENCODE_IMAGE"),
+  chromiumImage: process.env.CHROMIUM_IMAGE ?? "chromedp/headless-shell:latest",
   opencodePort: 4096,
   idleTimeoutMinutes: Number(process.env.IDLE_TIMEOUT_MINUTES ?? 15),
   apiKeySecretName: process.env.API_KEY_SECRET_NAME ?? "opencode-api-keys",

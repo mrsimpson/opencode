@@ -50,6 +50,7 @@ const homelab = createHomelabContextFromStack(homelabStack)
 const routerImage = cfg.require("routerImage")
 const cfOperatorImage = cfg.require("cfOperatorImage")
 const opencodeImage = cfg.require("opencodeImage")
+const chromiumImage = cfg.get("chromiumImage") ?? "chromedp/headless-shell:latest"
 const openrouterApiKey = cfg.requireSecret("openrouterApiKey")
 const openrouterFreeApiKey = cfg.requireSecret("openrouterFreeApiKey")
 const defaultGitRepo = cfg.get("defaultGitRepo")
@@ -390,6 +391,7 @@ export const app = homelab.createExposedWebApp(
     },
     env: [
       { name: "OPENCODE_IMAGE", value: pulumi.output(opencodeImage) },
+      { name: "CHROMIUM_IMAGE", value: chromiumImage },
       { name: "OPENCODE_NAMESPACE", value: NAMESPACE },
       { name: "OPENCODE_PORT", value: String(OPENCODE_PORT) },
       { name: "STORAGE_CLASS", value: "longhorn-uncritical" },
