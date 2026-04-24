@@ -1,0 +1,566 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e6]:
+      - complementary [ref=e7]:
+        - link "Zum Inhalt springen" [ref=e8]:
+          - /url: "#dframe-main"
+        - separator "Seitenleiste anpassen" [ref=e10]
+        - generic:
+          - generic: Klicken zum Einklappen⌘B
+          - generic: Zum Ändern der Größe ziehen
+        - generic [ref=e12]:
+          - generic [ref=e13]:
+            - link "Claude Code" [ref=e14]:
+              - /url: /code
+              - img "Claude Code" [ref=e15]
+            - generic [ref=e26]: Recherche-Vorschau
+          - button "Collapse sidebar" [ref=e29]:
+            - generic [ref=e30]: 
+          - button "Search" [ref=e33]:
+            - generic [ref=e34]: 
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]:
+              - button "New session ⇧⌘O" [ref=e38]:
+                - generic [ref=e40]: 
+                - text: New session
+                - generic [ref=e41]: ⇧⌘O
+              - button "Routines" [ref=e42]:
+                - generic [ref=e44]: 
+                - generic [ref=e45]: Routines
+              - button "Customize" [ref=e46]:
+                - generic [ref=e48]: 
+                - generic [ref=e49]: Customize
+              - button "Weitere Navigationselemente" [ref=e50]:
+                - generic [ref=e52]: 
+                - generic [ref=e53]: Mehr
+            - generic [ref=e57]:
+              - generic [ref=e58]:
+                - button "Pinned" [expanded] [ref=e61]:
+                  - generic [ref=e62]: Pinned
+                  - generic [ref=e63]: 
+                - generic [ref=e64]:
+                  - img [ref=e67]
+                  - generic [ref=e69]: Drag to pin
+              - generic [ref=e71]:
+                - generic [ref=e73]:
+                  - button "Recents" [expanded] [ref=e74]:
+                    - generic [ref=e75]: Recents
+                    - generic [ref=e76]: 
+                  - button "Filter (active)" [ref=e77]:
+                    - generic [ref=e78]: 
+                - generic [ref=e79]:
+                  - generic [ref=e82]:
+                    - button "Archiviert Fetch and reset to upstream dev branch" [ref=e83]:
+                      - img "Archiviert" [ref=e85]:
+                        - generic [ref=e86]: 
+                      - generic [ref=e88]: Fetch and reset to upstream dev branch
+                    - generic:
+                      - button "Weitere Optionen für Fetch and reset to upstream dev branch":
+                        - generic:
+                          - img
+                  - generic [ref=e91]:
+                    - button "Archiviert Add predefined permission sets for agents" [ref=e92]:
+                      - img "Archiviert" [ref=e94]:
+                        - generic [ref=e95]: 
+                      - generic [ref=e97]: Add predefined permission sets for agents
+                    - generic:
+                      - button "Weitere Optionen für Add predefined permission sets for agents":
+                        - generic:
+                          - img
+                  - generic [ref=e100]:
+                    - button "Archiviert Fix Claude code setup command configuration" [ref=e101]:
+                      - img "Archiviert" [ref=e103]:
+                        - generic [ref=e104]: 
+                      - generic [ref=e106]: Fix Claude code setup command configuration
+                    - generic:
+                      - button "Weitere Optionen für Fix Claude code setup command configuration":
+                        - generic:
+                          - img
+                  - generic [ref=e109]:
+                    - button "Archiviert Fix Claude setup command configuration issues" [ref=e110]:
+                      - img "Archiviert" [ref=e112]:
+                        - generic [ref=e113]: 
+                      - generic [ref=e115]: Fix Claude setup command configuration issues
+                    - generic:
+                      - button "Weitere Optionen für Fix Claude setup command configuration issues":
+                        - generic:
+                          - img
+                  - generic [ref=e118]:
+                    - button "Archiviert Create CLI wrapper for MCP server tools" [ref=e119]:
+                      - img "Archiviert" [ref=e121]:
+                        - generic [ref=e122]: 
+                      - generic [ref=e124]: Create CLI wrapper for MCP server tools
+                    - generic:
+                      - button "Weitere Optionen für Create CLI wrapper for MCP server tools":
+                        - generic:
+                          - img
+                  - generic [ref=e127]:
+                    - button "Archiviert Add CLI interface for all tools" [ref=e128]:
+                      - img "Archiviert" [ref=e130]:
+                        - generic [ref=e131]: 
+                      - generic [ref=e133]: Add CLI interface for all tools
+                    - generic:
+                      - button "Weitere Optionen für Add CLI interface for all tools":
+                        - generic:
+                          - img
+                  - generic [ref=e136]:
+                    - button "Archiviert Wrap MCP server into single CLI tool" [ref=e137]:
+                      - img "Archiviert" [ref=e139]:
+                        - generic [ref=e140]: 
+                      - generic [ref=e142]: Wrap MCP server into single CLI tool
+                    - generic:
+                      - button "Weitere Optionen für Wrap MCP server into single CLI tool":
+                        - generic:
+                          - img
+                  - generic [ref=e145]:
+                    - button "Archiviert Fix global agentskills command not working" [ref=e146]:
+                      - img "Archiviert" [ref=e148]:
+                        - generic [ref=e149]: 
+                      - generic [ref=e151]: Fix global agentskills command not working
+                    - generic:
+                      - button "Weitere Optionen für Fix global agentskills command not working":
+                        - generic:
+                          - img
+                  - generic [ref=e154]:
+                    - button "Archiviert Fix Pulumi setup guide build order" [ref=e155]:
+                      - img "Archiviert" [ref=e157]:
+                        - generic [ref=e158]: 
+                      - generic [ref=e160]: Fix Pulumi setup guide build order
+                    - generic:
+                      - button "Weitere Optionen für Fix Pulumi setup guide build order":
+                        - generic:
+                          - img
+                  - generic [ref=e163]:
+                    - button "Archiviert Update docs and README for new ADRs" [ref=e164]:
+                      - img "Archiviert" [ref=e166]:
+                        - generic [ref=e167]: 
+                      - generic [ref=e169]: Update docs and README for new ADRs
+                    - generic:
+                      - button "Weitere Optionen für Update docs and README for new ADRs":
+                        - generic:
+                          - img
+                  - generic [ref=e172]:
+                    - button "Archiviert Explore lightweight observability solutions" [ref=e173]:
+                      - img "Archiviert" [ref=e175]:
+                        - generic [ref=e176]: 
+                      - generic [ref=e178]: Explore lightweight observability solutions
+                    - generic:
+                      - button "Weitere Optionen für Explore lightweight observability solutions":
+                        - generic:
+                          - img
+                  - generic [ref=e181]:
+                    - button "Archiviert Design secure home lab infrastructure setup" [ref=e182]:
+                      - img "Archiviert" [ref=e184]:
+                        - generic [ref=e185]: 
+                      - generic [ref=e187]: Design secure home lab infrastructure setup
+                    - generic:
+                      - button "Weitere Optionen für Design secure home lab infrastructure setup":
+                        - generic:
+                          - img
+                  - generic [ref=e190]:
+                    - button "Archiviert Fix configDrawer height overflow on mobile" [ref=e191]:
+                      - img "Archiviert" [ref=e193]:
+                        - generic [ref=e194]: 
+                      - generic [ref=e196]: Fix configDrawer height overflow on mobile
+                    - generic:
+                      - button "Weitere Optionen für Fix configDrawer height overflow on mobile":
+                        - generic:
+                          - img
+                  - generic [ref=e199]:
+                    - button "Archiviert Fix parking area creation regression" [ref=e200]:
+                      - img "Archiviert" [ref=e202]:
+                        - generic [ref=e203]: 
+                      - generic [ref=e205]: Fix parking area creation regression
+                    - generic:
+                      - button "Weitere Optionen für Fix parking area creation regression":
+                        - generic:
+                          - img
+                  - generic [ref=e208]:
+                    - button "Archiviert Refactor generators to registry pattern" [ref=e209]:
+                      - img "Archiviert" [ref=e211]:
+                        - generic [ref=e212]: 
+                      - generic [ref=e214]: Refactor generators to registry pattern
+                    - generic:
+                      - button "Weitere Optionen für Refactor generators to registry pattern":
+                        - generic:
+                          - img
+                  - generic [ref=e217]:
+                    - button "Archiviert Review path handling in git repo initialization" [ref=e218]:
+                      - img "Archiviert" [ref=e220]:
+                        - generic [ref=e221]: 
+                      - generic [ref=e223]: Review path handling in git repo initialization
+                    - generic:
+                      - button "Weitere Optionen für Review path handling in git repo initialization":
+                        - generic:
+                          - img
+                  - generic [ref=e226]:
+                    - button "Archiviert Investigate local docs search and symlink behavior" [ref=e227]:
+                      - img "Archiviert" [ref=e229]:
+                        - generic [ref=e230]: 
+                      - generic [ref=e232]: Investigate local docs search and symlink behavior
+                    - generic:
+                      - button "Weitere Optionen für Investigate local docs search and symlink behavior":
+                        - generic:
+                          - img
+                  - generic [ref=e235]:
+                    - button "Archiviert Fix issue 161 with TDD approach" [ref=e236]:
+                      - img "Archiviert" [ref=e238]:
+                        - generic [ref=e239]: 
+                      - generic [ref=e241]: Fix issue 161 with TDD approach
+                    - generic:
+                      - button "Weitere Optionen für Fix issue 161 with TDD approach":
+                        - generic:
+                          - img
+                  - generic [ref=e244]:
+                    - 'button "Archiviert Fix issue #12 with test-driven development" [ref=e245]':
+                      - img "Archiviert" [ref=e247]:
+                        - generic [ref=e248]: 
+                      - generic [ref=e250]: "Fix issue #12 with test-driven development"
+                    - generic:
+                      - 'button "Weitere Optionen für Fix issue #12 with test-driven development"':
+                        - generic:
+                          - img
+                  - generic [ref=e253]:
+                    - button "Archiviert Document docset CLI and improve error messages" [ref=e254]:
+                      - img "Archiviert" [ref=e256]:
+                        - generic [ref=e257]: 
+                      - generic [ref=e259]: Document docset CLI and improve error messages
+                    - generic:
+                      - button "Weitere Optionen für Document docset CLI and improve error messages":
+                        - generic:
+                          - img
+                  - generic [ref=e262]:
+                    - button "Archiviert Handle MCP server port conflicts gracefully" [ref=e263]:
+                      - img "Archiviert" [ref=e265]:
+                        - generic [ref=e266]: 
+                      - generic [ref=e268]: Handle MCP server port conflicts gracefully
+                    - generic:
+                      - button "Weitere Optionen für Handle MCP server port conflicts gracefully":
+                        - generic:
+                          - img
+                  - generic [ref=e271]:
+                    - button "Archiviert Make MCP server user configurable" [ref=e272]:
+                      - img "Archiviert" [ref=e274]:
+                        - generic [ref=e275]: 
+                      - generic [ref=e277]: Make MCP server user configurable
+                    - generic:
+                      - button "Weitere Optionen für Make MCP server user configurable":
+                        - generic:
+                          - img
+                  - generic [ref=e280]:
+                    - button "Archiviert Build configurable remote MCP agent spawning server" [ref=e281]:
+                      - img "Archiviert" [ref=e283]:
+                        - generic [ref=e284]: 
+                      - generic [ref=e286]: Build configurable remote MCP agent spawning server
+                    - generic:
+                      - button "Weitere Optionen für Build configurable remote MCP agent spawning server":
+                        - generic:
+                          - img
+                  - generic [ref=e289]:
+                    - button "Archiviert Set up agent container communication via ACP" [ref=e290]:
+                      - img "Archiviert" [ref=e292]:
+                        - generic [ref=e293]: 
+                      - generic [ref=e295]: Set up agent container communication via ACP
+                    - generic:
+                      - button "Weitere Optionen für Set up agent container communication via ACP":
+                        - generic:
+                          - img
+                  - generic [ref=e298]:
+                    - button "Archiviert Improve Agent Dashboard" [ref=e299]:
+                      - img "Archiviert" [ref=e301]:
+                        - generic [ref=e302]: 
+                      - generic [ref=e304]: Improve Agent Dashboard
+                    - generic:
+                      - button "Weitere Optionen für Improve Agent Dashboard":
+                        - generic:
+                          - img
+                  - generic [ref=e307]:
+                    - button "Archiviert Prioritize ACP messages over logs in agent dashboard" [ref=e308]:
+                      - img "Archiviert" [ref=e310]:
+                        - generic [ref=e311]: 
+                      - generic [ref=e313]: Prioritize ACP messages over logs in agent dashboard
+                    - generic:
+                      - button "Weitere Optionen für Prioritize ACP messages over logs in agent dashboard":
+                        - generic:
+                          - img
+                  - generic [ref=e316]:
+                    - button "Archiviert Fix tests after agent spawning changes" [ref=e317]:
+                      - img "Archiviert" [ref=e319]:
+                        - generic [ref=e320]: 
+                      - generic [ref=e322]: Fix tests after agent spawning changes
+                    - generic:
+                      - button "Weitere Optionen für Fix tests after agent spawning changes":
+                        - generic:
+                          - img
+                  - generic [ref=e325]:
+                    - button "Archiviert Build resilient message delivery for Docker agents" [ref=e326]:
+                      - img "Archiviert" [ref=e328]:
+                        - generic [ref=e329]: 
+                      - generic [ref=e331]: Build resilient message delivery for Docker agents
+                    - generic:
+                      - button "Weitere Optionen für Build resilient message delivery for Docker agents":
+                        - generic:
+                          - img
+                  - generic [ref=e334]:
+                    - button "Archiviert Remove console interactions from MCP server" [ref=e335]:
+                      - img "Archiviert" [ref=e337]:
+                        - generic [ref=e338]: 
+                      - generic [ref=e340]: Remove console interactions from MCP server
+                    - generic:
+                      - button "Weitere Optionen für Remove console interactions from MCP server":
+                        - generic:
+                          - img
+                  - generic [ref=e343]:
+                    - button "Archiviert Implement delivery service for MCP notifications" [ref=e344]:
+                      - img "Archiviert" [ref=e346]:
+                        - generic [ref=e347]: 
+                      - generic [ref=e349]: Implement delivery service for MCP notifications
+                    - generic:
+                      - button "Weitere Optionen für Implement delivery service for MCP notifications":
+                        - generic:
+                          - img
+                  - generic [ref=e352]:
+                    - button "Archiviert Implement notification service with stdin forwarding" [ref=e353]:
+                      - img "Archiviert" [ref=e355]:
+                        - generic [ref=e356]: 
+                      - generic [ref=e358]: Implement notification service with stdin forwarding
+                    - generic:
+                      - button "Weitere Optionen für Implement notification service with stdin forwarding":
+                        - generic:
+                          - img
+                  - generic [ref=e361]:
+                    - button "Archiviert Implement progress tokens in MCP tools" [ref=e362]:
+                      - img "Archiviert" [ref=e364]:
+                        - generic [ref=e365]: 
+                      - generic [ref=e367]: Implement progress tokens in MCP tools
+                    - generic:
+                      - button "Weitere Optionen für Implement progress tokens in MCP tools":
+                        - generic:
+                          - img
+                  - generic [ref=e370]:
+                    - button "Archiviert Connect server messages to CLI inbox display" [ref=e371]:
+                      - img "Archiviert" [ref=e373]:
+                        - generic [ref=e374]: 
+                      - generic [ref=e376]: Connect server messages to CLI inbox display
+                    - generic:
+                      - button "Weitere Optionen für Connect server messages to CLI inbox display":
+                        - generic:
+                          - img
+                  - generic [ref=e379]:
+                    - button "Archiviert Add configurable agent spawning via internal MCP server" [ref=e380]:
+                      - img "Archiviert" [ref=e382]:
+                        - generic [ref=e383]: 
+                      - generic [ref=e385]: Add configurable agent spawning via internal MCP server
+                    - generic:
+                      - button "Weitere Optionen für Add configurable agent spawning via internal MCP server":
+                        - generic:
+                          - img
+                  - generic [ref=e388]:
+                    - button "Archiviert Set up MCP server for agent spawning" [ref=e389]:
+                      - img "Archiviert" [ref=e391]:
+                        - generic [ref=e392]: 
+                      - generic [ref=e394]: Set up MCP server for agent spawning
+                    - generic:
+                      - button "Weitere Optionen für Set up MCP server for agent spawning":
+                        - generic:
+                          - img
+                  - generic [ref=e397]:
+                    - button "Archiviert Fix terminal display refresh and control characters" [ref=e398]:
+                      - img "Archiviert" [ref=e400]:
+                        - generic [ref=e401]: 
+                      - generic [ref=e403]: Fix terminal display refresh and control characters
+                    - generic:
+                      - button "Weitere Optionen für Fix terminal display refresh and control characters":
+                        - generic:
+                          - img
+                  - generic [ref=e406]:
+                    - button "Archiviert Design Message Delivery Mechanism for Agents" [ref=e407]:
+                      - img "Archiviert" [ref=e409]:
+                        - generic [ref=e410]: 
+                      - generic [ref=e412]: Design Message Delivery Mechanism for Agents
+                    - generic:
+                      - button "Weitere Optionen für Design Message Delivery Mechanism for Agents":
+                        - generic:
+                          - img
+                  - generic [ref=e415]:
+                    - button "Archiviert Debug Test Discovery in Test Script" [ref=e416]:
+                      - img "Archiviert" [ref=e418]:
+                        - generic [ref=e419]: 
+                      - generic [ref=e421]: Debug Test Discovery in Test Script
+                    - generic:
+                      - button "Weitere Optionen für Debug Test Discovery in Test Script":
+                        - generic:
+                          - img
+                  - generic [ref=e424]:
+                    - button "Archiviert Configure Agent System Settings" [ref=e425]:
+                      - img "Archiviert" [ref=e427]:
+                        - generic [ref=e428]: 
+                      - generic [ref=e430]: Configure Agent System Settings
+                    - generic:
+                      - button "Weitere Optionen für Configure Agent System Settings":
+                        - generic:
+                          - img
+                  - generic [ref=e433]:
+                    - button "Archiviert Debug OpenCode Agent Spawning Task" [ref=e434]:
+                      - img "Archiviert" [ref=e436]:
+                        - generic [ref=e437]: 
+                      - generic [ref=e439]: Debug OpenCode Agent Spawning Task
+                    - generic:
+                      - button "Weitere Optionen für Debug OpenCode Agent Spawning Task":
+                        - generic:
+                          - img
+                  - generic [ref=e442]:
+                    - button "Archiviert Design Messaging System for Project" [ref=e443]:
+                      - img "Archiviert" [ref=e445]:
+                        - generic [ref=e446]: 
+                      - generic [ref=e448]: Design Messaging System for Project
+                    - generic:
+                      - button "Weitere Optionen für Design Messaging System for Project":
+                        - generic:
+                          - img
+                  - generic [ref=e451]:
+                    - button "Archiviert Show Exited Containers in Web UI" [ref=e452]:
+                      - img "Archiviert" [ref=e454]:
+                        - generic [ref=e455]: 
+                      - generic [ref=e457]: Show Exited Containers in Web UI
+                    - generic:
+                      - button "Weitere Optionen für Show Exited Containers in Web UI":
+                        - generic:
+                          - img
+                  - generic [ref=e460]:
+                    - button "Archiviert Develop Interactive Agent Spawning System" [ref=e461]:
+                      - img "Archiviert" [ref=e463]:
+                        - generic [ref=e464]: 
+                      - generic [ref=e466]: Develop Interactive Agent Spawning System
+                    - generic:
+                      - button "Weitere Optionen für Develop Interactive Agent Spawning System":
+                        - generic:
+                          - img
+                  - generic [ref=e469]:
+                    - button "Archiviert Configure OpenCode LLM Provider Settings" [ref=e470]:
+                      - img "Archiviert" [ref=e472]:
+                        - generic [ref=e473]: 
+                      - generic [ref=e475]: Configure OpenCode LLM Provider Settings
+                    - generic:
+                      - button "Weitere Optionen für Configure OpenCode LLM Provider Settings":
+                        - generic:
+                          - img
+                  - generic [ref=e478]:
+                    - button "Archiviert Set Up Pre-Commit Checks for Project" [ref=e479]:
+                      - img "Archiviert" [ref=e481]:
+                        - generic [ref=e482]: 
+                      - generic [ref=e484]: Set Up Pre-Commit Checks for Project
+                    - generic:
+                      - button "Weitere Optionen für Set Up Pre-Commit Checks for Project":
+                        - generic:
+                          - img
+                  - generic [ref=e487]:
+                    - button "Archiviert Design MCP Server for Autonomous Agents" [ref=e488]:
+                      - img "Archiviert" [ref=e490]:
+                        - generic [ref=e491]: 
+                      - generic [ref=e493]: Design MCP Server for Autonomous Agents
+                    - generic:
+                      - button "Weitere Optionen für Design MCP Server for Autonomous Agents":
+                        - generic:
+                          - img
+          - generic [ref=e496]:
+            - img [ref=e498]
+            - generic [ref=e500]: Probiere Claude Code auf dem Desktop
+            - button "Herunterladen" [ref=e501]: Herunterladen
+            - button "Schließen" [ref=e504]:
+              - img [ref=e506]
+          - generic [ref=e508]:
+            - button "Oliver J" [ref=e510]:
+              - generic [ref=e512]: 
+              - generic [ref=e513]: Oliver J
+            - generic [ref=e514]:
+              - button "Darstellung" [ref=e515]:
+                - img [ref=e517]
+              - button "Beta verlassen — zurück zum klassischen Code" [ref=e519]:
+                - generic [ref=e520]: 
+      - main [ref=e521]:
+        - region "Hauptbereich" [ref=e524]:
+          - generic [ref=e529]:
+            - generic [ref=e535]:
+              - generic [ref=e539]:
+                - img [ref=e540]
+                - heading "Willkommen zurück, Oliver" [level=1] [ref=e542]
+              - generic [ref=e543]:
+                - generic [ref=e547]:
+                  - generic [ref=e548]:
+                    - heading "Sitzungen" [level=2] [ref=e550]
+                    - list [ref=e551]:
+                      - listitem [ref=e552]:
+                        - button "Session Deploy LobeHub with config and CI/CD öffnen" [ref=e553]:
+                          - generic [ref=e554]:
+                            - generic [ref=e558]: Ungelesen
+                            - generic [ref=e560]: Deploy LobeHub with config and CI/CD
+                          - generic [ref=e561]:
+                            - generic [ref=e562]: mrsimpson/lobehub
+                            - generic [ref=e563]: 3d
+                            - img [ref=e564]
+                  - generic [ref=e566]:
+                    - heading "Pull Requests" [level=2] [ref=e568]
+                    - list [ref=e571]:
+                      - listitem [ref=e572]:
+                        - 'button "Offene Session für PR #254" [ref=e573]':
+                          - generic [ref=e574]:
+                            - generic [ref=e578]: In Prüfung
+                            - generic [ref=e579]: Fix beads plugin parent phase placeholder replacement
+                            - generic [ref=e580]: "#254"
+                          - generic [ref=e581]:
+                            - generic "+90 −24" [ref=e582]: S
+                            - generic [ref=e583]: mrsimpson/responsible-vibe-mcp
+                            - generic [ref=e584]: 3w
+                            - img [ref=e585]
+                - generic [ref=e587]:
+                  - button:
+                    - img
+                  - generic [ref=e588]:
+                    - button "Default" [ref=e589]:
+                      - img [ref=e590]
+                      - generic [ref=e592]: Default
+                    - generic [ref=e1192]:
+                      - button "opencode" [ref=e1193]:
+                        - img [ref=e1194]
+                        - generic [ref=e1196]: opencode
+                      - textbox [ref=e1197]: "{\"name\":\"opencode\",\"owner\":{\"login\":\"mrsimpson\",\"type\":\"User\",\"id\":17176678},\"default_branch\":\"main\",\"visibility\":\"public\",\"archived\":false,\"disabled\":false,\"fork\":true,\"permissions\":{\"admin\":true,\"maintain\":true,\"push\":true,\"triage\":true,\"pull\":true},\"size\":206398,\"description\":\"The AI coding agent built for the terminal.\",\"language\":\"TypeScript\",\"pushed_at\":\"2026-04-23T11:39:35Z\",\"topics\":[]}"
+                      - button "main" [ref=e1198]:
+                        - img [ref=e1199]
+                        - generic [ref=e1201]: main
+                      - textbox [ref=e1202]: main
+                    - button [ref=e1203]:
+                      - img [ref=e594]
+                    - textbox [ref=e597]
+                  - button [ref=e598]:
+                    - img [ref=e600]
+                  - generic [ref=e695]:
+                    - generic "Prompt" [active] [ref=e697]:
+                      - paragraph [ref=e698]: Beschreibe eine Aufgabe oder stelle eine Frage
+                    - button "Senden" [disabled] [ref=e700]:
+                      - img [ref=e702]
+                  - generic [ref=e704]:
+                    - generic [ref=e705]:
+                      - button "Planmodus" [ref=e706]:
+                        - generic [ref=e707]: Planmodus
+                      - button "Transkript-Ansichtsmodus" [ref=e708]:
+                        - img [ref=e710]
+                      - button "Hinzufügen" [ref=e712]:
+                        - img [ref=e714]
+                      - group "Diktieren" [ref=e716]:
+                        - button "Drücken und halten zum Aufnehmen" [ref=e717]:
+                          - img [ref=e718]
+                        - button "Diktat-Einstellungen" [ref=e720]:
+                          - img [ref=e721]
+                    - generic [ref=e723]:
+                      - button "Sonnet 4.6" [ref=e724]:
+                        - generic [ref=e725]: Sonnet 4.6
+                      - 'button "Usage: plan 0%" [ref=e726]':
+                        - img [ref=e728]
+            - generic [ref=e731]: Pfeiltasten verschieben die Kachel. Senkrechte Pfeiltasten zeigen eine Teilung als Vorschau an; drücke Enter zum Bestätigen oder Escape zum Abbrechen.
+            - status [ref=e732]
+    - region "Benachrichtigungen (F8)":
+      - list
+  - iframe [ref=e733]:
+    

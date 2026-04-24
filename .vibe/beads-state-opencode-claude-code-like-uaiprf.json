@@ -1,0 +1,29 @@
+{
+  "conversationId": "opencode-claude-code-like-uaiprf",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-6",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-6.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-6.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-6.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-6.4"
+    }
+  ],
+  "createdAt": "2026-04-24T05:15:15.591Z",
+  "updatedAt": "2026-04-24T05:15:15.591Z"
+}
