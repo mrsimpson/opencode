@@ -31,6 +31,7 @@ const mocks = {
   resumeSession: mock(() => Promise.resolve()),
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
   remoteBranchExists: mock(() => Promise.resolve(true)),
+  ensureBootstrapConfigMap: mock(() => Promise.resolve()),
   RemoteRefsUnreachableError,
 }
 
@@ -90,6 +91,8 @@ beforeEach(() => {
   mocks.getPodState.mockImplementation(() => Promise.resolve("running"))
   mocks.remoteBranchExists.mockReset()
   mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+  mocks.ensureBootstrapConfigMap.mockReset()
+  mocks.ensureBootstrapConfigMap.mockImplementation(() => Promise.resolve())
 })
 
 // ---------------------------------------------------------------------------
@@ -461,5 +464,90 @@ describe("GET /api/ports returns listening ports", () => {
     const body = JSON.parse(res.body as string)
     expect(body).toHaveProperty("ports")
     expect(Array.isArray(body.ports)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions with initialMessage — ensureBootstrapConfigMap
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions with initialMessage", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+    mocks.getSessionHash.mockReset()
+    mocks.getSessionHash.mockImplementation(() => "abc123456789")
+  })
+
+  it("calls ensureBootstrapConfigMap with hash and initialMessage", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+      initialMessage: "Fix the bug",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(201)
+    expect(mocks.ensureBootstrapConfigMap).toHaveBeenCalledTimes(1)
+    expect((mocks.ensureBootstrapConfigMap as any).mock.calls[0]).toEqual(["abc123456789", "Fix the bug"])
+  })
+})
+
+describe("POST /api/sessions without initialMessage", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+  })
+
+  it("does NOT call ensureBootstrapConfigMap", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(201)
+    expect(mocks.ensureBootstrapConfigMap).toHaveBeenCalledTimes(0)
+  })
+})
+
+describe("ANNOTATION_INITIAL_MESSAGE in SessionKey — initialMessage passed to ensurePVC", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+  })
+
+  it("passes initialMessage in the SessionKey argument to ensurePVC", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+      initialMessage: "Hello world",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(mocks.ensurePVC).toHaveBeenCalledTimes(1)
+    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
+    expect(sessionKeyPassed?.initialMessage).toBe("Hello world")
   })
 })

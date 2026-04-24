@@ -3,6 +3,7 @@ import fs from "node:fs"
 import * as k8s from "@kubernetes/client-node"
 import { humanId as _humanId } from "human-id"
 import { config } from "./config.js"
+import * as devProxy from "./dev-proxy.js"
 
 const kc = new k8s.KubeConfig()
 // loadFromCluster() does not throw when not in a pod — it silently produces
@@ -48,6 +49,7 @@ const ANNOTATION_USER_EMAIL = "opencode.ai/user-email"
 const ANNOTATION_REPO_URL = "opencode.ai/repo-url"
 const ANNOTATION_BRANCH = "opencode.ai/branch"
 const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
+const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
@@ -60,6 +62,7 @@ export interface SessionKey {
   branch: string
   /** Source branch the user starts from (e.g. "main"). Used by git-init to set the starting point. */
   sourceBranch: string
+  initialMessage?: string
 }
 
 export interface SessionInfo {
@@ -74,6 +77,7 @@ export interface SessionInfo {
   url: string
   lastActivity: string
   idleTimeoutMinutes: number
+  description?: string
 }
 
 /**
@@ -102,6 +106,31 @@ function sessionLabels(hash: string): Record<string, string> {
 
 function githubSecretName(hash: string): string {
   return `opencode-github-${hash}`
+}
+
+function bootstrapConfigMapName(hash: string): string {
+  return `opencode-bootstrap-${hash}`
+}
+
+const WORKSPACE_BASE64 = Buffer.from("/home/opencode/repo").toString("base64").replace(/=+$/, "")
+
+function deepLinkUrl(podUrl: string, sessionId: string): string {
+  return `${podUrl}/${WORKSPACE_BASE64}/session/${sessionId}`
+}
+
+export async function ensureBootstrapConfigMap(hash: string, initialMessage: string): Promise<void> {
+  if (!initialMessage) return
+  const name = bootstrapConfigMapName(hash)
+  const cm: k8s.V1ConfigMap = {
+    metadata: { name, namespace: config.namespace, labels: sessionLabels(hash) },
+    data: { "initial-message.txt": initialMessage },
+  }
+  try {
+    await k8sApi.createNamespacedConfigMap({ namespace: config.namespace, body: cm })
+  } catch (err) {
+    if (!isConflict(err)) throw err
+    // Idempotent — already exists
+  }
 }
 
 async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
@@ -144,6 +173,7 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
         [ANNOTATION_REPO_URL]: session.repoUrl,
         [ANNOTATION_BRANCH]: session.branch,
         [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
+        ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
       },
     },
     spec: {
@@ -171,7 +201,8 @@ export async function getPodState(hash: string): Promise<PodState> {
   const name = podName(hash)
   try {
     const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    if (pod.status?.phase === "Running" && pod.status.podIP) return "running"
+    const ready = pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True")
+    if (ready && pod.status?.podIP) return "running"
     return "creating"
   } catch (err) {
     if (isNotFound(err)) return "none"
@@ -198,6 +229,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
+  if (session.initialMessage) await ensureBootstrapConfigMap(hash, session.initialMessage)
 
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
@@ -321,8 +353,25 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           command: [
             "sh",
             "-c",
-            `git config --global --add safe.directory /home/opencode/repo; set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
+            [
+              `git config --global --add safe.directory /home/opencode/repo`,
+              `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a`,
+              `opencode serve --hostname 0.0.0.0 --port ${config.opencodePort} &`,
+              `SERVE_PID=$!`,
+              `if [ -f /home/opencode/.opencode-bootstrap/initial-message.txt ] && [ ! -f /home/opencode/.initial-message-sent ]; then`,
+              `  until wget -q -O- http://127.0.0.1:${config.opencodePort}/health >/dev/null 2>&1; do sleep 1; done`,
+              `  opencode run --attach http://127.0.0.1:${config.opencodePort} "$(cat /home/opencode/.opencode-bootstrap/initial-message.txt)" &`,
+              `  touch /home/opencode/.initial-message-sent`,
+              `fi`,
+              `wait $SERVE_PID`,
+            ].join("\n"),
           ],
+          readinessProbe: {
+            httpGet: { path: "/health", port: config.opencodePort },
+            initialDelaySeconds: 5,
+            periodSeconds: 3,
+            failureThreshold: 20,
+          },
           ports: [{ containerPort: config.opencodePort }],
           env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
           envFrom: [
@@ -338,6 +387,9 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           volumeMounts: [
             { name: "user-data", mountPath: "/home/opencode" },
             { name: "opencode-config", mountPath: "/home/opencode/.opencode", readOnly: true },
+            ...(session.initialMessage
+              ? [{ name: "bootstrap-config", mountPath: "/home/opencode/.opencode-bootstrap", readOnly: true }]
+              : []),
           ],
         },
         {
@@ -372,6 +424,9 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           name: "opencode-config",
           configMap: { name: config.configMapName },
         },
+        ...(session.initialMessage
+          ? [{ name: "bootstrap-config", configMap: { name: bootstrapConfigMapName(hash) } }]
+          : []),
       ],
     },
   }
@@ -392,7 +447,8 @@ export async function getPodIP(hash: string): Promise<string | null> {
   const name = podName(hash)
   try {
     const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    if (pod.status?.phase === "Running" && pod.status.podIP) return pod.status.podIP
+    if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP)
+      return pod.status.podIP
     return null
   } catch (err) {
     if (isNotFound(err)) return null
@@ -439,7 +495,7 @@ export async function listUserSessions(
       let state: PodState
       if (!pod) {
         state = "stopped"
-      } else if (pod.status?.phase === "Running" && pod.status?.podIP) {
+      } else if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
         state = "running"
       } else {
         state = "creating"
@@ -451,10 +507,20 @@ export async function listUserSessions(
         new Date().toISOString()
 
       let lastActivity = annotationActivity
+      let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
+
       if (state === "running" && pod?.status?.podIP) {
-        const instanceMs = await podActivityMs(pod.status.podIP)
-        if (instanceMs !== null && instanceMs > new Date(annotationActivity).getTime()) {
-          lastActivity = new Date(instanceMs).toISOString()
+        const activity = await podActivityMs(pod.status.podIP, hash)
+        if (activity !== null) {
+          if (activity.ms > new Date(annotationActivity).getTime()) {
+            lastActivity = new Date(activity.ms).toISOString()
+          }
+          if (activity.sessionId) {
+            sessionUrl = deepLinkUrl(
+              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+              activity.sessionId,
+            )
+          }
         }
       }
 
@@ -465,9 +531,10 @@ export async function listUserSessions(
         branch: ann[ANNOTATION_BRANCH] ?? "",
         sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
         state,
-        url: `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+        url: sessionUrl,
         lastActivity,
         idleTimeoutMinutes: config.idleTimeoutMinutes,
+        description: ann[ANNOTATION_INITIAL_MESSAGE],
       }
     }),
   )
@@ -526,9 +593,10 @@ export async function deleteIdlePods(): Promise<void> {
 
         // Before deleting, poll the instance for real activity (WS sessions don't update annotation)
         const ip = pod.status?.podIP
+        const podHash = pod.metadata?.labels?.[LABEL_SESSION_HASH] ?? name.replace("opencode-session-", "")
         if (ip) {
-          const instanceMs = await podActivityMs(ip)
-          if (instanceMs !== null && instanceMs >= cutoff) {
+          const instanceMs = await podActivityMs(ip, podHash)
+          if (instanceMs !== null && instanceMs.ms >= cutoff) {
             // Instance has recent activity — refresh annotation and skip deletion
             await k8sApi
               .patchNamespacedPod({
@@ -538,7 +606,7 @@ export async function deleteIdlePods(): Promise<void> {
                   {
                     op: "add",
                     path: `/metadata/annotations/${ANNOTATION_LAST_ACTIVITY.replace(/~/g, "~0").replace(/\//g, "~1")}`,
-                    value: new Date(instanceMs).toISOString(),
+                    value: new Date(instanceMs.ms).toISOString(),
                   },
                 ],
               })
@@ -591,6 +659,13 @@ export async function terminateSession(hash: string, email: string): Promise<voi
     if (!isNotFound(err)) throw err
   })
 
+  // Delete bootstrap ConfigMap (ignore NotFound)
+  await k8sApi
+    .deleteNamespacedConfigMap({ name: bootstrapConfigMapName(hash), namespace: config.namespace })
+    .catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+
   activityThrottle.delete(hash)
 }
 
@@ -641,12 +716,19 @@ function isConflict(err: unknown): boolean {
 }
 
 /** Poll a running pod's /experimental/session endpoint. Returns time.updated ms or null. */
-async function podActivityMs(ip: string): Promise<number | null> {
+async function podActivityMs(ip: string, hash: string): Promise<{ ms: number; sessionId?: string } | null> {
   try {
-    const res = await activityFetchImpl(`http://${ip}:${config.opencodePort}/experimental/session?limit=1`)
+    let base = `http://${ip}:${config.opencodePort}`
+    if (devProxy.enabled) {
+      const proxyTarget = await devProxy.target(hash)
+      if (!proxyTarget) return null
+      base = proxyTarget
+    }
+    const res = await activityFetchImpl(`${base}/session?limit=1&roots=true`)
     if (!res.ok) return null
-    const data = (await res.json()) as { time: { updated: number } }[]
-    return data[0]?.time?.updated ?? null
+    const data = (await res.json()) as { id: string; time: { updated: number } }[]
+    if (!data[0]) return null
+    return { ms: data[0].time?.updated ?? Date.now(), sessionId: data[0].id }
   } catch {
     return null
   }

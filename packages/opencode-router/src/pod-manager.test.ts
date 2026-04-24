@@ -86,6 +86,10 @@ const fakeK8sApi = {
     }
     fakeSecrets = (fakeSecrets as any[]).filter((_, i) => i !== idx)
   },
+  deleteNamespacedConfigMap: async ({ name }: { name: string }) => {
+    // ConfigMaps are not tracked in tests; always succeed (treat as already deleted)
+    void name
+  },
   readNamespacedSecret: async ({ name }: { name: string }) => {
     const s = (fakeSecrets as any[]).find((s) => s.metadata?.name === name)
     if (!s) {

@@ -5,6 +5,7 @@ export const dict = {
   "app.newSession": "Neue Sitzung",
   "app.back": "← Zurück",
   "app.error.connect": "Verbindung fehlgeschlagen",
+  "app.error.timeout": "Anfrage abgelaufen — der Router ist möglicherweise nicht erreichbar",
 
   "session.state.creating": "wird erstellt",
   "session.state.running": "läuft",
@@ -34,6 +35,20 @@ export const dict = {
 
   "loading.title": "Deine OpenCode-Sitzung wird gestartet...",
   "loading.subtitle": "Das dauert normalerweise nur wenige Sekunden.",
+
+  "app.welcomeBack": "Willkommen zurück, {{email}}",
+  "app.sessions": "Sitzungen",
+  "app.recents": "Zuletzt verwendet",
+  "app.newSession.repoUrl.placeholder": "https://github.com/org/repo.git",
+  "app.newSession.sourceBranch.placeholder": "main",
+  "app.newSession.prompt.placeholder": "Beschreibe eine Aufgabe oder stelle eine Frage",
+  "app.newSession.sessionBranch.label": "Sitzungs-Branch",
+  "sidebar.collapse": "Seitenleiste einklappen",
+  "sidebar.expand": "Seitenleiste ausklappen",
+  "session.state.ready": "Bereit",
+  "session.state.inactive": "Inaktiv",
+  "session.action.open": "Öffnen",
+  "session.action.openInNewTab": "In neuem Tab öffnen",
 } as const
 
 export type DictKey = keyof typeof dict
