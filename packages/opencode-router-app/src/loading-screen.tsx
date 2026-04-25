@@ -6,7 +6,7 @@ import { useT } from "./i18n"
 /** Max number of polls where state=running but no deep link before falling back to base URL. */
 const MAX_RUNNING_WITHOUT_DEEPLINK = 10
 
-export function LoadingScreen(props: { hash: string; url: string }) {
+export function LoadingScreen(props: { hash: string; url: string; onReady?: (url: string) => void }) {
   const t = useT(useI18n())
   let timer: ReturnType<typeof setInterval>
   let runningPolls = 0
@@ -25,7 +25,8 @@ export function LoadingScreen(props: { hash: string; url: string }) {
         const isDeepLink = url.includes("/session/")
         if (isDeepLink || ++runningPolls >= MAX_RUNNING_WITHOUT_DEEPLINK) {
           clearInterval(timer)
-          window.location.replace(url)
+          if (props.onReady) props.onReady(url)
+          else window.location.replace(url)
         }
       } catch {
         // Retry on next tick

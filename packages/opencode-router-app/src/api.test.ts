@@ -66,6 +66,7 @@ describe("Session type", () => {
       state: "stopped",
       url: "https://example.com",
       lastActivity: "2026-04-13T00:00:00Z",
+        createdAt: "2026-04-13T00:00:00Z",
       idleTimeoutMinutes: 30,
     }
     expect(s.state).toBe("stopped")
@@ -81,6 +82,7 @@ describe("Session type", () => {
       state: "running",
       url: "https://example.com",
       lastActivity: "2026-04-13T12:00:00Z",
+      createdAt: "2026-04-13T12:00:00Z",
       idleTimeoutMinutes: 60,
     }
     expect(typeof s.lastActivity).toBe("string")

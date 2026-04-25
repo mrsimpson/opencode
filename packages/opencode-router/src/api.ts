@@ -98,8 +98,13 @@ export async function handleApi(
 
   // GET /api/sessions — list all sessions for this user, always includes email
   if (url === "/api/sessions" && req.method === "GET") {
-    const sessions = await listUserSessions(email, req)
-    json(res, 200, { email, sessions })
+    try {
+      const sessions = await listUserSessions(email, req)
+      json(res, 200, { email, sessions })
+    } catch (err) {
+      console.error("listUserSessions failed:", err)
+      json(res, 500, { error: "Failed to list sessions" })
+    }
     return true
   }
 

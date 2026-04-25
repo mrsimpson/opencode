@@ -9,6 +9,7 @@ export interface Session {
   state: "creating" | "running" | "stopped"
   url: string
   lastActivity: string
+  createdAt: string
   idleTimeoutMinutes: number
   description?: string
 }

@@ -1,5 +1,6 @@
 import { Show } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
+import { Button } from "@opencode-ai/ui/button"
 import { useT } from "./i18n"
 
 const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
@@ -16,6 +17,14 @@ type Props = {
   submitting: boolean
   onSubmit: () => void
   ref?: (el: HTMLTextAreaElement) => void
+}
+
+function disabledReason(props: Props): string | null {
+  if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return "Enter a valid repository URL"
+  if (!props.sourceBranch.trim()) return "Source branch is required"
+  if (!props.sessionBranch.trim()) return "Waiting for session branch…"
+  if (!props.promptText.trim()) return "Describe your task to continue"
+  return null
 }
 
 const inputStyle = {
@@ -79,7 +88,7 @@ export function SessionInputBar(props: Props) {
           </Show>
         </div>
 
-        <div class="flex gap-2 items-end">
+        <div class="flex gap-2 items-stretch">
           <textarea
             ref={props.ref}
             placeholder={t("app.newSession.prompt.placeholder")}
@@ -94,19 +103,16 @@ export function SessionInputBar(props: Props) {
               "font-family": "inherit",
             }}
           />
-          <button
+          <Button
             type="submit"
+            icon="arrow-up"
+            variant="primary"
             disabled={!canSubmit()}
-            class="px-4 py-2 rounded-lg text-13-medium shrink-0"
-            style={{
-              background: canSubmit() ? "var(--surface-primary)" : "var(--background-highlight)",
-              color: canSubmit() ? "var(--text-on-primary)" : "var(--text-dimmed-base)",
-              border: "none",
-              cursor: canSubmit() ? "pointer" : "not-allowed",
-            }}
+            aria-label={canSubmit() ? t("form.submit") : (disabledReason(props) ?? t("form.submit"))}
+            style={{ "align-self": "stretch", height: "auto" }}
           >
-            {props.submitting ? t("form.submitting") : t("form.submit")}
-          </button>
+            {props.submitting ? t("form.submitting") : canSubmit() ? t("form.submit") : disabledReason(props)}
+          </Button>
         </div>
 
         <Show when={props.formError}>

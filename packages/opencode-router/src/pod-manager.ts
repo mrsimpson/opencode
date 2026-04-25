@@ -50,6 +50,7 @@ const ANNOTATION_REPO_URL = "opencode.ai/repo-url"
 const ANNOTATION_BRANCH = "opencode.ai/branch"
 const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
 const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
+const ANNOTATION_CREATED_AT = "opencode.ai/created-at"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
@@ -76,6 +77,7 @@ export interface SessionInfo {
   state: PodState
   url: string
   lastActivity: string
+  createdAt: string
   idleTimeoutMinutes: number
   description?: string
 }
@@ -173,6 +175,7 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
         [ANNOTATION_REPO_URL]: session.repoUrl,
         [ANNOTATION_BRANCH]: session.branch,
         [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
+        [ANNOTATION_CREATED_AT]: new Date().toISOString(),
         ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
       },
     },
@@ -483,10 +486,11 @@ export async function listUserSessions(
   const podMap = new Map<string, k8s.V1Pod>()
   for (const pod of podList.items) {
     const h = pod.metadata?.labels?.[LABEL_SESSION_HASH]
-    if (h) podMap.set(h, pod)
+    // Skip terminating pods — treat them as stopped so port-forward isn't attempted
+    if (h && !pod.metadata?.deletionTimestamp) podMap.set(h, pod)
   }
 
-  return Promise.all(
+  const results = await Promise.allSettled(
     userPVCs.map(async (pvc: k8s.V1PersistentVolumeClaim) => {
       const ann = pvc.metadata?.annotations ?? {}
       const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
@@ -533,11 +537,17 @@ export async function listUserSessions(
         state,
         url: sessionUrl,
         lastActivity,
+        createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
         idleTimeoutMinutes: config.idleTimeoutMinutes,
         description: ann[ANNOTATION_INITIAL_MESSAGE],
       }
     }),
   )
+  return results.flatMap((r) => {
+    if (r.status === "fulfilled") return [r.value]
+    console.error("Failed to map session PVC:", r.reason)
+    return []
+  })
 }
 
 /**

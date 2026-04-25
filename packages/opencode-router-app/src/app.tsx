@@ -14,6 +14,7 @@ type AppPhase =
   | { kind: "loading" }
   | { kind: "ready" }
   | { kind: "creating"; hash: string; url: string }
+  | { kind: "open"; hash: string; url: string }
   | { kind: "error"; message: string }
 
 const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
@@ -42,7 +43,7 @@ export function App() {
       const data = await listSessions()
       setEmail(data.email)
       setSessions(data.sessions)
-      setAppPhase({ kind: "ready" })
+      if (appPhase().kind === "loading") setAppPhase({ kind: "ready" })
     } catch (err) {
       const message =
         err instanceof Error && err.name === "TimeoutError"
@@ -58,7 +59,7 @@ export function App() {
     loadSessions()
     const timer = setInterval(() => {
       const p = appPhase()
-      if (p.kind === "ready" || p.kind === "loading") loadSessions()
+      if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
     }, 5_000)
     onCleanup(() => clearInterval(timer))
   })
@@ -96,6 +97,9 @@ export function App() {
                 next.delete(hash)
                 return next
               })
+              // If the terminated session was open, go back to ready
+              const p = appPhase()
+              if (p.kind === "open" && p.hash === hash) setAppPhase({ kind: "ready" })
               loadSessions()
             }}
           >
@@ -134,27 +138,33 @@ export function App() {
   }
 
   const handleOpenSession = (session: Session) => {
-    // If the URL is already a deep link (contains /session/), navigate directly.
-    // Otherwise show LoadingScreen so it can poll until the deep link is ready.
     if (session.url.includes("/session/")) {
-      window.location.href = session.url
+      setAppPhase({ kind: "open", hash: session.hash, url: session.url })
     } else {
       setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
     }
   }
 
+  const activeHash = () => {
+    const p = appPhase()
+    return p.kind === "open" ? p.hash : p.kind === "creating" ? p.hash : undefined
+  }
+
   return (
     <div class="flex h-dvh overflow-hidden" style={{ background: "var(--background-base)" }}>
-      <Show when={appPhase().kind !== "loading"}>
+      <Show when={appPhase().kind === "open" || appPhase().kind === "creating"}>
         <SessionSidebar
           collapsed={sidebarCollapsed()}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
           sessions={sessions()}
           email={email()}
-          onNewSession={() => promptRef?.focus()}
-          onOpenSession={(session) => {
-            handleOpenSession(session)
+          activeHash={activeHash()}
+          onNewSession={() => {
+            setAppPhase({ kind: "ready" })
+            // small delay to allow the input bar to mount before focusing
+            setTimeout(() => promptRef?.focus(), 50)
           }}
+          onOpenSession={handleOpenSession}
           onResumeSession={async (session) => {
             await resumeSession(session.hash)
             setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
@@ -181,9 +191,7 @@ export function App() {
               <SessionList
                 sessions={sessions()}
                 terminating={terminating()}
-                onOpenSession={(session) => {
-                  handleOpenSession(session)
-                }}
+                onOpenSession={handleOpenSession}
                 onResumeSession={async (session) => {
                   await resumeSession(session.hash)
                   setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
@@ -211,8 +219,25 @@ export function App() {
           <Match when={appPhase().kind === "creating" && (appPhase() as Extract<AppPhase, { kind: "creating" }>)}>
             {(p) => (
               <div class="flex flex-1 items-center justify-center">
-                <LoadingScreen hash={p().hash} url={p().url} />
+                <LoadingScreen
+                  hash={p().hash}
+                  url={p().url}
+                  onReady={(url) => {
+                    setAppPhase({ kind: "open", hash: p().hash, url })
+                  }}
+                />
               </div>
+            )}
+          </Match>
+
+          <Match when={appPhase().kind === "open" && (appPhase() as Extract<AppPhase, { kind: "open" }>)}>
+            {(p) => (
+              <iframe
+                src={p().url}
+                class="flex-1 w-full border-0"
+                style={{ height: "100%" }}
+                title="opencode session"
+              />
             )}
           </Match>
 
