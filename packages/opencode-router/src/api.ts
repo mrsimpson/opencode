@@ -7,7 +7,6 @@ import {
   RemoteRefsUnreachableError,
   ensurePVC,
   ensurePod,
-  ensureBootstrapConfigMap,
   getPodState,
   getSessionHash,
   listUserSessions,
@@ -159,7 +158,6 @@ export async function handleApi(
     const hash = getSessionHash(email, repoUrl, branch)
 
     await ensurePVC(session)
-    if (initialMessage) await ensureBootstrapConfigMap(hash, initialMessage)
     await ensurePod(session, githubToken)
 
     json(res, 201, { hash, url: sessionUrl(hash, req), state: "creating" })

@@ -110,29 +110,16 @@ function githubSecretName(hash: string): string {
   return `opencode-github-${hash}`
 }
 
-function bootstrapConfigMapName(hash: string): string {
-  return `opencode-bootstrap-${hash}`
-}
-
 const WORKSPACE_BASE64 = Buffer.from("/home/opencode/repo").toString("base64").replace(/=+$/, "")
 
 function deepLinkUrl(podUrl: string, sessionId: string): string {
   return `${podUrl}/${WORKSPACE_BASE64}/session/${sessionId}`
 }
 
-export async function ensureBootstrapConfigMap(hash: string, initialMessage: string): Promise<void> {
-  if (!initialMessage) return
-  const name = bootstrapConfigMapName(hash)
-  const cm: k8s.V1ConfigMap = {
-    metadata: { name, namespace: config.namespace, labels: sessionLabels(hash) },
-    data: { "initial-message.txt": initialMessage },
-  }
-  try {
-    await k8sApi.createNamespacedConfigMap({ namespace: config.namespace, body: cm })
-  } catch (err) {
-    if (!isConflict(err)) throw err
-    // Idempotent — already exists
-  }
+function newSessionUrl(podUrl: string, initialMessage?: string): string {
+  const base = `${podUrl}/${WORKSPACE_BASE64}/session`
+  if (!initialMessage) return base
+  return `${base}?prompt=${encodeURIComponent(initialMessage)}`
 }
 
 async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
@@ -232,7 +219,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  if (session.initialMessage) await ensureBootstrapConfigMap(hash, session.initialMessage)
 
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
@@ -359,14 +345,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
             [
               `git config --global --add safe.directory /home/opencode/repo`,
               `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a`,
-              `opencode serve --hostname 0.0.0.0 --port ${config.opencodePort} &`,
-              `SERVE_PID=$!`,
-              `if [ -f /home/opencode/.opencode-bootstrap/initial-message.txt ] && [ ! -f /home/opencode/.initial-message-sent ]; then`,
-              `  until wget -q -O- http://127.0.0.1:${config.opencodePort}/health >/dev/null 2>&1; do sleep 1; done`,
-              `  opencode run --attach http://127.0.0.1:${config.opencodePort} "$(cat /home/opencode/.opencode-bootstrap/initial-message.txt)" &`,
-              `  touch /home/opencode/.initial-message-sent`,
-              `fi`,
-              `wait $SERVE_PID`,
+              `exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
             ].join("\n"),
           ],
           readinessProbe: {
@@ -390,9 +369,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           volumeMounts: [
             { name: "user-data", mountPath: "/home/opencode" },
             { name: "opencode-config", mountPath: "/home/opencode/.opencode", readOnly: true },
-            ...(session.initialMessage
-              ? [{ name: "bootstrap-config", mountPath: "/home/opencode/.opencode-bootstrap", readOnly: true }]
-              : []),
           ],
         },
         {
@@ -427,9 +403,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           name: "opencode-config",
           configMap: { name: config.configMapName },
         },
-        ...(session.initialMessage
-          ? [{ name: "bootstrap-config", configMap: { name: bootstrapConfigMapName(hash) } }]
-          : []),
       ],
     },
   }
@@ -511,6 +484,7 @@ export async function listUserSessions(
         new Date().toISOString()
 
       let lastActivity = annotationActivity
+      const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
       let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
 
       if (state === "running" && pod?.status?.podIP) {
@@ -519,12 +493,9 @@ export async function listUserSessions(
           if (activity.ms > new Date(annotationActivity).getTime()) {
             lastActivity = new Date(activity.ms).toISOString()
           }
-          if (activity.sessionId) {
-            sessionUrl = deepLinkUrl(
-              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
-              activity.sessionId,
-            )
-          }
+          sessionUrl = activity.sessionId
+            ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
+            : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, initialMessage)
         }
       }
 
@@ -668,13 +639,6 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   await k8sApi.deleteNamespacedSecret({ name: githubSecretName(hash), namespace: config.namespace }).catch((err) => {
     if (!isNotFound(err)) throw err
   })
-
-  // Delete bootstrap ConfigMap (ignore NotFound)
-  await k8sApi
-    .deleteNamespacedConfigMap({ name: bootstrapConfigMapName(hash), namespace: config.namespace })
-    .catch((err) => {
-      if (!isNotFound(err)) throw err
-    })
 
   activityThrottle.delete(hash)
 }

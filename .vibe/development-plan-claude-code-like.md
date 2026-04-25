@@ -32,7 +32,7 @@ Redesign the `opencode-router-app` UI to match the two-panel layout and UX of Cl
 - **Session title**: Use `session.branch` as the human-readable title (existing convention)
 - **Repo display**: Strip `https://` and `.git` suffix (existing convention)
 - **New session form placement**: Inline in main content area (bottom), not a separate route/phase — show/hide with a signal
-- **No new API changes**: All existing API functions (`listSessions`, `createSession`, etc.) remain unchanged
+- **initialMessage delivery (final decision — 2026-04-25)**: Replaced `opencode run --attach` bootstrap approach with `?prompt=` URL redirect. `packages/app/session.tsx` already handles `?prompt=` when no session ID is present (pre-fills composer). `pod-manager.ts` now: (1) removes `ensureBootstrapConfigMap`, sentinel file, and `opencode run` from startup script; (2) in `listUserSessions`, when pod is running but has no sessions yet (`podActivityMs` returns no `sessionId`), builds URL as `{pod_url}/{base64dir}/session?prompt=<encodedInitialMessage>` from PVC annotation. User arrives at new-session view with prompt pre-filled; presses Enter to send. Zero changes to `packages/app` or `packages/web`.
 - **Collapsible component**: Use `@opencode-ai/ui/collapsible` for sidebar sections
 - **Tag component**: Use `@opencode-ai/ui/tag` for state badges with CSS custom properties for color
 - **DropdownMenu**: Use `@opencode-ai/ui/dropdown-menu` for per-session 3-dot menu (terminate, resume)

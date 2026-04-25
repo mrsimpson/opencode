@@ -31,7 +31,6 @@ const mocks = {
   resumeSession: mock(() => Promise.resolve()),
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
   remoteBranchExists: mock(() => Promise.resolve(true)),
-  ensureBootstrapConfigMap: mock(() => Promise.resolve()),
   RemoteRefsUnreachableError,
 }
 
@@ -91,8 +90,6 @@ beforeEach(() => {
   mocks.getPodState.mockImplementation(() => Promise.resolve("running"))
   mocks.remoteBranchExists.mockReset()
   mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
-  mocks.ensureBootstrapConfigMap.mockReset()
-  mocks.ensureBootstrapConfigMap.mockImplementation(() => Promise.resolve())
 })
 
 // ---------------------------------------------------------------------------
@@ -468,7 +465,7 @@ describe("GET /api/ports returns listening ports", () => {
 })
 
 // ---------------------------------------------------------------------------
-// POST /api/sessions with initialMessage — ensureBootstrapConfigMap
+// POST /api/sessions with initialMessage — passed to ensurePVC via SessionKey
 // ---------------------------------------------------------------------------
 
 describe("POST /api/sessions with initialMessage", () => {
@@ -483,7 +480,7 @@ describe("POST /api/sessions with initialMessage", () => {
     mocks.getSessionHash.mockImplementation(() => "abc123456789")
   })
 
-  it("calls ensureBootstrapConfigMap with hash and initialMessage", async () => {
+  it("passes initialMessage in SessionKey to ensurePVC", async () => {
     const req = fakeReq("POST", "/api/sessions", {
       repoUrl: "https://github.com/org/repo.git",
       branch: "calm-snails",
@@ -495,8 +492,8 @@ describe("POST /api/sessions with initialMessage", () => {
     await handleApi(req as any, res as any, EMAIL)
 
     expect(res.statusCode).toBe(201)
-    expect(mocks.ensureBootstrapConfigMap).toHaveBeenCalledTimes(1)
-    expect((mocks.ensureBootstrapConfigMap as any).mock.calls[0]).toEqual(["abc123456789", "Fix the bug"])
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    expect(pvcCall.initialMessage).toBe("Fix the bug")
   })
 })
 
@@ -510,7 +507,7 @@ describe("POST /api/sessions without initialMessage", () => {
     mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
   })
 
-  it("does NOT call ensureBootstrapConfigMap", async () => {
+  it("ensurePVC receives undefined initialMessage", async () => {
     const req = fakeReq("POST", "/api/sessions", {
       repoUrl: "https://github.com/org/repo.git",
       branch: "calm-snails",
@@ -521,7 +518,8 @@ describe("POST /api/sessions without initialMessage", () => {
     await handleApi(req as any, res as any, EMAIL)
 
     expect(res.statusCode).toBe(201)
-    expect(mocks.ensureBootstrapConfigMap).toHaveBeenCalledTimes(0)
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    expect(pvcCall.initialMessage).toBeUndefined()
   })
 })
 
