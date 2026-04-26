@@ -29,7 +29,7 @@ function disabledReason(props: Props, t: (key: DictKey) => string): string | nul
 }
 
 const inputStyle = {
-  background: "var(--background-surface)",
+  background: "var(--background-base)",
   border: "1px solid var(--border-base)",
   color: "var(--text-base)",
   "border-radius": "6px",
@@ -48,8 +48,13 @@ export function SessionInputBar(props: Props) {
     props.promptText.trim().length > 0 &&
     !props.submitting
 
+  const errorMessage = () => props.formError || disabledReason(props, t)
+
   return (
-    <div class="border-t p-4" style={{ "border-color": "var(--border-base)", background: "var(--background-base)" }}>
+    <div
+      class="rounded-xl border p-4"
+      style={{ background: "var(--background-surface)", "border-color": "var(--border-base)" }}
+    >
       <form
         class="flex flex-col gap-3"
         onSubmit={(e) => {
@@ -57,70 +62,68 @@ export function SessionInputBar(props: Props) {
           props.onSubmit()
         }}
       >
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
           <input
             type="text"
             placeholder={t("app.newSession.repoUrl.placeholder")}
             value={props.repoUrl}
             onInput={(e) => props.onRepoUrlChange(e.currentTarget.value)}
-            style={{ ...inputStyle, flex: "2" }}
+            style={{ ...inputStyle, flex: "2 1 180px" }}
           />
           <input
             type="text"
             placeholder={t("app.newSession.sourceBranch.placeholder")}
             value={props.sourceBranch}
             onInput={(e) => props.onSourceBranchChange(e.currentTarget.value)}
-            style={{ ...inputStyle, flex: "1" }}
+            style={{ ...inputStyle, flex: "1 1 100px" }}
           />
-          <Show when={props.sessionBranch}>
-            <div
-              class="flex items-center px-3 rounded"
-              style={{
-                background: "var(--background-highlight)",
-                border: "1px solid var(--border-base)",
-                color: "var(--text-dimmed-base)",
-                "font-size": "12px",
-                "white-space": "nowrap",
-                "flex-shrink": "0",
-              }}
-            >
-              {props.sessionBranch}
-            </div>
+        </div>
+
+        <textarea
+          ref={props.ref}
+          autofocus
+          placeholder={t("app.newSession.prompt.placeholder")}
+          value={props.promptText}
+          onInput={(e) => props.onPromptTextChange(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault()
+              props.onSubmit()
+            }
+          }}
+          required
+          rows={3}
+          style={{
+            ...inputStyle,
+            resize: "none",
+            "font-family": "inherit",
+          }}
+        />
+
+        <div class="flex items-center" style={{ "min-height": "32px" }}>
+          <Show
+            when={errorMessage()}
+            fallback={
+              <Button type="submit" icon="arrow-up" variant="primary" disabled={!canSubmit()} class="w-full">
+                {props.submitting ? t("form.submitting") : t("form.submit")}
+              </Button>
+            }
+          >
+            {(msg) => (
+              <p
+                style={{
+                  color: "var(--text-on-critical-base)",
+                  "font-family": "var(--font-family-sans)",
+                  "font-size": "var(--font-size-small)",
+                  "font-weight": "var(--font-weight-medium)",
+                  "line-height": "18px",
+                }}
+              >
+                {msg()}
+              </p>
+            )}
           </Show>
         </div>
-
-        <div class="flex gap-2 items-stretch">
-          <textarea
-            ref={props.ref}
-            placeholder={t("app.newSession.prompt.placeholder")}
-            value={props.promptText}
-            onInput={(e) => props.onPromptTextChange(e.currentTarget.value)}
-            required
-            rows={2}
-            style={{
-              ...inputStyle,
-              flex: "1",
-              resize: "none",
-              "font-family": "inherit",
-            }}
-          />
-          <Button
-            type="submit"
-            icon="arrow-up"
-            variant="primary"
-            disabled={!canSubmit()}
-            aria-label={canSubmit() ? t("form.submit") : (disabledReason(props, t) ?? t("form.submit"))}
-            style={{ "align-self": "stretch", height: "auto" }}
-          >
-            {props.submitting ? t("form.submitting") : canSubmit() ? t("form.submit") : disabledReason(props, t)}
-          </Button>
-        </div>
-
-        <Show when={props.formError}>
-          <p class="text-12-regular" style={{ color: "var(--text-danger-base, #ef4444)" }}>
-            {props.formError}
-          </p>
-        </Show>
       </form>
     </div>
   )

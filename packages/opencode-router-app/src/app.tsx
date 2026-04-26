@@ -23,6 +23,7 @@ export function App() {
   const [sessions, setSessions] = createSignal<Session[]>([])
   const [email, setEmail] = createSignal("")
   const [terminating, setTerminating] = createSignal<Set<string>>(new Set())
+  const [mobileSessionsOpen, setMobileSessionsOpen] = createSignal(false)
 
   const [repoUrl, setRepoUrl] = createSignal("")
   const [sourceBranch, setSourceBranch] = createSignal("")
@@ -198,26 +199,30 @@ export function App() {
     return p.kind === "open" ? p.hash : p.kind === "creating" ? p.hash : undefined
   }
 
+  const goHome = () => {
+    navigate("/")
+    setAppPhase({ kind: "ready" })
+    setTimeout(() => promptRef?.focus(), 50)
+  }
+
   return (
     <div class="flex h-dvh overflow-hidden" style={{ background: "var(--background-base)" }}>
-      <Show when={appPhase().kind === "open" || appPhase().kind === "creating"}>
-        <SessionSidebar
-          collapsed={sidebarCollapsed()}
-          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-          sessions={sessions()}
-          email={email()}
-          activeHash={activeHash()}
-          onNewSession={() => {
-            navigate("/")
-            setAppPhase({ kind: "ready" })
-            // small delay to allow the input bar to mount before focusing
-            setTimeout(() => promptRef?.focus(), 50)
-          }}
-          onOpenSession={handleOpenSession}
-          onResumeSession={handleResumeSession}
-          onTerminateSession={handleTerminateSession}
-        />
-      </Show>
+      {/* Sidebar: only on desktop, only when session is open/creating */}
+      <div class="hidden md:contents">
+        <Show when={appPhase().kind === "open" || appPhase().kind === "creating"}>
+          <SessionSidebar
+            collapsed={sidebarCollapsed()}
+            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+            sessions={sessions()}
+            email={email()}
+            activeHash={activeHash()}
+            onNewSession={goHome}
+            onOpenSession={handleOpenSession}
+            onResumeSession={handleResumeSession}
+            onTerminateSession={handleTerminateSession}
+          />
+        </Show>
+      </div>
 
       <main class="flex flex-col flex-1 overflow-hidden">
         <Switch>
@@ -230,33 +235,74 @@ export function App() {
           </Match>
 
           <Match when={appPhase().kind === "ready"}>
-            <div class="flex flex-col flex-1 overflow-y-auto p-6 gap-6">
-              <h1 class="text-18-medium" style={{ color: "var(--text-base)" }}>
-                {t("app.welcomeBack", { email: email() || "—" })}
-              </h1>
-              <SessionList
-                sessions={sessions()}
-                terminating={terminating()}
-                onOpenSession={handleOpenSession}
-                onResumeSession={handleResumeSession}
-                onTerminateSession={handleTerminateSession}
-              />
+            <div class="flex flex-1 flex-col items-center overflow-y-auto px-4 pt-12 pb-8 gap-6">
+              <div class="w-full max-w-2xl flex flex-col gap-6">
+                {/* Welcome heading */}
+                <h1 class="text-18-medium text-center" style={{ color: "var(--text-base)" }}>
+                  {t("app.welcomeBack", { email: email() || "—" })}
+                </h1>
+
+                {/* New session form */}
+                <SessionInputBar
+                  repoUrl={repoUrl()}
+                  onRepoUrlChange={handleRepoUrlChange}
+                  sourceBranch={sourceBranch()}
+                  onSourceBranchChange={setSourceBranch}
+                  sessionBranch={sessionBranch()}
+                  promptText={promptText()}
+                  onPromptTextChange={setPromptText}
+                  formError={formError()}
+                  submitting={submitting()}
+                  onSubmit={handleSubmit}
+                  ref={(el) => {
+                    promptRef = el
+                  }}
+                />
+
+                {/* Session list: always visible on desktop, collapsed toggle on mobile */}
+                <Show when={sessions().length > 0}>
+                  {/* Desktop */}
+                  <div class="hidden md:block">
+                    <SessionList
+                      sessions={sessions()}
+                      terminating={terminating()}
+                      onOpenSession={handleOpenSession}
+                      onResumeSession={handleResumeSession}
+                      onTerminateSession={handleTerminateSession}
+                    />
+                  </div>
+
+                  {/* Mobile: toggle */}
+                  <div class="md:hidden flex flex-col gap-3">
+                    <button
+                      class="flex items-center gap-2 text-13-medium self-start"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--text-dimmed-base)",
+                        padding: "0",
+                      }}
+                      onClick={() => setMobileSessionsOpen((v) => !v)}
+                    >
+                      <span>{mobileSessionsOpen() ? "▾" : "▸"}</span>
+                      <span>
+                        {t("app.sessions")} ({sessions().length})
+                      </span>
+                    </button>
+                    <Show when={mobileSessionsOpen()}>
+                      <SessionList
+                        sessions={sessions()}
+                        terminating={terminating()}
+                        onOpenSession={handleOpenSession}
+                        onResumeSession={handleResumeSession}
+                        onTerminateSession={handleTerminateSession}
+                      />
+                    </Show>
+                  </div>
+                </Show>
+              </div>
             </div>
-            <SessionInputBar
-              repoUrl={repoUrl()}
-              onRepoUrlChange={handleRepoUrlChange}
-              sourceBranch={sourceBranch()}
-              onSourceBranchChange={setSourceBranch}
-              sessionBranch={sessionBranch()}
-              promptText={promptText()}
-              onPromptTextChange={setPromptText}
-              formError={formError()}
-              submitting={submitting()}
-              onSubmit={handleSubmit}
-              ref={(el) => {
-                promptRef = el
-              }}
-            />
           </Match>
 
           <Match when={appPhase().kind === "creating" && (appPhase() as Extract<AppPhase, { kind: "creating" }>)}>
