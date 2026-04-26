@@ -481,7 +481,7 @@ export async function listUserSessions(
   email: string,
   req: import("node:http").IncomingMessage,
 ): Promise<SessionInfo[]> {
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https"
+  const proto = config.routerProto
 
   const pvcList = await k8sApi.listNamespacedPersistentVolumeClaim({
     namespace: config.namespace,

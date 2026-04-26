@@ -33,6 +33,12 @@ export const config = {
    */
   routeSuffix: process.env.ROUTE_SUFFIX ?? "",
   /**
+   * Protocol used when building public session URLs (e.g. "https" in production,
+   * "http" for local dev). Defaults to "https".
+   * Set ROUTER_PROTO=http when running the router locally without TLS.
+   */
+  routerProto: process.env.ROUTER_PROTO ?? "https",
+  /**
    * Dev-only: when set, the router proxies the setup UI to this Vite dev server URL
    * instead of serving static files from publicDir. Enables HMR without a redirect loop.
    * Example: DEV_VITE_URL=http://localhost:5173

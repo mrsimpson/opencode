@@ -31,10 +31,8 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 /** Build the public URL for a session subdomain. */
-function sessionUrl(hash: string, req: http.IncomingMessage): string {
-  // Derive scheme from X-Forwarded-Proto (set by Traefik) or default to http in dev
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https"
-  return `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
+function sessionUrl(hash: string): string {
+  return `${config.routerProto}://${hash}${config.routeSuffix}.${config.routerDomain}`
 }
 
 /**
@@ -159,7 +157,7 @@ export async function handleApi(
     await ensurePVC(session)
     await ensurePod(session, githubToken)
 
-    json(res, 201, { hash, url: sessionUrl(hash, req), state: "creating" })
+    json(res, 201, { hash, url: sessionUrl(hash), state: "creating" })
     return true
   }
 
@@ -190,7 +188,7 @@ export async function handleApi(
     json(res, 200, {
       hash,
       state,
-      url: sessionUrl(hash, req),
+      url: sessionUrl(hash),
       lastActivity: new Date().toISOString(),
       idleTimeoutMinutes: config.idleTimeoutMinutes,
     })
@@ -215,7 +213,7 @@ export async function handleApi(
       }
       throw err
     }
-    json(res, 200, { hash, state: "creating", url: sessionUrl(hash, req) })
+    json(res, 200, { hash, state: "creating", url: sessionUrl(hash) })
     return true
   }
 
