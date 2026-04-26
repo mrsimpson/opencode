@@ -3,10 +3,10 @@ import { test, expect, type Page } from "@playwright/test"
 /**
  * End-to-end tests for the opencode-router session lifecycle:
  *   1. Sessions list — shows existing sessions with correct state badges
- *   2. New session — form with repo URL, source branch, suggested session branch
+ *   2. New session — input bar always visible; fill repo URL, source branch, prompt → send
  *   3. Create session — submits, shows loading screen, auto-redirects to session URL
- *   4. Resume session — stopped session can be resumed → transitions to creating → running
- *   5. Terminate session — session disappears from list after termination
+ *   4. Resume session — stopped session can be resumed via options menu → creating → running
+ *   5. Terminate session — session disappears from list after termination via options menu
  *
  * Requires:
  *   - opencode-router running at http://localhost:3002 with DEV_EMAIL=dev@local.test
@@ -16,6 +16,7 @@ import { test, expect, type Page } from "@playwright/test"
 
 const REPO_URL = "https://github.com/mrsimpson/port-a-dice"
 const SOURCE_BRANCH = "main"
+const PROMPT_TEXT = "Fix the README"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,12 +24,18 @@ const SOURCE_BRANCH = "main"
 
 async function goHome(page: Page) {
   await page.goto("/")
-  await expect(page.getByText("Signed in as")).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcome back,")
 }
 
-async function openNewSessionForm(page: Page) {
-  await page.getByRole("button", { name: "New Session" }).click()
-  await expect(page.getByRole("textbox", { name: "Git repository URL" })).toBeVisible()
+async function fillNewSessionForm(page: Page) {
+  // Input bar is always visible — fill repo URL
+  await page.getByPlaceholder("https://github.com/org/repo.git").fill(REPO_URL)
+  // Fill source branch
+  await page.getByPlaceholder("main").fill(SOURCE_BRANCH)
+  // Wait for session branch to be suggested (non-empty)
+  await expect(page.getByTestId("session-branch-display")).not.toBeEmpty()
+  // Fill prompt
+  await page.getByRole("textbox", { name: /prompt|task|question/i }).fill(PROMPT_TEXT)
 }
 
 // ---------------------------------------------------------------------------
@@ -36,58 +43,36 @@ async function openNewSessionForm(page: Page) {
 // ---------------------------------------------------------------------------
 
 test.describe("sessions list", () => {
-  test("shows email and session list on load", async ({ page }) => {
+  test("shows welcome heading and session list on load", async ({ page }) => {
     await goHome(page)
-    await expect(page.getByText("Signed in as dev@local.test")).toBeVisible()
-    await expect(page.getByText("Your sessions")).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcome back,")
+    await expect(page.getByRole("heading", { level: 2 })).toContainText("Sessions")
   })
 
-  test("shows New Session button", async ({ page }) => {
+  test("shows always-visible input bar at bottom of main", async ({ page }) => {
     await goHome(page)
-    await expect(page.getByRole("button", { name: "New Session" })).toBeVisible()
+    await expect(page.getByPlaceholder("https://github.com/org/repo.git")).toBeVisible()
+    await expect(page.getByPlaceholder("main")).toBeVisible()
+    await expect(page.getByRole("button", { name: /send|start/i })).toBeVisible()
   })
 })
 
 test.describe("new session form", () => {
-  test("opens setup form on New Session click", async ({ page }) => {
+  test("input bar shows repo URL, source branch, and send button", async ({ page }) => {
     await goHome(page)
-    await openNewSessionForm(page)
-    await expect(page.getByRole("textbox", { name: "Git repository URL" })).toBeVisible()
-    await expect(page.getByRole("textbox", { name: "Source branch (start from)" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Start Session" })).toBeVisible()
-  })
-
-  test("Back button returns to sessions list", async ({ page }) => {
-    await goHome(page)
-    await openNewSessionForm(page)
-    await page.getByRole("button", { name: "← Back" }).click()
-    await expect(page.getByText("Your sessions")).toBeVisible()
+    await expect(page.getByPlaceholder("https://github.com/org/repo.git")).toBeVisible()
+    await expect(page.getByPlaceholder("main")).toBeVisible()
+    await expect(page.getByRole("button", { name: /send|start/i })).toBeVisible()
   })
 
   test("suggests session branch after repo URL entry", async ({ page }) => {
     await goHome(page)
-    await openNewSessionForm(page)
 
-    await page.getByRole("textbox", { name: "Git repository URL" }).fill(REPO_URL)
+    await page.getByPlaceholder("https://github.com/org/repo.git").fill(REPO_URL)
     await page.keyboard.press("Tab") // trigger blur → suggestBranch call
 
-    // Wait for the suggested branch label to appear
-    await expect(page.getByText("Your session branch")).toBeVisible()
-    const branch = page.locator("p", { hasText: /^[a-z]+-[a-z]+-[a-z]+$/ })
-    await expect(branch).toBeVisible()
-  })
-
-  test("shows validation error when source branch is empty", async ({ page }) => {
-    await goHome(page)
-    await openNewSessionForm(page)
-
-    await page.getByRole("textbox", { name: "Git repository URL" }).fill(REPO_URL)
-    await page.keyboard.press("Tab")
-    await expect(page.getByText("Your session branch")).toBeVisible()
-
-    // Submit without filling source branch
-    await page.getByRole("button", { name: "Start Session" }).click()
-    await expect(page.getByText("Source branch is required")).toBeVisible()
+    // Wait for the suggested session branch to appear in the display element
+    await expect(page.getByTestId("session-branch-display")).not.toBeEmpty()
   })
 
   test("source-branch and repo-url inputs disable mobile auto-capitalization", async ({ page }) => {
@@ -95,10 +80,9 @@ test.describe("new session form", () => {
     // branch "main" then becomes "Main" and the pod's init container crashloops
     // on `git checkout origin/Main`. Verify the fields opt out.
     await goHome(page)
-    await openNewSessionForm(page)
 
-    const repo = page.getByRole("textbox", { name: "Git repository URL" })
-    const source = page.getByRole("textbox", { name: "Source branch (start from)" })
+    const repo = page.getByPlaceholder("https://github.com/org/repo.git")
+    const source = page.getByPlaceholder("main")
 
     await expect(repo).toHaveAttribute("autocapitalize", "none")
     await expect(repo).toHaveAttribute("autocorrect", "off")
@@ -113,14 +97,8 @@ test.describe("new session form", () => {
 test.describe("create session", () => {
   test("creates session, shows loading screen, auto-redirects to session URL", async ({ page }) => {
     await goHome(page)
-    await openNewSessionForm(page)
-
-    await page.getByRole("textbox", { name: "Git repository URL" }).fill(REPO_URL)
-    await page.keyboard.press("Tab")
-    await expect(page.getByText("Your session branch")).toBeVisible()
-
-    await page.getByRole("textbox", { name: "Source branch (start from)" }).fill(SOURCE_BRANCH)
-    await page.getByRole("button", { name: "Start Session" }).click()
+    await fillNewSessionForm(page)
+    await page.getByRole("button", { name: /send|start/i }).click()
 
     // Loading screen
     await expect(page.getByText("Starting your OpenCode session...")).toBeVisible()
@@ -139,18 +117,24 @@ test.describe("resume session", () => {
   test("resumes a stopped session and shows it as creating", async ({ page }) => {
     await goHome(page)
 
-    // Find a stopped session
-    const stoppedCard = page.locator("text=stopped").first()
-    const hasStoppedSession = (await stoppedCard.count()) > 0
+    // Find a stopped session row
+    const stoppedRow = page.locator("text=stopped").first()
+    const hasStoppedSession = (await stoppedRow.count()) > 0
 
     if (!hasStoppedSession) {
       test.skip()
       return
     }
 
-    // Click Resume on the first stopped session
-    const resumeBtn = page.getByRole("button", { name: "Resume" }).first()
-    await resumeBtn.click()
+    // Hover the first stopped session row to reveal the options button
+    const sessionRow = stoppedRow.locator("xpath=ancestor::*[self::li or self::tr or self::div][1]")
+    await sessionRow.hover()
+
+    // Open the 3-dot options menu
+    await sessionRow.getByRole("button", { name: /options|more|⋮/i }).click()
+
+    // Click "Resume" in the menu
+    await page.getByRole("menuitem", { name: /resume/i }).click()
 
     // After resume, the session should transition to creating (and become a link)
     await expect(page.getByText("creating")).toBeVisible({ timeout: 5_000 })
@@ -161,27 +145,35 @@ test.describe("terminate session", () => {
   test("removes session from list after termination", async ({ page }) => {
     await goHome(page)
 
-    // Count sessions before
-    const before = await page.getByRole("button", { name: "Terminate" }).count()
+    // Count session rows before termination
+    const sessionRows = page.locator("[data-session-row], li[class*='session'], div[class*='session-item']")
+    const before = await sessionRows.count()
     if (before === 0) {
       test.skip()
       return
     }
 
-    // Note the session branch name before terminating
-    const firstCard = page.locator('[class*="rounded-lg"]').first()
-    const branchText = await firstCard.locator("p").nth(1).textContent()
+    // Note the branch/title of the first session before terminating
+    const firstRow = sessionRows.first()
+    const rowText = await firstRow.textContent()
 
-    await page.getByRole("button", { name: "Terminate" }).first().click()
+    // Hover to reveal options button
+    await firstRow.hover()
+    await firstRow.getByRole("button", { name: /options|more|⋮/i }).click()
 
-    // Session should disappear from list
-    const after = await page.getByRole("button", { name: "Terminate" }).count()
+    // Click "Terminate" in the dropdown menu
+    await page.getByRole("menuitem", { name: /terminate/i }).click()
+
+    // Session count should decrease by one
+    const after = await sessionRows.count()
     expect(after).toBe(before - 1)
 
-    // The specific branch should no longer appear
-    if (branchText) {
-      const branchName = branchText.split(" · ")[0]
-      await expect(page.getByText(branchName, { exact: true })).not.toBeVisible()
+    // The specific session text should no longer appear
+    if (rowText) {
+      const identifier = rowText.split(" · ")[0].trim()
+      if (identifier) {
+        await expect(page.getByText(identifier, { exact: true })).not.toBeVisible()
+      }
     }
   })
 })

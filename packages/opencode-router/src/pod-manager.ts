@@ -3,6 +3,7 @@ import fs from "node:fs"
 import * as k8s from "@kubernetes/client-node"
 import { humanId as _humanId } from "human-id"
 import { config } from "./config.js"
+import * as devProxy from "./dev-proxy.js"
 
 const kc = new k8s.KubeConfig()
 // loadFromCluster() does not throw when not in a pod — it silently produces
@@ -40,6 +41,15 @@ export function _setActivityFetch(fn: FetchFn) {
   activityFetchImpl = fn
 }
 
+/** For testing only: replace the fetch implementation used for pod bootstrap calls. */
+let bootstrapFetchImpl: FetchFn = (url, init) => globalThis.fetch(url, init)
+export function _setBootstrapFetch(fn: FetchFn) {
+  bootstrapFetchImpl = fn
+}
+
+/** Hashes for which a bootstrap session call is in-flight or completed this process lifetime. */
+const bootstrappedHashes = new Set<string>()
+
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
 const LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 const MANAGED_BY_VALUE = "opencode-router"
@@ -48,6 +58,8 @@ const ANNOTATION_USER_EMAIL = "opencode.ai/user-email"
 const ANNOTATION_REPO_URL = "opencode.ai/repo-url"
 const ANNOTATION_BRANCH = "opencode.ai/branch"
 const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
+const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
+const ANNOTATION_CREATED_AT = "opencode.ai/created-at"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
@@ -60,6 +72,7 @@ export interface SessionKey {
   branch: string
   /** Source branch the user starts from (e.g. "main"). Used by git-init to set the starting point. */
   sourceBranch: string
+  initialMessage?: string
 }
 
 export interface SessionInfo {
@@ -73,7 +86,9 @@ export interface SessionInfo {
   state: PodState
   url: string
   lastActivity: string
+  createdAt: string
   idleTimeoutMinutes: number
+  description?: string
 }
 
 /**
@@ -102,6 +117,50 @@ function sessionLabels(hash: string): Record<string, string> {
 
 function githubSecretName(hash: string): string {
   return `opencode-github-${hash}`
+}
+
+const WORKSPACE_BASE64 = Buffer.from("/home/opencode/repo").toString("base64").replace(/=+$/, "")
+
+function deepLinkUrl(podUrl: string, sessionId: string): string {
+  return `${podUrl}/${WORKSPACE_BASE64}/session/${sessionId}`
+}
+
+function newSessionUrl(podUrl: string): string {
+  return `${podUrl}/${WORKSPACE_BASE64}/session`
+}
+
+/**
+ * Create an opencode session on a running pod and fire the initial message via
+ * prompt_async. Returns the deep-link URL to the new session, or null if the
+ * pod is not yet reachable or the call fails.
+ *
+ * Guarded by `bootstrappedHashes` so concurrent polls don't create duplicate sessions.
+ */
+async function bootstrapPodSession(base: string, hash: string, initialMessage: string): Promise<string | null> {
+  if (bootstrappedHashes.has(hash)) return null
+  bootstrappedHashes.add(hash)
+  try {
+    const createRes = await bootstrapFetchImpl(`${base}/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    if (!createRes.ok) return null
+    const session = (await createRes.json()) as { id?: string }
+    const sessionId = session.id
+    if (!sessionId) return null
+    const promptRes = await bootstrapFetchImpl(`${base}/session/${sessionId}/prompt_async`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parts: [{ type: "text", text: initialMessage }] }),
+    })
+    if (!promptRes.ok) return null
+    return sessionId
+  } catch {
+    // Remove from set on failure so a later poll can retry
+    bootstrappedHashes.delete(hash)
+    return null
+  }
 }
 
 async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
@@ -144,6 +203,8 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
         [ANNOTATION_REPO_URL]: session.repoUrl,
         [ANNOTATION_BRANCH]: session.branch,
         [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
+        [ANNOTATION_CREATED_AT]: new Date().toISOString(),
+        ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
       },
     },
     spec: {
@@ -171,7 +232,8 @@ export async function getPodState(hash: string): Promise<PodState> {
   const name = podName(hash)
   try {
     const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    if (pod.status?.phase === "Running" && pod.status.podIP) return "running"
+    const ready = pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True")
+    if (ready && pod.status?.podIP) return "running"
     return "creating"
   } catch (err) {
     if (isNotFound(err)) return "none"
@@ -321,8 +383,18 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
           command: [
             "sh",
             "-c",
-            `git config --global --add safe.directory /home/opencode/repo; set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a; exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
+            [
+              `git config --global --add safe.directory /home/opencode/repo`,
+              `set -a; . /home/opencode/.opencode/.env 2>/dev/null || true; set +a`,
+              `exec opencode serve --hostname 0.0.0.0 --port ${config.opencodePort}`,
+            ].join("\n"),
           ],
+          readinessProbe: {
+            httpGet: { path: "/health", port: config.opencodePort },
+            initialDelaySeconds: 5,
+            periodSeconds: 3,
+            failureThreshold: 20,
+          },
           ports: [{ containerPort: config.opencodePort }],
           env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
           envFrom: [
@@ -392,7 +464,8 @@ export async function getPodIP(hash: string): Promise<string | null> {
   const name = podName(hash)
   try {
     const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    if (pod.status?.phase === "Running" && pod.status.podIP) return pod.status.podIP
+    if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP)
+      return pod.status.podIP
     return null
   } catch (err) {
     if (isNotFound(err)) return null
@@ -427,10 +500,11 @@ export async function listUserSessions(
   const podMap = new Map<string, k8s.V1Pod>()
   for (const pod of podList.items) {
     const h = pod.metadata?.labels?.[LABEL_SESSION_HASH]
-    if (h) podMap.set(h, pod)
+    // Skip terminating pods — treat them as stopped so port-forward isn't attempted
+    if (h && !pod.metadata?.deletionTimestamp) podMap.set(h, pod)
   }
 
-  return Promise.all(
+  const results = await Promise.allSettled(
     userPVCs.map(async (pvc: k8s.V1PersistentVolumeClaim) => {
       const ann = pvc.metadata?.annotations ?? {}
       const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
@@ -439,7 +513,7 @@ export async function listUserSessions(
       let state: PodState
       if (!pod) {
         state = "stopped"
-      } else if (pod.status?.phase === "Running" && pod.status?.podIP) {
+      } else if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
         state = "running"
       } else {
         state = "creating"
@@ -451,10 +525,33 @@ export async function listUserSessions(
         new Date().toISOString()
 
       let lastActivity = annotationActivity
+      const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
+      let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
+
       if (state === "running" && pod?.status?.podIP) {
-        const instanceMs = await podActivityMs(pod.status.podIP)
-        if (instanceMs !== null && instanceMs > new Date(annotationActivity).getTime()) {
-          lastActivity = new Date(instanceMs).toISOString()
+        const activity = await podActivityMs(pod.status.podIP, hash)
+        if (activity !== null) {
+          if (activity.ms > new Date(annotationActivity).getTime()) {
+            lastActivity = new Date(activity.ms).toISOString()
+          }
+          if (activity.sessionId) {
+            sessionUrl = deepLinkUrl(
+              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+              activity.sessionId,
+            )
+          } else if (initialMessage) {
+            let base = `http://${pod.status.podIP}:${config.opencodePort}`
+            if (devProxy.enabled) {
+              const proxyTarget = await devProxy.target(hash)
+              if (proxyTarget) base = proxyTarget
+            }
+            const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
+            sessionUrl = bootstrappedId
+              ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
+              : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+          } else {
+            sessionUrl = newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+          }
         }
       }
 
@@ -465,12 +562,19 @@ export async function listUserSessions(
         branch: ann[ANNOTATION_BRANCH] ?? "",
         sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
         state,
-        url: `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+        url: sessionUrl,
         lastActivity,
+        createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
         idleTimeoutMinutes: config.idleTimeoutMinutes,
+        description: ann[ANNOTATION_INITIAL_MESSAGE],
       }
     }),
   )
+  return results.flatMap((r) => {
+    if (r.status === "fulfilled") return [r.value]
+    console.error("Failed to map session PVC:", r.reason)
+    return []
+  })
 }
 
 /**
@@ -526,9 +630,10 @@ export async function deleteIdlePods(): Promise<void> {
 
         // Before deleting, poll the instance for real activity (WS sessions don't update annotation)
         const ip = pod.status?.podIP
+        const podHash = pod.metadata?.labels?.[LABEL_SESSION_HASH] ?? name.replace("opencode-session-", "")
         if (ip) {
-          const instanceMs = await podActivityMs(ip)
-          if (instanceMs !== null && instanceMs >= cutoff) {
+          const instanceMs = await podActivityMs(ip, podHash)
+          if (instanceMs !== null && instanceMs.ms >= cutoff) {
             // Instance has recent activity — refresh annotation and skip deletion
             await k8sApi
               .patchNamespacedPod({
@@ -538,7 +643,7 @@ export async function deleteIdlePods(): Promise<void> {
                   {
                     op: "add",
                     path: `/metadata/annotations/${ANNOTATION_LAST_ACTIVITY.replace(/~/g, "~0").replace(/\//g, "~1")}`,
-                    value: new Date(instanceMs).toISOString(),
+                    value: new Date(instanceMs.ms).toISOString(),
                   },
                 ],
               })
@@ -641,12 +746,21 @@ function isConflict(err: unknown): boolean {
 }
 
 /** Poll a running pod's /experimental/session endpoint. Returns time.updated ms or null. */
-async function podActivityMs(ip: string): Promise<number | null> {
+async function podActivityMs(ip: string, hash: string): Promise<{ ms: number; sessionId?: string } | null> {
   try {
-    const res = await activityFetchImpl(`http://${ip}:${config.opencodePort}/experimental/session?limit=1`)
+    let base = `http://${ip}:${config.opencodePort}`
+    if (devProxy.enabled) {
+      const proxyTarget = await devProxy.target(hash)
+      if (!proxyTarget) return null
+      base = proxyTarget
+    }
+    const res = await activityFetchImpl(`${base}/session?limit=1&roots=true`)
     if (!res.ok) return null
-    const data = (await res.json()) as { time: { updated: number } }[]
-    return data[0]?.time?.updated ?? null
+    const data = (await res.json()) as { id: string; time: { updated: number } }[]
+    // Empty sessions = fresh pod that is reachable but has no sessions yet.
+    // Return non-null so the caller can bootstrap a session via bootstrapPodSession.
+    if (!data[0]) return { ms: Date.now(), sessionId: undefined }
+    return { ms: data[0].time?.updated ?? Date.now(), sessionId: data[0].id }
   } catch {
     return null
   }

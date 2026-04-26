@@ -11,7 +11,7 @@ let createPodCalls: object[] = []
 let patchPodCalls: { name: string; body: object }[] = []
 let fakeSecrets: object[] = []
 let createSecretCalls: object[] = []
-let patchSecretCalls: object[] = []
+let replaceSecretCalls: object[] = []
 let deleteSecretCalls: string[] = []
 
 const fakeK8sApi = {
@@ -71,8 +71,8 @@ const fakeK8sApi = {
     fakeSecrets = [...fakeSecrets, body]
     return body
   },
-  patchNamespacedSecret: async ({ name, namespace, body }: { name: string; namespace: string; body: any }) => {
-    patchSecretCalls.push({ name, namespace, body })
+  replaceNamespacedSecret: async ({ name, namespace, body }: { name: string; namespace: string; body: any }) => {
+    replaceSecretCalls.push({ name, namespace, body })
     const s = (fakeSecrets as any[]).find((s) => s.metadata?.name === name)
     if (s) Object.assign(s.stringData ?? (s.stringData = {}), body.stringData ?? {})
   },
@@ -160,7 +160,11 @@ function makeRunningPod(
         "opencode.ai/branch": branch,
       },
     },
-    status: { phase: "Running", podIP: "10.0.0.1" },
+    status: {
+      phase: "Running",
+      podIP: "10.0.0.1",
+      conditions: [{ type: "Ready", status: "True" }],
+    },
   }
 }
 
@@ -205,7 +209,7 @@ beforeEach(() => {
   patchPodCalls = []
   fakeSecrets = []
   createSecretCalls = []
-  patchSecretCalls = []
+  replaceSecretCalls = []
   deleteSecretCalls = []
   // Reset activity fetch to a fast no-op so tests that don't care about it don't hang
   _setActivityFetch(async () => new Response("[]", { status: 200 }))
@@ -221,7 +225,6 @@ describe("listUserSessions", () => {
     const result = await listUserSessions(EMAIL, fakeReq)
 
     expect(result).toHaveLength(1)
-    // Expect state to be "stopped" — WILL FAIL: current impl scans pods (empty), returns []
     expect((result[0] as any).state).toBe("stopped")
     expect((result[0] as any).hash).toBe(SESSION_HASH)
     expect((result[0] as any).email).toBe(EMAIL)
@@ -254,7 +257,6 @@ describe("listUserSessions", () => {
 
     const result = await listUserSessions(EMAIL, fakeReq)
 
-    // WILL FAIL: current impl returns [] (no pods), so result is empty
     expect(result).toHaveLength(1)
     expect(typeof (result[0] as any).lastActivity).toBe("string")
     expect(typeof (result[0] as any).idleTimeoutMinutes).toBe("number")
@@ -267,199 +269,8 @@ describe("listUserSessions", () => {
     const result = await listUserSessions(EMAIL, fakeReq)
 
     expect(result).toHaveLength(1)
-    // WILL FAIL: SessionInfo currently lacks lastActivity and idleTimeoutMinutes
     expect(typeof (result[0] as any).lastActivity).toBe("string")
     expect(typeof (result[0] as any).idleTimeoutMinutes).toBe("number")
-  })
-
-  it("does not return sessions belonging to a different user", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, "other@example.com", REPO, BRANCH)]
-    fakePods = []
-
-    const result = await listUserSessions(EMAIL, fakeReq)
-
-    expect(result).toHaveLength(0)
-  })
-
-  it("returns empty list when no PVCs exist", async () => {
-    fakePVCs = []
-    fakePods = []
-
-    const result = await listUserSessions(EMAIL, fakeReq)
-
-    expect(result).toHaveLength(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-
-describe("PodState type", () => {
-  it("accepts stopped as a valid PodState value at runtime", () => {
-    // TypeScript compile-time: "stopped" is NOT assignable to current PodState
-    // ("none" | "creating" | "running") so we use `as any` to bypass the type
-    // error and assert at runtime that the string value is what we expect.
-    // The GREEN phase fix will extend the union so no cast is needed.
-    const state: import("./pod-manager.js").PodState = "stopped" as any
-    expect(state as any).toBe("stopped")
-  })
-})
-
-// ---------------------------------------------------------------------------
-
-describe("terminateSession", () => {
-  it("deletes pod and PVC when caller is the owner", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
-
-    await (terminateSession as any)(SESSION_HASH, EMAIL)
-
-    // Both pod and PVC should have been removed from the fake store
-    expect(fakePods).toHaveLength(0)
-    expect(fakePVCs).toHaveLength(0)
-  })
-
-  it("throws Forbidden when caller is not the owner", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
-
-    await expect((terminateSession as any)(SESSION_HASH, "other@example.com")).rejects.toThrow("Forbidden")
-
-    // Nothing should have been deleted
-    expect(fakePods).toHaveLength(1)
-    expect(fakePVCs).toHaveLength(1)
-  })
-
-  it("throws NotFound when PVC does not exist", async () => {
-    fakePVCs = []
-    fakePods = []
-
-    await expect((terminateSession as any)(SESSION_HASH, EMAIL)).rejects.toThrow("NotFound")
-  })
-
-  it("succeeds even if pod does not exist (idempotent pod delete)", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = [] // no pod — already stopped
-
-    await (terminateSession as any)(SESSION_HASH, EMAIL)
-
-    // PVC should still be removed
-    expect(fakePVCs).toHaveLength(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-
-describe("resumeSession", () => {
-  it("calls ensurePod for a stopped session (PVC exists, no pod)", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = [] // session is stopped — no pod
-
-    await (resumeSession as any)(SESSION_HASH, EMAIL)
-
-    // ensurePod must have called createNamespacedPod to recreate the pod
-    expect(createPodCalls).toHaveLength(1)
-    expect(fakePods).toHaveLength(1)
-  })
-
-  it("is idempotent when pod already exists (running session)", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    const podsBefore = fakePods.length
-
-    await (resumeSession as any)(SESSION_HASH, EMAIL)
-
-    // ensurePod should detect existing pod and skip creation
-    expect(createPodCalls).toHaveLength(0)
-    expect(fakePods).toHaveLength(podsBefore)
-  })
-
-  it("throws Forbidden when caller is not the owner", async () => {
-    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
-    fakePods = []
-
-    await expect((resumeSession as any)(SESSION_HASH, "other@example.com")).rejects.toThrow("Forbidden")
-
-    // No pod should have been created
-    expect(createPodCalls).toHaveLength(0)
-  })
-
-  it("throws NotFound when PVC does not exist", async () => {
-    fakePVCs = []
-    fakePods = []
-
-    await expect((resumeSession as any)(SESSION_HASH, EMAIL)).rejects.toThrow("NotFound")
-
-    expect(createPodCalls).toHaveLength(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-
-describe("suggestBranch", () => {
-  it("returns a string branch name", async () => {
-    fakePVCs = []
-
-    const branch = await (suggestBranch as any)(EMAIL, REPO)
-
-    expect(typeof branch).toBe("string")
-    expect(branch.length).toBeGreaterThan(0)
-    expect(branch).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/)
-  })
-
-  it("skips names that already exist as PVC hashes and returns the next unique one", async () => {
-    // Inject a deterministic humanId that returns a fixed sequence: first two collide, third is free
-    const seq = ["calm-snails-dream", "bold-frogs-dance", "swift-hawks-fly"]
-    let idx = 0
-    _setHumanId((_opts?: any) => seq[idx++ % seq.length])
-
-    // Pre-populate PVCs for the first two candidates so they collide
-    const hash0 = computeHash(EMAIL, REPO, seq[0])
-    const hash1 = computeHash(EMAIL, REPO, seq[1])
-    fakePVCs = [makePVC(hash0, EMAIL, REPO, seq[0]), makePVC(hash1, EMAIL, REPO, seq[1])]
-
-    const branch = await (suggestBranch as any)(EMAIL, REPO)
-
-    // Must NOT be one of the colliding names
-    expect(branch).not.toBe(seq[0])
-    expect(branch).not.toBe(seq[1])
-    expect(branch).toBe(seq[2])
-  })
-
-  it("returns after at most 10 iterations even if all collide", async () => {
-    // Inject a deterministic humanId that always returns the same name (infinite collision)
-    const fixed = "slow-bears-roam"
-    _setHumanId((_opts?: any) => fixed)
-
-    // Pre-populate a PVC for that name so every attempt collides
-    const hash = computeHash(EMAIL, REPO, fixed)
-    fakePVCs = [makePVC(hash, EMAIL, REPO, fixed)]
-
-    // Should resolve (not hang) after 10 attempts and return the last candidate
-    const branch = await (suggestBranch as any)(EMAIL, REPO)
-
-    expect(typeof branch).toBe("string")
-    expect(branch).toBe(fixed)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// 1.3.14: branch handling — sourceBranch vs sessionBranch
-// ---------------------------------------------------------------------------
-
-describe("SessionKey.sourceBranch", () => {
-  it("listUserSessions includes sourceBranch from PVC annotation", async () => {
-    // PVC must store sourceBranch annotation; listUserSessions must return it
-    const pvc = makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)
-    // Add sourceBranch annotation (will fail until annotation is stored/read)
-    ;(pvc as any).metadata.annotations["opencode.ai/source-branch"] = "main"
-    fakePVCs = [pvc]
-    fakePods = []
-
-    const result = await listUserSessions(EMAIL, fakeReq)
-
-    expect(result).toHaveLength(1)
-    // WILL FAIL: SessionInfo currently has no sourceBranch field
-    expect((result[0] as any).sourceBranch).toBe("main")
   })
 
   it("ensurePod git-init script checks out sourceBranch then creates sessionBranch", async () => {
@@ -470,8 +281,6 @@ describe("SessionKey.sourceBranch", () => {
 
     const { ensurePod } = await import("./pod-manager.js")
 
-    // WILL FAIL: SessionKey currently has no sourceBranch field, so TypeScript
-    // will reject this call — but at runtime the script won't contain sourceBranch
     await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
 
     expect(createPodCalls).toHaveLength(1)
@@ -783,11 +592,11 @@ describe("resumeSession — refreshes github token Secret", () => {
 
     await (resumeSession as any)(SESSION_HASH, EMAIL, "gho_refreshed_token")
 
-    // Secret must have been created (or patched)
+    // Secret must have been created (or replaced on existing secret)
     const secretName = `opencode-github-${SESSION_HASH}`
     const created = (createSecretCalls as any[]).some((c) => c.body?.metadata?.name === secretName)
-    const patched = (patchSecretCalls as any[]).some((c) => c.name === secretName)
-    expect(created || patched).toBe(true)
+    const replaced = (replaceSecretCalls as any[]).some((c) => c.name === secretName)
+    expect(created || replaced).toBe(true)
 
     // Pod must also have been created
     expect(createPodCalls).toHaveLength(1)

@@ -264,7 +264,6 @@ describe("GET /api/sessions/:hash includes lastActivity", () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
     expect(body.hash).toBe("abc123456789")
-    // These assertions WILL FAIL until the implementation is updated:
     expect(typeof body.lastActivity).toBe("string")
     expect(typeof body.idleTimeoutMinutes).toBe("number")
   })
@@ -292,7 +291,6 @@ describe("POST /api/sessions with sourceBranch", () => {
 
     expect(handled).toBe(true)
     expect(res.statusCode).toBe(201)
-    // WILL FAIL until api.ts reads sourceBranch from body and passes to SessionKey
     const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
     expect(sessionKeyPassed?.sourceBranch).toBe("main")
   })
@@ -308,7 +306,6 @@ describe("POST /api/sessions with sourceBranch", () => {
     const handled = await handleApi(req as any, res as any, EMAIL)
 
     expect(handled).toBe(true)
-    // WILL FAIL: current impl doesn't require sourceBranch
     expect(res.statusCode).toBe(400)
   })
 })
@@ -461,5 +458,91 @@ describe("GET /api/ports returns listening ports", () => {
     const body = JSON.parse(res.body as string)
     expect(body).toHaveProperty("ports")
     expect(Array.isArray(body.ports)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions with initialMessage — passed to ensurePVC via SessionKey
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions with initialMessage", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+    mocks.getSessionHash.mockReset()
+    mocks.getSessionHash.mockImplementation(() => "abc123456789")
+  })
+
+  it("passes initialMessage in SessionKey to ensurePVC", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+      initialMessage: "Fix the bug",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(201)
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    expect(pvcCall.initialMessage).toBe("Fix the bug")
+  })
+})
+
+describe("POST /api/sessions without initialMessage", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+  })
+
+  it("ensurePVC receives undefined initialMessage", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(201)
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    expect(pvcCall.initialMessage).toBeUndefined()
+  })
+})
+
+describe("ANNOTATION_INITIAL_MESSAGE in SessionKey — initialMessage passed to ensurePVC", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("abc123456789"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+  })
+
+  it("passes initialMessage in the SessionKey argument to ensurePVC", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/org/repo.git",
+      branch: "calm-snails",
+      sourceBranch: "main",
+      initialMessage: "Hello world",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(mocks.ensurePVC).toHaveBeenCalledTimes(1)
+    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
+    expect(sessionKeyPassed?.initialMessage).toBe("Hello world")
   })
 })

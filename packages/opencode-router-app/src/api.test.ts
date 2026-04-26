@@ -13,6 +13,7 @@ describe("terminateSession", () => {
     await terminateSession("abc123456789")
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/abc123456789", {
       method: "DELETE",
+      signal: expect.any(AbortSignal),
     })
   })
 
@@ -27,6 +28,7 @@ describe("resumeSession", () => {
     await resumeSession("abc123456789")
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/abc123456789/resume", {
       method: "POST",
+      signal: expect.any(AbortSignal),
     })
   })
 
@@ -45,7 +47,10 @@ describe("suggestBranch", () => {
       }),
     )
     const result = await suggestBranch("https://github.com/org/repo")
-    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/suggest-branch?repoUrl=https%3A%2F%2Fgithub.com%2Forg%2Frepo")
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sessions/suggest-branch?repoUrl=https%3A%2F%2Fgithub.com%2Forg%2Frepo",
+      { signal: expect.any(AbortSignal) },
+    )
     expect(result).toEqual({ branch: "feature/my-branch" })
   })
 
@@ -66,6 +71,7 @@ describe("Session type", () => {
       state: "stopped",
       url: "https://example.com",
       lastActivity: "2026-04-13T00:00:00Z",
+      createdAt: "2026-04-13T00:00:00Z",
       idleTimeoutMinutes: 30,
     }
     expect(s.state).toBe("stopped")
@@ -81,6 +87,7 @@ describe("Session type", () => {
       state: "running",
       url: "https://example.com",
       lastActivity: "2026-04-13T12:00:00Z",
+      createdAt: "2026-04-13T12:00:00Z",
       idleTimeoutMinutes: 60,
     }
     expect(typeof s.lastActivity).toBe("string")
