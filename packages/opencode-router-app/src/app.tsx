@@ -1,14 +1,14 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
-import { Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js"
+import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
 import { type Session, createSession, listSessions, resumeSession, suggestBranch, terminateSession } from "./api"
 import { useT } from "./i18n"
 import { LoadingScreen } from "./loading-screen"
 import { SessionInputBar } from "./session-input-bar"
 import { SessionList } from "./session-list"
 import { SessionSidebar } from "./session-sidebar"
-import { buildSessionKey } from "./setup-form-utils"
+import { buildSessionKey, GIT_URL_PATTERN } from "./setup-form-utils"
 
 type AppPhase =
   | { kind: "loading" }
@@ -16,8 +16,6 @@ type AppPhase =
   | { kind: "creating"; hash: string; url: string }
   | { kind: "open"; hash: string; url: string }
   | { kind: "error"; message: string }
-
-const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
 
 export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false)
@@ -38,6 +36,9 @@ export function App() {
   const dialog = useDialog()
   const t = useT(useI18n())
 
+  /** Navigate the browser URL without a full-page reload. */
+  const navigate = (path: string) => window.history.pushState({}, "", path)
+
   const loadSessions = async () => {
     try {
       const data = await listSessions()
@@ -55,13 +56,47 @@ export function App() {
     }
   }
 
+  /** Restore app phase from the current browser URL after sessions have loaded. */
+  const restoreFromUrl = () => {
+    const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
+    if (!m) return
+    const hash = m[1]
+    const session = sessions().find((s) => s.hash === hash)
+    if (!session) return
+    if (session.url.includes("/session/")) {
+      setAppPhase({ kind: "open", hash, url: session.url })
+    } else {
+      setAppPhase({ kind: "creating", hash, url: session.url })
+    }
+  }
+
   onMount(() => {
-    loadSessions()
+    loadSessions().then(restoreFromUrl)
     const timer = setInterval(() => {
       const p = appPhase()
       if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
     }, 5_000)
-    onCleanup(() => clearInterval(timer))
+    const onPopState = () => {
+      const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
+      if (!m) {
+        setAppPhase({ kind: "ready" })
+        return
+      }
+      const hash = m[1]
+      const session = sessions().find((s) => s.hash === hash)
+      if (session) {
+        if (session.url.includes("/session/")) {
+          setAppPhase({ kind: "open", hash, url: session.url })
+        } else {
+          setAppPhase({ kind: "creating", hash, url: session.url })
+        }
+      }
+    }
+    window.addEventListener("popstate", onPopState)
+    onCleanup(() => {
+      clearInterval(timer)
+      window.removeEventListener("popstate", onPopState)
+    })
   })
 
   const handleRepoUrlChange = async (url: string) => {
@@ -99,7 +134,10 @@ export function App() {
               })
               // If the terminated session was open, go back to ready
               const p = appPhase()
-              if (p.kind === "open" && p.hash === hash) setAppPhase({ kind: "ready" })
+              if (p.kind === "open" && p.hash === hash) {
+                navigate("/")
+                setAppPhase({ kind: "ready" })
+              }
               loadSessions()
             }}
           >
@@ -129,7 +167,10 @@ export function App() {
     setSubmitting(true)
     try {
       const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch, promptText())
-      setAppPhase({ kind: "creating", hash: result.hash, url: result.url })
+      batch(() => {
+        navigate(`/session/${result.hash}`)
+        setAppPhase({ kind: "creating", hash: result.hash, url: result.url })
+      })
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Network error")
     } finally {
@@ -138,11 +179,18 @@ export function App() {
   }
 
   const handleOpenSession = (session: Session) => {
+    navigate(`/session/${session.hash}`)
     if (session.url.includes("/session/")) {
       setAppPhase({ kind: "open", hash: session.hash, url: session.url })
     } else {
       setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
     }
+  }
+
+  const handleResumeSession = async (session: Session) => {
+    await resumeSession(session.hash)
+    navigate(`/session/${session.hash}`)
+    setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
   }
 
   const activeHash = () => {
@@ -160,15 +208,13 @@ export function App() {
           email={email()}
           activeHash={activeHash()}
           onNewSession={() => {
+            navigate("/")
             setAppPhase({ kind: "ready" })
             // small delay to allow the input bar to mount before focusing
             setTimeout(() => promptRef?.focus(), 50)
           }}
           onOpenSession={handleOpenSession}
-          onResumeSession={async (session) => {
-            await resumeSession(session.hash)
-            setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
-          }}
+          onResumeSession={handleResumeSession}
           onTerminateSession={handleTerminateSession}
         />
       </Show>
@@ -192,10 +238,7 @@ export function App() {
                 sessions={sessions()}
                 terminating={terminating()}
                 onOpenSession={handleOpenSession}
-                onResumeSession={async (session) => {
-                  await resumeSession(session.hash)
-                  setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
-                }}
+                onResumeSession={handleResumeSession}
                 onTerminateSession={handleTerminateSession}
               />
             </div>

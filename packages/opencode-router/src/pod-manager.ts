@@ -41,6 +41,15 @@ export function _setActivityFetch(fn: FetchFn) {
   activityFetchImpl = fn
 }
 
+/** For testing only: replace the fetch implementation used for pod bootstrap calls. */
+let bootstrapFetchImpl: FetchFn = (url, init) => globalThis.fetch(url, init)
+export function _setBootstrapFetch(fn: FetchFn) {
+  bootstrapFetchImpl = fn
+}
+
+/** Hashes for which a bootstrap session call is in-flight or completed this process lifetime. */
+const bootstrappedHashes = new Set<string>()
+
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
 const LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 const MANAGED_BY_VALUE = "opencode-router"
@@ -116,10 +125,42 @@ function deepLinkUrl(podUrl: string, sessionId: string): string {
   return `${podUrl}/${WORKSPACE_BASE64}/session/${sessionId}`
 }
 
-function newSessionUrl(podUrl: string, initialMessage?: string): string {
-  const base = `${podUrl}/${WORKSPACE_BASE64}/session`
-  if (!initialMessage) return base
-  return `${base}?prompt=${encodeURIComponent(initialMessage)}`
+function newSessionUrl(podUrl: string): string {
+  return `${podUrl}/${WORKSPACE_BASE64}/session`
+}
+
+/**
+ * Create an opencode session on a running pod and fire the initial message via
+ * prompt_async. Returns the deep-link URL to the new session, or null if the
+ * pod is not yet reachable or the call fails.
+ *
+ * Guarded by `bootstrappedHashes` so concurrent polls don't create duplicate sessions.
+ */
+async function bootstrapPodSession(base: string, hash: string, initialMessage: string): Promise<string | null> {
+  if (bootstrappedHashes.has(hash)) return null
+  bootstrappedHashes.add(hash)
+  try {
+    const createRes = await bootstrapFetchImpl(`${base}/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    if (!createRes.ok) return null
+    const session = (await createRes.json()) as { id?: string }
+    const sessionId = session.id
+    if (!sessionId) return null
+    const promptRes = await bootstrapFetchImpl(`${base}/session/${sessionId}/prompt_async`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parts: [{ type: "text", text: initialMessage }] }),
+    })
+    if (!promptRes.ok) return null
+    return sessionId
+  } catch {
+    // Remove from set on failure so a later poll can retry
+    bootstrappedHashes.delete(hash)
+    return null
+  }
 }
 
 async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
@@ -493,9 +534,24 @@ export async function listUserSessions(
           if (activity.ms > new Date(annotationActivity).getTime()) {
             lastActivity = new Date(activity.ms).toISOString()
           }
-          sessionUrl = activity.sessionId
-            ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
-            : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, initialMessage)
+          if (activity.sessionId) {
+            sessionUrl = deepLinkUrl(
+              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
+              activity.sessionId,
+            )
+          } else if (initialMessage) {
+            let base = `http://${pod.status.podIP}:${config.opencodePort}`
+            if (devProxy.enabled) {
+              const proxyTarget = await devProxy.target(hash)
+              if (proxyTarget) base = proxyTarget
+            }
+            const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
+            sessionUrl = bootstrappedId
+              ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
+              : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+          } else {
+            sessionUrl = newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+          }
         }
       }
 
@@ -701,7 +757,9 @@ async function podActivityMs(ip: string, hash: string): Promise<{ ms: number; se
     const res = await activityFetchImpl(`${base}/session?limit=1&roots=true`)
     if (!res.ok) return null
     const data = (await res.json()) as { id: string; time: { updated: number } }[]
-    if (!data[0]) return null
+    // Empty sessions = fresh pod that is reachable but has no sessions yet.
+    // Return non-null so the caller can bootstrap a session via bootstrapPodSession.
+    if (!data[0]) return { ms: Date.now(), sessionId: undefined }
     return { ms: data[0].time?.updated ?? Date.now(), sessionId: data[0].id }
   } catch {
     return null

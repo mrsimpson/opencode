@@ -264,7 +264,6 @@ describe("GET /api/sessions/:hash includes lastActivity", () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
     expect(body.hash).toBe("abc123456789")
-    // These assertions WILL FAIL until the implementation is updated:
     expect(typeof body.lastActivity).toBe("string")
     expect(typeof body.idleTimeoutMinutes).toBe("number")
   })
@@ -292,7 +291,6 @@ describe("POST /api/sessions with sourceBranch", () => {
 
     expect(handled).toBe(true)
     expect(res.statusCode).toBe(201)
-    // WILL FAIL until api.ts reads sourceBranch from body and passes to SessionKey
     const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
     expect(sessionKeyPassed?.sourceBranch).toBe("main")
   })
@@ -308,7 +306,6 @@ describe("POST /api/sessions with sourceBranch", () => {
     const handled = await handleApi(req as any, res as any, EMAIL)
 
     expect(handled).toBe(true)
-    // WILL FAIL: current impl doesn't require sourceBranch
     expect(res.statusCode).toBe(400)
   })
 })

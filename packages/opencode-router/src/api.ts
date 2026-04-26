@@ -1,5 +1,4 @@
 import type http from "node:http"
-import * as net from "node:net"
 import * as fs from "node:fs"
 import { config } from "./config.js"
 import {

@@ -1,4 +1,4 @@
-const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
+export const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
 
 export type ValidationErrors = {
   repoUrlRequired: string

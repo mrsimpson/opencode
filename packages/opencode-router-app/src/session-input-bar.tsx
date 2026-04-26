@@ -2,8 +2,7 @@ import { Show } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import { Button } from "@opencode-ai/ui/button"
 import { useT } from "./i18n"
-
-const GIT_URL_PATTERN = /^https?:\/\/.+\/.+/
+import { GIT_URL_PATTERN } from "./setup-form-utils"
 
 type Props = {
   repoUrl: string
@@ -19,11 +18,13 @@ type Props = {
   ref?: (el: HTMLTextAreaElement) => void
 }
 
-function disabledReason(props: Props): string | null {
-  if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return "Enter a valid repository URL"
-  if (!props.sourceBranch.trim()) return "Source branch is required"
-  if (!props.sessionBranch.trim()) return "Waiting for session branch…"
-  if (!props.promptText.trim()) return "Describe your task to continue"
+import type { DictKey } from "./i18n/en"
+
+function disabledReason(props: Props, t: (key: DictKey) => string): string | null {
+  if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return t("form.error.repoUrl.invalid")
+  if (!props.sourceBranch.trim()) return t("form.error.sourceBranch.required")
+  if (!props.sessionBranch.trim()) return t("form.error.sessionBranch.waiting")
+  if (!props.promptText.trim()) return t("form.error.prompt.required")
   return null
 }
 
@@ -108,10 +109,10 @@ export function SessionInputBar(props: Props) {
             icon="arrow-up"
             variant="primary"
             disabled={!canSubmit()}
-            aria-label={canSubmit() ? t("form.submit") : (disabledReason(props) ?? t("form.submit"))}
+            aria-label={canSubmit() ? t("form.submit") : (disabledReason(props, t) ?? t("form.submit"))}
             style={{ "align-self": "stretch", height: "auto" }}
           >
-            {props.submitting ? t("form.submitting") : canSubmit() ? t("form.submit") : disabledReason(props)}
+            {props.submitting ? t("form.submitting") : canSubmit() ? t("form.submit") : disabledReason(props, t)}
           </Button>
         </div>
 
