@@ -33,7 +33,7 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 /** Build the public URL for a session subdomain. */
 function sessionUrl(hash: string, req: http.IncomingMessage): string {
   // Derive scheme from X-Forwarded-Proto (set by Traefik) or default to http in dev
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http"
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https"
   return `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
 }
 
