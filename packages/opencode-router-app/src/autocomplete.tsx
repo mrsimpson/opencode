@@ -12,27 +12,6 @@ type Props = {
   items?: { label: string; value: string }[]
 }
 
-const DROPDOWN_STYLE = {
-  position: "absolute",
-  top: "100%",
-  left: "0",
-  right: "0",
-  "margin-top": "4px",
-  background: "var(--background-base)",
-  border: "1px solid var(--border-base)",
-  "border-radius": "6px",
-  "max-height": "240px",
-  overflow: "auto",
-  "z-index": "50",
-}
-
-const ITEM_STYLE = {
-  padding: "8px 10px",
-  cursor: "pointer",
-  "font-size": "13px",
-  color: "var(--text-base)",
-}
-
 export function Autocomplete(props: Props) {
   const [isOpen, setIsOpen] = createSignal(false)
   const [highlightedIndex, setHighlightedIndex] = createSignal(0)
@@ -135,12 +114,29 @@ export function Autocomplete(props: Props) {
       />
 
       <Show when={isOpen() && filteredItems().length > 0}>
-        <div style={DROPDOWN_STYLE}>
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: "0",
+            right: "0",
+            "margin-top": "4px",
+            background: "var(--background-base)",
+            border: "1px solid var(--border-base)",
+            "border-radius": "6px",
+            "max-height": "240px",
+            overflow: "auto",
+            "z-index": "50",
+          }}
+        >
           <For each={filteredItems()}>
             {(item, index) => (
               <div
                 style={{
-                  ...ITEM_STYLE,
+                  padding: "8px 10px",
+                  cursor: "pointer",
+                  "font-size": "13px",
+                  color: "var(--text-base)",
                   background: index() === highlightedIndex() ? "var(--background-base)" : "transparent",
                 }}
                 onMouseEnter={() => setHighlightedIndex(index())}
