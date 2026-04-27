@@ -241,5 +241,85 @@ export async function handleApi(
     return true
   }
 
+  // GET /api/user/repos — list repositories for authenticated user via GitHub API
+  if (url === "/api/user/repos" && req.method === "GET") {
+    if (!githubToken) {
+      json(res, 401, { error: "GitHub token required" })
+      return true
+    }
+    try {
+      const reposRes = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "opencode-router",
+        },
+      })
+      if (!reposRes.ok) {
+        const err = await reposRes.text()
+        json(res, reposRes.status, { error: err })
+        return true
+      }
+      const repos = (await reposRes.json()) as {
+        name: string
+        full_name: string
+        html_url: string
+        private: boolean
+      }[]
+      json(
+        res,
+        200,
+        repos.map((r) => ({
+          name: r.name,
+          fullName: r.full_name,
+          url: r.html_url,
+          isPrivate: r.private,
+        })),
+      )
+    } catch (err) {
+      console.error("listUserRepos failed:", err)
+      json(res, 500, { error: "Failed to list repos" })
+    }
+    return true
+  }
+
+  // GET /api/user/repos/branches — list branches for a specific repo
+  const branchesMatch = url.match(/^\/api\/user\/repos\/branches\?repo=.+/)
+  if (branchesMatch && req.method === "GET") {
+    if (!githubToken) {
+      json(res, 401, { error: "GitHub token required" })
+      return true
+    }
+    const repo = new URL(url, "http://localhost").searchParams.get("repo")
+    if (!repo) {
+      json(res, 400, { error: "repo parameter required" })
+      return true
+    }
+    try {
+      const branchesRes = await fetch(`https://api.github.com/repos/${repo}/branches?per_page=100`, {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "opencode-router",
+        },
+      })
+      if (!branchesRes.ok) {
+        const err = await branchesRes.text()
+        json(res, branchesRes.status, { error: err })
+        return true
+      }
+      const branches = (await branchesRes.json()) as { name: string }[]
+      json(
+        res,
+        200,
+        branches.map((b) => ({ name: b.name })),
+      )
+    } catch (err) {
+      console.error("listRepoBranches failed:", err)
+      json(res, 500, { error: "Failed to list branches" })
+    }
+    return true
+  }
+
   return false
 }
