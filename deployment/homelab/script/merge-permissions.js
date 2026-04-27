@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Merge agent permissions with base permissions.
- * Output: permissions.json — one merged config per agent.
+ * Writes merged permissions back into each agent .md file's frontmatter.
  *
  * Usage: node merge-permissions.js /path/to/config-dir
  */
@@ -12,12 +12,16 @@ const yaml = require("js-yaml")
 const CONFIG_DIR = process.argv[2] || path.join(__dirname, "../images/opencode/config")
 const BASE_PERMS_FILE = path.join(CONFIG_DIR, "base-permissions.yaml")
 const AGENTS_DIR = path.join(CONFIG_DIR, "agents")
-const OUTPUT_FILE = path.join(CONFIG_DIR, "permissions.json")
 
 // Extract YAML frontmatter from a markdown file (content between first and second ---)
 function extractFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   return match ? match[1] : ""
+}
+
+// Replace the frontmatter in a markdown file
+function replaceFrontmatter(content, newFrontmatter) {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---/, `---\n${newFrontmatter}\n---`)
 }
 
 function deepMerge(base, agent) {
@@ -42,7 +46,7 @@ function deepMerge(base, agent) {
 const base = yaml.load(fs.readFileSync(BASE_PERMS_FILE, "utf8"))
 const basePermissions = base.permission
 
-const agents = {}
+let count = 0
 for (const file of fs.readdirSync(AGENTS_DIR)) {
   if (!file.endsWith(".md")) continue
 
@@ -51,11 +55,18 @@ for (const file of fs.readdirSync(AGENTS_DIR)) {
   const frontmatter = extractFrontmatter(content)
   const doc = yaml.load(frontmatter)
 
-  const name = doc.name || file.replace(".md", "")
   const permissions = doc.permission || {}
+  const merged = deepMerge(basePermissions, permissions)
 
-  agents[name] = deepMerge(basePermissions, permissions)
+  // Write merged frontmatter back into the .md file
+  const newFrontmatter = yaml.dump(
+    { name: doc.name, description: doc.description, permission: merged },
+    { indent: 2, lineWidth: -1 },
+  )
+  const newContent = replaceFrontmatter(content, newFrontmatter)
+
+  fs.writeFileSync(agentPath, newContent)
+  count++
 }
 
-fs.writeFileSync(OUTPUT_FILE, JSON.stringify(agents, null, 2))
-console.log(`Merged permissions for ${Object.keys(agents).length} agents → ${OUTPUT_FILE}`)
+console.log(`Merged base permissions into ${count} agent files`)
