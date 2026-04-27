@@ -14,6 +14,12 @@ const BASE_PERMS_FILE = path.join(CONFIG_DIR, "base-permissions.yaml")
 const AGENTS_DIR = path.join(CONFIG_DIR, "agents")
 const OUTPUT_FILE = path.join(CONFIG_DIR, "permissions.json")
 
+// Extract YAML frontmatter from a markdown file (content between first and second ---)
+function extractFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  return match ? match[1] : ""
+}
+
 function deepMerge(base, agent) {
   const result = JSON.parse(JSON.stringify(base))
   for (const [key, value] of Object.entries(agent)) {
@@ -41,7 +47,9 @@ for (const file of fs.readdirSync(AGENTS_DIR)) {
   if (!file.endsWith(".md")) continue
 
   const agentPath = path.join(AGENTS_DIR, file)
-  const doc = yaml.load(fs.readFileSync(agentPath, "utf8"))
+  const content = fs.readFileSync(agentPath, "utf8")
+  const frontmatter = extractFrontmatter(content)
+  const doc = yaml.load(frontmatter)
 
   const name = doc.name || file.replace(".md", "")
   const permissions = doc.permission || {}
