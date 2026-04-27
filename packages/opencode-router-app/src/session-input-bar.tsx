@@ -1,8 +1,10 @@
-import { Show } from "solid-js"
+import { Show, createSignal, onMount } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import { Button } from "@opencode-ai/ui/button"
 import { useT } from "./i18n"
 import { GIT_URL_PATTERN } from "./setup-form-utils"
+import { Autocomplete } from "./autocomplete"
+import type { Repo } from "./api"
 
 type Props = {
   repoUrl: string
@@ -19,6 +21,21 @@ type Props = {
 }
 
 import type { DictKey } from "./i18n/en"
+
+// Load user repos on mount (lazy loaded)
+let userRepos: Repo[] = []
+let reposLoaded = false
+async function loadUserRepos(): Promise<Repo[]> {
+  if (reposLoaded) return userRepos
+  try {
+    const { listUserRepos } = await import("./api")
+    userRepos = await listUserRepos()
+    reposLoaded = true
+  } catch {
+    userRepos = []
+  }
+  return userRepos
+}
 
 function disabledReason(props: Props, t: (key: DictKey) => string): string | null {
   if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return t("form.error.repoUrl.invalid")
@@ -41,6 +58,39 @@ const inputStyle = {
 
 export function SessionInputBar(props: Props) {
   const t = useT(useI18n())
+  const [repoItems, setRepoItems] = createSignal<{ label: string; value: string }[]>([])
+  const [branchItems, setBranchItems] = createSignal<{ label: string; value: string }[]>([])
+  const [reposLoading, setReposLoading] = createSignal(false)
+
+  // Load repos on first focus
+  const ensureReposLoaded = async () => {
+    if (repoItems().length > 0 || reposLoading()) return
+    setReposLoading(true)
+    const repos = await loadUserRepos()
+    setRepoItems(repos.map((r) => ({ label: r.name, value: r.url })))
+    setReposLoading(false)
+  }
+
+  // Load branches when repo is selected
+  const loadBranchesForRepo = async (url: string) => {
+    try {
+      const { listRepoBranches } = await import("./api")
+      const repoFullName = url.replace(/^https?:\/\//, "").replace(/\.git$/, "")
+      const repoParts = repoFullName.split("/")
+      if (repoParts.length >= 2) {
+        const branches = await listRepoBranches(`${repoParts[repoParts.length - 2]}/${repoParts[repoParts.length - 1]}`)
+        setBranchItems(branches.map((b) => ({ label: b.name, value: b.name })))
+      }
+    } catch {
+      setBranchItems([])
+    }
+  }
+
+  onMount(() => {
+    // Pre-load repos in background when component mounts
+    ensureReposLoaded()
+  })
+
   const canSubmit = () =>
     GIT_URL_PATTERN.test(props.repoUrl.trim()) &&
     props.sourceBranch.trim().length > 0 &&
@@ -63,19 +113,20 @@ export function SessionInputBar(props: Props) {
         }}
       >
         <div class="flex gap-2 flex-wrap">
-          <input
-            type="text"
+          <Autocomplete
             placeholder={t("app.newSession.repoUrl.placeholder")}
             value={props.repoUrl}
-            onInput={(e) => props.onRepoUrlChange(e.currentTarget.value)}
-            style={{ ...inputStyle, flex: "2 1 180px" }}
+            onSelect={(v) => {
+              props.onRepoUrlChange(v)
+              loadBranchesForRepo(v)
+            }}
+            items={repoItems()}
           />
-          <input
-            type="text"
+          <Autocomplete
             placeholder={t("app.newSession.sourceBranch.placeholder")}
             value={props.sourceBranch}
-            onInput={(e) => props.onSourceBranchChange(e.currentTarget.value)}
-            style={{ ...inputStyle, flex: "1 1 100px" }}
+            onSelect={props.onSourceBranchChange}
+            items={branchItems()}
           />
         </div>
 

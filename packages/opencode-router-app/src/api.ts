@@ -83,3 +83,27 @@ export async function suggestBranch(repoUrl: string): Promise<{ branch: string }
   if (!res.ok) throw new Error(`Failed to suggest branch: ${res.status}`)
   return res.json()
 }
+
+export interface Repo {
+  name: string
+  fullName: string
+  url: string
+  isPrivate: boolean
+}
+
+export interface Branch {
+  name: string
+}
+
+export async function listUserRepos(): Promise<Repo[]> {
+  const res = await fetch("/api/user/repos", { signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!res.ok) throw new Error(`Failed to list repos: ${res.status}`)
+  return res.json()
+}
+
+export async function listRepoBranches(repoFullName: string): Promise<Branch[]> {
+  const params = new URLSearchParams({ repo: repoFullName })
+  const res = await fetch(`/api/user/repos/branches?${params}`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!res.ok) throw new Error(`Failed to list branches: ${res.status}`)
+  return res.json()
+}

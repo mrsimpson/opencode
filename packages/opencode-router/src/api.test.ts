@@ -546,3 +546,261 @@ describe("ANNOTATION_INITIAL_MESSAGE in SessionKey — initialMessage passed to 
     expect(sessionKeyPassed?.initialMessage).toBe("Hello world")
   })
 })
+
+// ---------------------------------------------------------------------------
+// GET /api/user/repos — list repositories for authenticated user
+// ---------------------------------------------------------------------------
+
+describe("GET /api/user/repos", () => {
+  it("returns 401 when no githubToken is provided", async () => {
+    const req = fakeReq("GET", "/api/user/repos")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("GitHub token required")
+  })
+
+  it("returns 200 with repos when githubToken is provided", async () => {
+    const mockRepos = [
+      {
+        name: "opencode",
+        full_name: "mrsimpson/opencode",
+        html_url: "https://github.com/mrsimpson/opencode",
+        private: false,
+      },
+      {
+        name: "website",
+        full_name: "mrsimpson/website",
+        html_url: "https://github.com/mrsimpson/website",
+        private: true,
+      },
+    ]
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockRepos),
+      } as Response),
+    )
+
+    const req = fakeReq("GET", "/api/user/repos")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveLength(2)
+    expect(body[0].name).toBe("opencode")
+    expect(body[0].fullName).toBe("mrsimpson/opencode")
+    expect(body[0].url).toBe("https://github.com/mrsimpson/opencode")
+    expect(body[0].isPrivate).toBe(false)
+    expect(body[1].isPrivate).toBe(true)
+  })
+
+  it("returns 403 when GitHub API returns 403", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve("Forbidden"),
+      } as Response),
+    )
+
+    const req = fakeReq("GET", "/api/user/repos")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_invalid_token")
+
+    expect(res.statusCode).toBe(403)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/user/repos/branches — list branches for a specific repo
+// ---------------------------------------------------------------------------
+
+describe("GET /api/user/repos/branches", () => {
+  it("returns 401 when no githubToken is provided", async () => {
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=mrsimpson%2Fopencode")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("GitHub token required")
+  })
+
+  it("returns 400 when repo parameter is missing", async () => {
+    const req = fakeReq("GET", "/api/user/repos/branches")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("repo parameter required")
+  })
+
+  it("returns 200 with branches when repo and token are provided", async () => {
+    const mockBranches = [{ name: "main" }, { name: "dev" }, { name: "feature/test" }]
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockBranches),
+      } as Response),
+    )
+
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=mrsimpson%2Fopencode")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveLength(3)
+    expect(body[0].name).toBe("main")
+    expect(body[1].name).toBe("dev")
+    expect(body[2].name).toBe("feature/test")
+  })
+
+  it("returns 404 when GitHub API returns 404 for unknown repo", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("Not Found"),
+      } as Response),
+    )
+
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=unknown%2Frepo")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_test_token")
+
+    expect(res.statusCode).toBe(404)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// suggest-branch query param — no localhost fallback
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/suggest-branch query parsing", () => {
+  it("returns 400 when repoUrl is empty string", async () => {
+    const req = fakeReq("GET", "/api/sessions/suggest-branch?repoUrl=")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("repoUrl is required")
+  })
+
+  it("returns 400 when repoUrl query key is missing entirely", async () => {
+    const req = fakeReq("GET", "/api/sessions/suggest-branch?foo=bar")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+
+  it("returns 400 when query string is empty", async () => {
+    const req = fakeReq("GET", "/api/sessions/suggest-branch")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+
+  it("passes correct repoUrl to suggestBranch", async () => {
+    const req = fakeReq("GET", "/api/sessions/suggest-branch?repoUrl=https%3A%2F%2Fgithub.com%2Ftest%2Frepo.git")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(mocks.suggestBranch).toHaveBeenCalledTimes(1)
+    expect((mocks.suggestBranch as any).mock.calls[0][0]).toBe(EMAIL)
+    expect((mocks.suggestBranch as any).mock.calls[0][1]).toBe("https://github.com/test/repo.git")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// branches query param — no localhost fallback
+// ---------------------------------------------------------------------------
+
+describe("GET /api/user/repos/branches query parsing", () => {
+  it("returns 400 when repo query key is missing entirely", async () => {
+    const req = fakeReq("GET", "/api/user/repos/branches?foo=bar")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_token")
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("repo parameter required")
+  })
+
+  it("returns 400 when repo query key is empty string", async () => {
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_token")
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("repo parameter required")
+  })
+
+  it("passes correct repo to GitHub API", async () => {
+    const mockBranches = [{ name: "main" }]
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockBranches),
+      } as Response),
+    )
+
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=org%2Frepo")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_token")
+
+    expect(res.statusCode).toBe(200)
+    // Verify fetch was called with the correct repo in the URL
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    const callUrl = (globalThis.fetch as any).mock.calls[0][0]
+    expect(callUrl).toBe("https://api.github.com/repos/org/repo/branches?per_page=100")
+  })
+
+  it("handles repo with special characters in query", async () => {
+    const mockBranches = [{ name: "main" }]
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockBranches),
+      } as Response),
+    )
+
+    // repo with path-like characters
+    const req = fakeReq("GET", "/api/user/repos/branches?repo=my-org%2Fmy-repo.git")
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_token")
+
+    expect(res.statusCode).toBe(200)
+    const callUrl = (globalThis.fetch as any).mock.calls[0][0]
+    expect(callUrl).toBe("https://api.github.com/repos/my-org/my-repo.git/branches?per_page=100")
+  })
+})
