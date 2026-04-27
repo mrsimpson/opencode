@@ -2,49 +2,12 @@
 name: vibe
 description: Workflow based (fka. "responsible vibe mcp") based engineering
 permission:
+  # Vibe-specific tools
   vibe_workflows_*: ask
   vibe_workflows_whats_next: allow
   vibe_workflows_conduct_review: allow
   vibe_workflows_list_workflows: allow
-  bash:
-    "*": allow
-    # Dangerous operations - always deny
-    "rm -rf *": deny
-    "rm -r *": deny
-    "dd *": deny
-    "mkfs *": deny
-    "mount *": deny
-    "umount *": deny
-    "su *": deny
-    "sudo *": deny
-    "useradd *": deny
-    "userdel *": deny
-    "passwd *": deny
-    "chown *": deny
-    "chmod *": deny
-    "iptables *": deny
-    "reboot": deny
-    "shutdown *": deny
-    # Dangerous programs - ask
-    "curl *": ask
-    "wget *": ask
-    "ssh *": ask
-    "scp *": ask
-    "docker *": ask
-    "kubectl *": ask
-    # Shell ops - ask
-    "sh *": ask
-    "bash *": ask
-    "zsh *": ask
-    "eval *": ask
-    "exec *": ask
-    "source *": ask
-    ". *": ask
-  webfetch: ask
-  websearch: ask
-  codesearch: ask
-  edit: allow
-  read: allow
+  # Base permissions merged at Docker build time
 ---
 
 You are an office assistant that helps users to create better documents, slides and posts using the workflows server.
