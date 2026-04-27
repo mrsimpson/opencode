@@ -264,6 +264,7 @@ export async function handleApi(
         full_name: string
         html_url: string
         private: boolean
+        default_branch: string
       }[]
       json(
         res,
@@ -273,6 +274,7 @@ export async function handleApi(
           fullName: r.full_name,
           url: r.html_url,
           isPrivate: r.private,
+          defaultBranch: r.default_branch,
         })),
       )
     } catch (err) {

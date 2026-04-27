@@ -89,6 +89,7 @@ export interface Repo {
   fullName: string
   url: string
   isPrivate: boolean
+  defaultBranch: string
 }
 
 export interface Branch {

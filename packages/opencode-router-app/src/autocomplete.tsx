@@ -18,13 +18,12 @@ const DROPDOWN_STYLE: JSX.CSSProperties = {
   left: "0",
   right: "0",
   "margin-top": "4px",
-  background: "var(--background-surface)",
+  background: "var(--background-base)",
   border: "1px solid var(--border-base)",
   "border-radius": "6px",
   "max-height": "240px",
   overflow: "auto",
   "z-index": "50",
-  background: "var(--background-surface)",
 }
 
 const ITEM_STYLE: JSX.CSSProperties = {

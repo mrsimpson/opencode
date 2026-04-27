@@ -37,6 +37,10 @@ async function loadUserRepos(): Promise<Repo[]> {
   return userRepos
 }
 
+function findRepoByUrl(url: string): Repo | undefined {
+  return userRepos.find((r) => r.url === url)
+}
+
 function disabledReason(props: Props, t: (key: DictKey) => string): string | null {
   if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return t("form.error.repoUrl.invalid")
   if (!props.sourceBranch.trim()) return t("form.error.sourceBranch.required")
@@ -71,8 +75,12 @@ export function SessionInputBar(props: Props) {
     setReposLoading(false)
   }
 
-  // Load branches when repo is selected
+  // Load branches when repo is selected and set default branch
   const loadBranchesForRepo = async (url: string) => {
+    const repo = findRepoByUrl(url)
+    const newBranch = repo?.defaultBranch
+    if (newBranch) props.onSourceBranchChange(newBranch)
+
     try {
       const { listRepoBranches } = await import("./api")
       const repoFullName = url.replace(/^https?:\/\//, "").replace(/\.git$/, "")
