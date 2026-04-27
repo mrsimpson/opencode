@@ -12,7 +12,7 @@ type Props = {
   items?: { label: string; value: string }[]
 }
 
-const DROPDOWN_STYLE: JSX.CSSProperties = {
+const DROPDOWN_STYLE = {
   position: "absolute",
   top: "100%",
   left: "0",
@@ -26,7 +26,7 @@ const DROPDOWN_STYLE: JSX.CSSProperties = {
   "z-index": "50",
 }
 
-const ITEM_STYLE: JSX.CSSProperties = {
+const ITEM_STYLE = {
   padding: "8px 10px",
   cursor: "pointer",
   "font-size": "13px",
