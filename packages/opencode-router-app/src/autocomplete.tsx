@@ -117,6 +117,10 @@ export function Autocomplete(props: Props) {
             setIsOpen(true)
           }
         }}
+        onBlur={(e) => {
+          props.onSelect(e.currentTarget.value)
+          setIsOpen(false)
+        }}
         onKeyDown={handleKeyDown}
         style={{
           background: "var(--background-base)",
