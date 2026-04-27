@@ -14,7 +14,7 @@ permission:
     "*.env": deny
     "*.env.*": deny
     "*.env.example": allow
-  skill: deny
+  skill: ask
   todoread: deny
   todowrite: deny
   task: allow
@@ -28,91 +28,47 @@ permission:
   websearch: ask
   codesearch: ask
   bash:
-    "*": ask
-    "bd *": allow
-    "grep *": allow
-    "rg *": allow
-    "find *": allow
-    "fd *": allow
-    "ls *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "wc *": allow
-    "sort *": allow
-    "uniq *": allow
-    "diff *": allow
-    "echo *": allow
-    "printf *": allow
-    pwd: allow
-    "which *": allow
-    "type *": allow
-    whoami: allow
-    date: allow
-    "date *": allow
-    env: allow
-    "tree *": allow
-    "file *": allow
-    "stat *": allow
-    "readlink *": allow
-    "realpath *": allow
-    "dirname *": allow
-    "basename *": allow
-    "sed *": allow
-    "awk *": allow
-    "cut *": allow
-    "tr *": allow
-    "tee *": allow
-    "xargs *": allow
-    "jq *": allow
-    "yq *": allow
-    "mkdir *": allow
-    "touch *": allow
-    "git diff *": allow
-    "git status *": allow
-    "git log *": allow
-    "git commit *": allow
-    "git fetch": allow
-    "git pull": allow
-    "kill *": ask
-    "rm *": deny
+    "*": allow
+    # Dangerous operations - always deny
+    "rm -rf *": deny
+    "rm -r *": deny
     "rmdir *": deny
-    "curl *": deny
-    "wget *": deny
-    "chmod *": deny
-    "chown *": deny
-    "sudo *": deny
-    "su *": deny
-    "sh *": deny
-    "bash *": deny
-    "zsh *": deny
-    "eval *": deny
-    "exec *": deny
-    "source *": deny
-    ". *": deny
-    "nohup *": deny
     "dd *": deny
     "mkfs *": deny
     "mount *": deny
     "umount *": deny
-    "killall *": deny
-    "pkill *": deny
-    "nc *": deny
-    "ncat *": deny
-    "ssh *": deny
-    "scp *": deny
-    "rsync *": deny
-    "docker *": deny
-    "kubectl *": deny
-    "systemctl *": deny
-    "service *": deny
-    "crontab *": deny
-    reboot: deny
-    "shutdown *": deny
-    "passwd *": deny
+    "su *": deny
+    "sudo *": deny
     "useradd *": deny
     "userdel *": deny
+    "passwd *": deny
+    "chown *": deny
+    "chmod *": deny
     "iptables *": deny
+    "reboot": deny
+    "shutdown *": deny
+    # Dangerous programs - ask
+    "curl *": ask
+    "wget *": ask
+    "ssh *": ask
+    "scp *": ask
+    "rsync *": ask
+    "docker *": ask
+    "kubectl *": ask
+    "systemctl *": ask
+    "service *": ask
+    "nc *": ask
+    "ncat *": ask
+    # Shell ops - ask (interactive shells can be dangerous)
+    "sh *": ask
+    "bash *": ask
+    "zsh *": ask
+    "eval *": ask
+    "exec *": ask
+    "source *": ask
+    ". *": ask
+    # Background processes - allow (safe in container)
+    "nohup *": allow
 ---
 
 You follow a defined workflow that helps you be in sync with the user.
