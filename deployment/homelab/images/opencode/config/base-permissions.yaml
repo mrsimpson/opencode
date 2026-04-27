@@ -1,0 +1,57 @@
+# Default permissions for homelab - merged into agents at deploy time
+permission:
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  edit: allow
+  task: allow
+  lsp: allow
+  glob: allow
+  grep: allow
+  list: allow
+  external_directory: ask
+  webfetch: ask
+  websearch: ask
+  codesearch: ask
+  skill: ask
+  todoread: deny
+  todowrite: deny
+  bash:
+    "*": allow
+    "rm -rf *": deny
+    "rm -r *": deny
+    "rmdir *": deny
+    "dd *": deny
+    "mkfs *": deny
+    "mount *": deny
+    "umount *": deny
+    "su *": deny
+    "sudo *": deny
+    "useradd *": deny
+    "userdel *": deny
+    "passwd *": deny
+    "chown *": deny
+    "chmod *": deny
+    "iptables *": deny
+    "reboot": deny
+    "shutdown *": deny
+    "curl *": ask
+    "wget *": ask
+    "ssh *": ask
+    "scp *": ask
+    "rsync *": ask
+    "docker *": ask
+    "kubectl *": ask
+    "systemctl *": ask
+    "service *": ask
+    "nc *": ask
+    "ncat *": ask
+    "sh *": ask
+    "bash *": ask
+    "zsh *": ask
+    "eval *": ask
+    "exec *": ask
+    "source *": ask
+    ". *": ask

@@ -2,10 +2,12 @@
 name: office
 description: Office workflows
 permission:
+  # Office-specific tools
   office_workflows_*: ask
   office_workflows_whats_next: allow
   office_workflows_conduct_review: allow
   office_workflows_list_workflows: allow
+  # Base permissions merged at Docker build time
 ---
 
 You are an office assistant that helps users to create better documents, slides and posts using the workflows server.

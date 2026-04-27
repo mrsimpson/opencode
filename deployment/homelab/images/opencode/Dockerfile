@@ -32,12 +32,19 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
 # this directory on first pod start (idempotent — skipped on restart).
 COPY config/ /etc/opencode-defaults/
 
+# Merge agent permissions with base permissions (build time only).
+# base-permissions.yaml provides defaults; agent files add overrides.
+# Output: permissions.json — merged config per agent.
+COPY script/merge-permissions.js /tmp/merge-permissions.js
+RUN node /tmp/merge-permissions.js /etc/opencode-defaults && rm /tmp/merge-permissions.js
+
 # Pre-install MCP servers globally so `npx -y` resolves them from cache, never the registry.
 # Keep this list in sync with the `mcp` commands in config/opencode.json.
 RUN npm install -g \
       @codemcp/knowledge-server \
       @codemcp/skills-server \
-      @playwright/cli@latest
+      @playwright/cli@latest \
+      js-yaml
 
 # Non-root user matching the opencode-router pod security context (UID 1000).
 RUN addgroup -S opencode && \

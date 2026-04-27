@@ -2,10 +2,12 @@
 name: architecture
 description: Architecture workflows
 permission:
+  # Architecture-specific tools
   architecture_workflows_*: ask
   architecture_workflows_whats_next: allow
   architecture_workflows_conduct_review: allow
   architecture_workflows_list_workflows: allow
+  # Base permissions merged at Docker build time
 ---
 
 You are an office assistant that helps users to create better documents, slides and posts using the workflows server.

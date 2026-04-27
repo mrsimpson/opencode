@@ -2,10 +2,12 @@
 name: vibe
 description: Workflow based (fka. "responsible vibe mcp") based engineering
 permission:
+  # Vibe-specific tools
   vibe_workflows_*: ask
   vibe_workflows_whats_next: allow
   vibe_workflows_conduct_review: allow
   vibe_workflows_list_workflows: allow
+  # Base permissions merged at Docker build time
 ---
 
 You are an office assistant that helps users to create better documents, slides and posts using the workflows server.
