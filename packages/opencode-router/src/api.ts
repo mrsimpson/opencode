@@ -165,7 +165,8 @@ export async function handleApi(
 
   // GET /api/sessions/suggest-branch — must be before /:hash regex
   if (url.startsWith("/api/sessions/suggest-branch") && req.method === "GET") {
-    const repoUrl = new URL(url, "http://localhost").searchParams.get("repoUrl")
+    const query = new URLSearchParams(url.split("?")[1] ?? "")
+    const repoUrl = query.get("repoUrl")
     if (!repoUrl) {
       json(res, 400, { error: "repoUrl is required" })
       return true
@@ -284,13 +285,13 @@ export async function handleApi(
   }
 
   // GET /api/user/repos/branches — list branches for a specific repo
-  const branchesMatch = url.match(/^\/api\/user\/repos\/branches\?repo=.+/)
-  if (branchesMatch && req.method === "GET") {
+  if (url.startsWith("/api/user/repos/branches") && req.method === "GET") {
     if (!githubToken) {
       json(res, 401, { error: "GitHub token required" })
       return true
     }
-    const repo = new URL(url, "http://localhost").searchParams.get("repo")
+    const query = new URLSearchParams(url.split("?")[1] ?? "")
+    const repo = query.get("repo")
     if (!repo) {
       json(res, 400, { error: "repo parameter required" })
       return true
