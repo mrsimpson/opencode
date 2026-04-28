@@ -17,6 +17,7 @@ on:
       - main
     paths:
       - deployment/homelab/images/opencode/**
+      - deployment/homelab/script/**
       - .github/workflows/build-opencode-image.yml
   workflow_dispatch:
 
@@ -56,10 +57,11 @@ jobs:
         run: |
           docker build \
             --build-arg BASE_VERSION=${{ steps.version.outputs.base }} \
+            --file deployment/homelab/images/opencode/Dockerfile \
             --pull \
             -t ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} \
             -t ${{ env.IMAGE_NAME }}:latest \
-            deployment/homelab/images/opencode
+            deployment/homelab
 
       - name: Push
         run: |

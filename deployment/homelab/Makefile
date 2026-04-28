@@ -120,7 +120,8 @@ build-operator:
 		$(DEPLOY_DIR)/opencode-cloudflare-operator
 	@echo "✓ Built $(OPERATOR_FULL)"
 
-# Opencode: custom image baking default config — build context is images/opencode/
+# Opencode: custom image baking default config — build context is homelab/ (parent of images/opencode/)
+# so that script/ and images/opencode/ are both available to COPY instructions.
 build-opencode:
 	@echo "→ Building $(OPENCODE_FULL) ..."
 	docker buildx build \
@@ -129,7 +130,7 @@ build-opencode:
 		--tag $(OPENCODE_FULL) \
 		--tag $(OPENCODE_IMAGE):latest \
 		--load \
-		$(PULUMI_DIR)/images/opencode
+		$(PULUMI_DIR)
 	@echo "✓ Built $(OPENCODE_FULL)"
 
 build: build-router build-operator build-opencode
