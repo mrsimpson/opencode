@@ -39,10 +39,23 @@ RUN npm install -g \
       @codemcp/skills-server \
       @playwright/cli@latest
 
+# Install bun-pty to get librust_pty.so, then copy it to a system location.
+# The pre-compiled opencode binary expects this library to be available.
+RUN npm install -g bun-pty@0.4.8 && \
+    mkdir -p /usr/local/lib/bun-pty && \
+    # Copy the native library from the globally installed package
+    cp $(find /usr/local/lib/node_modules/bun-pty -name "librust_pty.so" -type f | head -1) /usr/local/lib/bun-pty/librust_pty.so && \
+    chmod 644 /usr/local/lib/bun-pty/librust_pty.so
+
+# Set BUN_PTY_LIB so bun-pty can find the native library
+ENV BUN_PTY_LIB=/usr/local/lib/bun-pty/librust_pty.so
+
 # Non-root user matching the opencode-router pod security context (UID 1000).
 RUN addgroup -S opencode && \
     adduser  -S -u 1000 -G opencode -h /home/opencode -s /bin/sh opencode && \
-    chown -R opencode:opencode /home/opencode
+    chown -R opencode:opencode /home/opencode && \
+    # Ensure opencode user can read the PTY library
+    chmod 644 /usr/local/lib/bun-pty/librust_pty.so
 
 USER opencode
 ENV HOME=/home/opencode
