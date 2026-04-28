@@ -30,13 +30,7 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
 # this directory on first pod start (idempotent — skipped on restart).
-COPY config/ /etc/opencode-defaults/
-
-# Merge agent permissions with base permissions (build time only).
-# base-permissions.yaml provides defaults; agent files add overrides.
-# Output: permissions.json — merged config per agent.
-COPY script/merge-permissions.js /tmp/merge-permissions.js
-RUN node /tmp/merge-permissions.js /etc/opencode-defaults && rm /tmp/merge-permissions.js
+COPY images/opencode/config/ /etc/opencode-defaults/
 
 # Pre-install MCP servers globally so `npx -y` resolves them from cache, never the registry.
 # Keep this list in sync with the `mcp` commands in config/opencode.json.
@@ -46,15 +40,21 @@ RUN npm install -g \
       @playwright/cli@latest \
       js-yaml
 
-# Install bun-pty to get librust_pty.so, then copy it to a system location.
-# The pre-compiled opencode binary expects this library to be available.
-RUN npm install -g bun-pty@0.4.8 && \
-    mkdir -p /usr/local/lib/bun-pty && \
-    # Copy the native library from the globally installed package
-    cp $(find /usr/local/lib/node_modules/bun-pty -name "librust_pty.so" -type f | head -1) /usr/local/lib/bun-pty/librust_pty.so && \
-    chmod 644 /usr/local/lib/bun-pty/librust_pty.so
+# Merge agent permissions with base permissions (build time only).
+# base-permissions.yaml provides defaults; agent files add overrides.
+# Output: permissions.json — merged config per agent.
+# js-yaml must be installed (above) before this runs.
+COPY script/merge-permissions.js /tmp/merge-permissions.js
+RUN NODE_PATH=$(npm root -g) node /tmp/merge-permissions.js /etc/opencode-defaults && rm /tmp/merge-permissions.js
 
-# Set BUN_PTY_LIB so bun-pty can find the native library
+# Install the musl-compiled librust_pty.so so bun-pty works on Alpine.
+# The upstream npm package ships only glibc binaries; this pre-built .so was
+# compiled from bun-pty v0.4.8 Rust source inside an Alpine container (musl).
+# To rebuild: see Decision 3 in .vibe/development-plan-fix-terminal-webui.md
+RUN mkdir -p /usr/local/lib/bun-pty
+COPY images/opencode/librust_pty_musl_amd64.so /usr/local/lib/bun-pty/librust_pty.so
+
+# Set BUN_PTY_LIB so bun-pty resolves the musl-compatible library at runtime
 ENV BUN_PTY_LIB=/usr/local/lib/bun-pty/librust_pty.so
 
 # Non-root user matching the opencode-router pod security context (UID 1000).
