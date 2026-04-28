@@ -295,6 +295,8 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
     `    [ -f "$s" ] && sh "$s" || true`,
     `  done`,
     `fi`,
+    // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
+    `rm -f /home/opencode/.gitconfig.lock`,
     // --- git credentials (from per-session Secret mounted as GITHUB_TOKEN) ---
     `if [ -n "$GITHUB_TOKEN" ]; then`,
     `  git config --global credential.helper store`,
