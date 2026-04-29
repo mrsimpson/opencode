@@ -316,9 +316,10 @@ _None yet_
 #### Frontend Implementation
 
 - [x] **Task C6: ModelSelect Komponente erstellen** (`packages/opencode-router-app/src/model-select.tsx`)
-  - Solid.js Komponente mit Provider/Model Dropdown
-  - Gruppierung nach Provider
+  - Solid.js Komponente mit einzelnem Dropdown (optgroup für Provider-Gruppierung)
+  - Gruppierung nach Provider (wie in opencode's Dialog)
   - "Kein spezifisches Modell" Option als Default
+  - Zeigt "Provider Name - Model Name" bei Auswahl
   - Styling konsistent mit `session-input-bar.tsx`
 
 - [x] **Task C7: API-Funktionen hinzufügen** (`packages/opencode-router-app/src/api.ts`)
@@ -374,6 +375,7 @@ _None yet_
 - [x] **Git Commits**:
   - CM1: `ffa83ade7 feat(router): add model selection API and session model support`
   - CM2: `b7bff2063 feat(router-app): add model selection UI component`
+  - UI Fix: `39a87bf77 fix(router-app): improve model selection UI to match opencode style`
 
 ---
 
