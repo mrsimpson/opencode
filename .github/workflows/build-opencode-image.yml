@@ -81,6 +81,9 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" | base64 --decode > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
+      - name: Verify cluster connectivity
+        run: kubectl cluster-info --request-timeout=10s
+
       - name: Pre-pull image on router (reduce cold start times)
         env:
           ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
