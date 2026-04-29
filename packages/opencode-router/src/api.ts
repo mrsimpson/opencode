@@ -9,6 +9,7 @@ import {
   getPodState,
   getSessionHash,
   listUserSessions,
+  prepullImage,
   remoteBranchExists,
   terminateSession,
   resumeSession,
@@ -319,6 +320,66 @@ export async function handleApi(
       console.error("listRepoBranches failed:", err)
       json(res, 500, { error: "Failed to list branches" })
     }
+    return true
+  }
+
+  // POST /api/admin/pull-image — pre-pull container image (CI endpoint)
+  if (url === "/api/admin/pull-image" && req.method === "POST") {
+    // Check if admin endpoint is configured
+    if (!config.adminSecret) {
+      json(res, 501, { error: "Admin endpoint not configured" })
+      return true
+    }
+
+    // Verify admin secret
+    const providedSecret = req.headers["x-admin-secret"]
+    if (providedSecret !== config.adminSecret) {
+      json(res, 403, { error: "Forbidden" })
+      return true
+    }
+
+    const raw = await readBody(req)
+    let image: string
+    let updateConfig = false
+    try {
+      const body = JSON.parse(raw)
+      image = typeof body.image === "string" ? body.image.trim() : ""
+      updateConfig = typeof body.updateConfig === "boolean" ? body.updateConfig : false
+    } catch {
+      json(res, 400, { error: "Invalid JSON" })
+      return true
+    }
+
+    if (!image) {
+      json(res, 400, { error: "image is required" })
+      return true
+    }
+
+    try {
+      const success = await prepullImage(image)
+
+      if (success && updateConfig) {
+        // Note: This only updates in-memory config for this process.
+        // For persistence across restarts, update the deployment env var.
+        ;(config as Record<string, unknown>).opencodeImage = image
+      }
+
+      if (success) {
+        json(res, 200, {
+          status: "success",
+          message: `Image ${image} pre-pulled and verified successfully`,
+        })
+      } else {
+        json(res, 500, {
+          status: "failed",
+          message: `Failed to pull and verify image ${image}`,
+        })
+      }
+    } catch (err) {
+      console.error("prepullImage failed:", err)
+      json(res, 500, { error: "Internal server error" })
+    }
+
     return true
   }
 

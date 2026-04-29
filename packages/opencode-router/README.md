@@ -42,13 +42,13 @@ Each (email, repoUrl, branch) triple is hashed (SHA-256, first 12 hex chars) to 
 
 ### Pod Lifecycle
 
-| Event | Action |
-|---|---|
-| First request from a new user | Create PVC + Pod with git-clone init container |
-| Request while pod is starting | Return a loading page (auto-refreshes every 3s) |
-| Request to a running pod | Proxy HTTP/WebSocket to pod IP |
-| Pod idle > threshold | Delete pod (PVC preserved) |
-| Returning user after idle cleanup | Recreate pod, reattach existing PVC |
+| Event                             | Action                                          |
+| --------------------------------- | ----------------------------------------------- |
+| First request from a new user     | Create PVC + Pod with git-clone init container  |
+| Request while pod is starting     | Return a loading page (auto-refreshes every 3s) |
+| Request to a running pod          | Proxy HTTP/WebSocket to pod IP                  |
+| Pod idle > threshold              | Delete pod (PVC preserved)                      |
+| Returning user after idle cleanup | Recreate pod, reattach existing PVC             |
 
 ### Git Repository Initialization
 
@@ -56,13 +56,13 @@ On first pod creation, an init container (`alpine/git`) clones a configurable de
 
 ### What Gets Isolated vs. Shared
 
-| Resource | Per-User | Shared |
-|---|---|---|
-| SQLite database (sessions, history) | Per-user PVC | — |
-| Workspace / filesystem | Per-user PVC | — |
-| API keys (ANTHROPIC_API_KEY, etc.) | — | K8s Secret |
-| Agent configuration | — | K8s ConfigMap |
-| OpenCode config (opencode.json) | — | K8s ConfigMap |
+| Resource                            | Per-User     | Shared        |
+| ----------------------------------- | ------------ | ------------- |
+| SQLite database (sessions, history) | Per-user PVC | —             |
+| Workspace / filesystem              | Per-user PVC | —             |
+| API keys (ANTHROPIC_API_KEY, etc.)  | —            | K8s Secret    |
+| Agent configuration                 | —            | K8s ConfigMap |
+| OpenCode config (opencode.json)     | —            | K8s ConfigMap |
 
 ## Session URL Pattern
 
@@ -73,6 +73,7 @@ https://<hash><ROUTE_SUFFIX>.<ROUTER_DOMAIN>
 ```
 
 Examples:
+
 - Production (`ROUTE_SUFFIX=-oc`, `ROUTER_DOMAIN=no-panic.org`): `https://abc123def456-oc.no-panic.org`
 - Local dev (`ROUTE_SUFFIX=`, `ROUTER_DOMAIN=localhost:3002`): `http://abc123def456.localhost:3002`
 
@@ -82,19 +83,20 @@ The `-oc` suffix keeps session hostnames at the **first subdomain level**, which
 
 All configuration is via environment variables on the router pod:
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `OPENCODE_IMAGE` | Yes | — | Docker image for session OpenCode pods |
-| `ROUTER_DOMAIN` | Yes | — | Base domain for session URLs (e.g. `no-panic.org`) |
-| `ROUTE_SUFFIX` | No | `""` | Suffix appended to hash in session hostname (e.g. `-oc`) |
-| `OPENCODE_NAMESPACE` | No | `opencode` | Kubernetes namespace for all resources |
-| `IDLE_TIMEOUT_MINUTES` | No | `30` | Minutes of inactivity before pod deletion |
-| `API_KEY_SECRET_NAME` | No | `opencode-api-keys` | K8s Secret name containing API keys |
-| `CONFIG_MAP_NAME` | No | `opencode-config-dir` | K8s ConfigMap with shared OpenCode config |
-| `STORAGE_CLASS` | No | `""` (cluster default) | StorageClass for session PVCs |
-| `STORAGE_SIZE` | No | `2Gi` | PVC size per session |
-| `DEFAULT_GIT_REPO` | No | — | Git repo URL to clone into new workspaces |
-| `PORT` | No | `3000` | Port the router listens on |
+| Variable               | Required | Default                | Description                                                                                          |
+| ---------------------- | -------- | ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `OPENCODE_IMAGE`       | Yes      | —                      | Docker image for session OpenCode pods                                                               |
+| `ROUTER_DOMAIN`        | Yes      | —                      | Base domain for session URLs (e.g. `no-panic.org`)                                                   |
+| `ROUTE_SUFFIX`         | No       | `""`                   | Suffix appended to hash in session hostname (e.g. `-oc`)                                             |
+| `OPENCODE_NAMESPACE`   | No       | `opencode`             | Kubernetes namespace for all resources                                                               |
+| `IDLE_TIMEOUT_MINUTES` | No       | `30`                   | Minutes of inactivity before pod deletion                                                            |
+| `API_KEY_SECRET_NAME`  | No       | `opencode-api-keys`    | K8s Secret name containing API keys                                                                  |
+| `CONFIG_MAP_NAME`      | No       | `opencode-config-dir`  | K8s ConfigMap with shared OpenCode config                                                            |
+| `STORAGE_CLASS`        | No       | `""` (cluster default) | StorageClass for session PVCs                                                                        |
+| `STORAGE_SIZE`         | No       | `2Gi`                  | PVC size per session                                                                                 |
+| `DEFAULT_GIT_REPO`     | No       | —                      | Git repo URL to clone into new workspaces                                                            |
+| `PORT`                 | No       | `3000`                 | Port the router listens on                                                                           |
+| `ADMIN_SECRET`         | No       | —                      | Secret for admin endpoints (e.g. `/api/admin/pull-image`). When unset, admin endpoints are disabled. |
 
 ## Prerequisites
 
@@ -118,3 +120,52 @@ rules:
 ```
 
 The router itself is stateless — it discovers user pods via the Kubernetes API on every request. Multiple router replicas can run behind a Service for availability (all replicas see the same pods).
+
+## Admin Endpoints
+
+### POST /api/admin/pull-image
+
+Pre-pull a container image after CI builds it. This reduces cold start times for new sessions by ensuring the image is cached on the node.
+
+**Authentication:** Requires `ADMIN_SECRET` env var to be set on the router. Clients must pass the secret in the `X-Admin-Secret` header. When `ADMIN_SECRET` is not set, the endpoint returns 501 Not Implemented.
+
+**Request body:**
+
+```json
+{
+  "image": "ghcr.io/org/opencode:sha-1234567",
+  "updateConfig": true
+}
+```
+
+| Field          | Required | Description                                                                        |
+| -------------- | -------- | ---------------------------------------------------------------------------------- |
+| `image`        | Yes      | Container image to pre-pull (e.g. `ghcr.io/org/opencode:sha-1234567`)              |
+| `updateConfig` | No       | If `true`, update the router's in-memory `opencodeImage` config (default: `false`) |
+
+**Response:**
+
+```json
+{
+  "status": "success" | "failed",
+  "message": "Image ... pre-pulled and verified successfully"
+}
+```
+
+**How it works:**
+
+1. Creates a test session pod with the specified image
+2. Waits for the pod to become ready (readiness probe on `/health` validates the image works = smoke test)
+3. Terminates the test session
+4. If `updateConfig` is `true`, updates the router's in-memory config so new sessions use the new image
+
+**Note:** The `updateConfig` flag only updates the in-memory config for the current process. For persistence across restarts, update the `OPENCODE_IMAGE` environment variable in the router's deployment manifest.
+
+**Example (from CI):**
+
+```bash
+curl -X POST https://router.example.com/api/admin/pull-image \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Secret: $ADMIN_SECRET" \
+  -d '{"image":"ghcr.io/org/opencode:sha-1234567","updateConfig":true}'
+```
