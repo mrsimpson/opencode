@@ -18,14 +18,12 @@ const STAGE_LABEL_KEY: Record<Stage, string> = {
 export function LoadingScreen(props: { hash: string; url: string; onReady?: (url: string) => void }) {
   const t = useT(useI18n())
   const [stage, setStage] = createSignal<Stage>("initializing")
-  const [progressMessage, setProgressMessage] = createSignal(t("loading.subtitle"))
   let es: EventSource | undefined
 
   onMount(() => {
     es = subscribeSessionEvents(props.hash, {
-      onProgress: (s, message) => {
+      onProgress: (s) => {
         if (STAGES.includes(s as Stage)) setStage(s as Stage)
-        setProgressMessage(message)
       },
       onComplete: (url) => {
         if (props.onReady) props.onReady(url)
@@ -45,15 +43,18 @@ export function LoadingScreen(props: { hash: string; url: string; onReady?: (url
 
   return (
     <div class="flex flex-col items-center gap-6" style={{ "max-width": "320px", width: "100%" }}>
-      {/* Arc spinner — Tailwind animate-spin drives the rotation reliably */}
+      {/* Inline keyframes so the spin animation works without Tailwind utility generation */}
+      <style>{`@keyframes oc-spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Arc spinner driven by pure CSS — no Tailwind utility dependency */}
       <div
-        class="animate-spin"
         style={{
           width: "36px",
           height: "36px",
           "border-radius": "50%",
           border: "3px solid var(--border-base)",
           "border-top-color": "var(--icon-strong-base)",
+          animation: "oc-spin 0.75s linear infinite",
         }}
       />
 
@@ -104,11 +105,6 @@ export function LoadingScreen(props: { hash: string; url: string; onReady?: (url
           }}
         </For>
       </div>
-
-      {/* Live progress message */}
-      <p class="text-12-regular text-center" style={{ color: "var(--text-dimmed-base)" }}>
-        {progressMessage()}
-      </p>
     </div>
   )
 }
