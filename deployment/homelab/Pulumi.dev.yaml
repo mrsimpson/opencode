@@ -9,9 +9,9 @@ config:
     secure: AAABABvw9kis9mzg456qoVI6K/9nvyYjIPR6JzCqs3yYrmUhwQpZOfaa2h1Ei0VqNYPl4cv0Opt7vY6qAvCjuqS5RptD0HjGggxeZNZJsgWZc0ahndu+9zNZBjLCUp9gmTENSRU1sgKl
   code:openrouterApiKey:
     secure: AAABAOdADNtfH1LatKF3L9tDI8bcYGPLYdQzyK6jdamklNskzu+ooiIkkQeEYICnoYXf+LO10mZkYAGYNEuh8192KuzbrODgT6cS8tv6RRppz5DyFwwPiGQECztB7J4M0RX1MGsw/8pV
-  code:adminSecret:
-    secure: AAABAIkV8XGBs6CCNVgfaLAVs6Qe1U8TylhNtI9fu0db9LqKUptsIke6XkjitlF48BWj+RdY3xAA5YVLUwfOq0T70mrjgRPIXx5OGQ==
   code:podenv: WORKFLOW_AGENTS=workflow
   code:storageSize: 10Gi
   oauth2-proxy:developersCookieSecret:
     secure: AAABAIUy8CGBs6CCNVgfaLAVs6Qe1U8TylhNtI9fu0db9LqKUptsIke6XkjitlF48BWj+RdY3xAA5YVLUwfOq0T70mrjgRPIXx5OGQ==
+  code:adminSecret:
+    secure: AAABAHjHA+EMG70Ps5Gj4klUqgZQHbDgJ0kzEKlH37vjJPr21YwQK6k0PyTE8csi2hJqG56DUQvjFoMuS1R1aSZIFr9QqrxLNLVZm5C3Gjn5bmZjv9KbwVEeTNa7Fe85
