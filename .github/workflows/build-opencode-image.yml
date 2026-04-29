@@ -82,7 +82,9 @@ jobs:
           chmod 600 "$HOME/.kube/config"
 
       - name: Verify cluster connectivity
-        run: kubectl cluster-info --request-timeout=10s
+        run: |
+          kubectl cluster-info --request-timeout=10s
+          kubectl get svc -n code
 
       - name: Pre-pull image on router (reduce cold start times)
         env:
