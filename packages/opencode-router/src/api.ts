@@ -1,5 +1,6 @@
 import type http from "node:http"
 import * as fs from "node:fs"
+import * as k8s from "@kubernetes/client-node"
 import { config } from "./config.js"
 import {
   type SessionKey,
@@ -15,6 +16,105 @@ import {
   resumeSession,
   suggestBranch,
 } from "./pod-manager.js"
+
+// Kubernetes client for reading ConfigMap
+const kc = new k8s.KubeConfig()
+if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
+  kc.loadFromCluster()
+} else {
+  kc.loadFromDefault()
+}
+const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
+
+const MODELS_DEV_URL = "https://models.dev/api.json"
+const MODELS_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+let modelsCache: {
+  data: { id: string; name: string; models: { id: string; name: string }[] }[]
+  timestamp: number
+} | null = null
+
+/** Read disabled_providers from the opencode ConfigMap (same as opencode does). */
+async function getDisabledProviders(): Promise<Set<string>> {
+  try {
+    const cm = await k8sApi.readNamespacedConfigMap({
+      name: config.configMapName,
+      namespace: config.namespace,
+    })
+    const raw = cm.data?.["opencode.json"]
+    if (!raw) return new Set()
+    const cfg = JSON.parse(raw) as { disabled_providers?: string[] }
+    return new Set(cfg.disabled_providers ?? [])
+  } catch {
+    // ConfigMap may not exist or be inaccessible; fail open (no filtering)
+    return new Set()
+  }
+}
+
+/** Fetch available models from models.dev (same source as opencode). */
+async function getAvailableModels(): Promise<{ id: string; name: string; models: { id: string; name: string }[] }[]> {
+  // Return cached data if still fresh
+  if (modelsCache && Date.now() - modelsCache.timestamp < MODELS_CACHE_TTL_MS) {
+    return modelsCache.data
+  }
+
+  try {
+    // Fetch models and disabled providers in parallel
+    const [res, disabledSet] = await Promise.all([
+      fetch(MODELS_DEV_URL, {
+        headers: { "User-Agent": "opencode-router" },
+        signal: AbortSignal.timeout(10_000),
+      }),
+      getDisabledProviders(),
+    ])
+
+    if (!res.ok) {
+      console.error(`models.dev fetch failed: ${res.status}`)
+      return modelsCache?.data ?? []
+    }
+
+    const all = (await res.json()) as Record<
+      string,
+      {
+        name?: string
+        models?: Record<string, { name?: string; status?: string }>
+        disabled?: boolean
+      }
+    >
+
+    const providers = Object.entries(all)
+      .filter(([id, v]) => {
+        if (!v || typeof v !== "object") return false
+        // Filter out disabled providers (matching opencode logic)
+        if (disabledSet.has(id)) return false
+        return true
+      })
+      .map(([id, cfg]) => ({
+        id,
+        name: cfg.name ?? id,
+        models:
+          cfg.models && typeof cfg.models === "object"
+            ? Object.entries(cfg.models)
+                .filter(([, m]) => {
+                  if (!m || typeof m !== "object") return false
+                  // Filter out deprecated models (matching opencode logic)
+                  if ((m as { status?: string }).status === "deprecated") return false
+                  // Filter out alpha models unless experimental flag is set
+                  if ((m as { status?: string }).status === "alpha") return false
+                  return true
+                })
+                .map(([mId, m]) => ({ id: mId, name: (m as { name?: string })?.name ?? mId }))
+            : [],
+      }))
+      // Filter out providers with no models after filtering
+      .filter((p) => p.models.length > 0)
+
+    modelsCache = { data: providers, timestamp: Date.now() }
+    return providers
+  } catch (err) {
+    console.error("getAvailableModels failed:", err)
+    return modelsCache?.data ?? []
+  }
+}
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body))
@@ -93,6 +193,13 @@ export async function handleApi(
     return true
   }
 
+  // GET /api/models — return available models from opencode ConfigMap
+  if (url === "/api/models" && req.method === "GET") {
+    const providers = await getAvailableModels()
+    json(res, 200, { providers })
+    return true
+  }
+
   // GET /api/sessions — list all sessions for this user, always includes email
   if (url === "/api/sessions" && req.method === "GET") {
     try {
@@ -112,12 +219,14 @@ export async function handleApi(
     let branch: string
     let sourceBranch: string
     let initialMessage: string
+    let model: string
     try {
       const body = JSON.parse(raw)
       repoUrl = typeof body.repoUrl === "string" ? body.repoUrl.trim() : ""
       branch = typeof body.branch === "string" ? body.branch.trim() : ""
       sourceBranch = typeof body.sourceBranch === "string" ? body.sourceBranch.trim() : ""
       initialMessage = typeof body.initialMessage === "string" ? body.initialMessage.trim() : ""
+      model = typeof body.model === "string" ? body.model.trim() : ""
     } catch {
       json(res, 400, { error: "Invalid JSON" })
       return true
@@ -133,6 +242,11 @@ export async function handleApi(
     }
     if (!sourceBranch) {
       json(res, 400, { error: "sourceBranch is required" })
+      return true
+    }
+    // Validate model format if provided: providerID/modelID
+    if (model && !/^[^/]+\/[^/]+$/.test(model)) {
+      json(res, 400, { error: "model must be in format 'providerID/modelID'" })
       return true
     }
 
@@ -152,7 +266,14 @@ export async function handleApi(
       throw err
     }
 
-    const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
+    const session: SessionKey = {
+      email,
+      repoUrl,
+      branch,
+      sourceBranch,
+      initialMessage: initialMessage || undefined,
+      model: model || undefined,
+    }
     const hash = getSessionHash(email, repoUrl, branch)
 
     await ensurePVC(session)

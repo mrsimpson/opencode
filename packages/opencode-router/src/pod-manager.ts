@@ -60,6 +60,7 @@ const ANNOTATION_BRANCH = "opencode.ai/branch"
 const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
 const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
 const ANNOTATION_CREATED_AT = "opencode.ai/created-at"
+const ANNOTATION_MODEL = "opencode.ai/model"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
@@ -73,6 +74,8 @@ export interface SessionKey {
   /** Source branch the user starts from (e.g. "main"). Used by git-init to set the starting point. */
   sourceBranch: string
   initialMessage?: string
+  /** Selected model in format "providerID/modelID" (optional). */
+  model?: string
 }
 
 export interface SessionInfo {
@@ -205,6 +208,7 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
         [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
         [ANNOTATION_CREATED_AT]: new Date().toISOString(),
         ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
+        ...(session.model ? { [ANNOTATION_MODEL]: session.model } : {}),
       },
     },
     spec: {
@@ -297,6 +301,11 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `  for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
     `    [ -f "$s" ] && sh "$s" || true`,
     `  done`,
+    `fi`,
+    // --- model initialization (first start only) ---
+    `if [ -n "$OPENCODE_DEFAULT_MODEL" ] && [ ! -f /home/opencode/.config/opencode/model.json ]; then`,
+    `  IFS='/' read -r providerID modelID <<< "$OPENCODE_DEFAULT_MODEL"`,
+    `  printf '{"providerID":"%s","modelID":"%s"}\\n' "$providerID" "$modelID" > /home/opencode/.config/opencode/model.json`,
     `fi`,
     // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
     `rm -f /home/opencode/.gitconfig.lock`,
@@ -401,7 +410,10 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             failureThreshold: 20,
           },
           ports: [{ containerPort: config.opencodePort }],
-          env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
+          env: [
+            { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
+            ...(session.model ? [{ name: "OPENCODE_DEFAULT_MODEL", value: session.model }] : []),
+          ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
@@ -719,7 +731,6 @@ export async function deleteIdlePods(): Promise<void> {
           }
         }
 
-        console.log(`Deleting idle pod ${name} (last activity: ${lastActivity})`)
         await k8sApi
           .deleteNamespacedPod({ name, namespace: config.namespace })
           .catch((err) => console.error(`Failed to delete pod ${name}:`, err))
@@ -789,6 +800,7 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
     repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
     branch: ann[ANNOTATION_BRANCH] ?? "",
     sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
+    model: ann[ANNOTATION_MODEL] ?? undefined,
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
