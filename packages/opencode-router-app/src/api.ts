@@ -61,6 +61,52 @@ export async function getSessionState(
   return res.json()
 }
 
+export interface SessionEventHandlers {
+  onProgress?: (stage: string, message: string) => void
+  onStateChange?: (state: "creating" | "running" | "stopped") => void
+  onComplete?: (url: string) => void
+  onError?: (message: string) => void
+}
+
+/**
+ * Subscribe to SSE session startup events from GET /api/sessions/:hash/events.
+ * Returns the EventSource so the caller can close it on cleanup.
+ *
+ * Events received:
+ *   progress     { stage, message }  — human-readable startup stage update
+ *   state_change { state }           — pod state transition
+ *   complete     { url }             — session ready; navigate to url
+ *   error        { message }         — unrecoverable error
+ */
+export function subscribeSessionEvents(hash: string, handlers: SessionEventHandlers): EventSource {
+  const es = new EventSource(`/api/sessions/${hash}/events`)
+
+  es.addEventListener("progress", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as { stage: string; message: string }
+    handlers.onProgress?.(data.stage, data.message)
+  })
+
+  es.addEventListener("state_change", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as { state: "creating" | "running" | "stopped" }
+    handlers.onStateChange?.(data.state)
+  })
+
+  es.addEventListener("complete", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as { url: string }
+    es.close()
+    handlers.onComplete?.(data.url)
+  })
+
+  es.addEventListener("error", (e) => {
+    const raw = (e as MessageEvent).data
+    const message = raw ? (JSON.parse(raw) as { message: string }).message : "Connection error"
+    es.close()
+    handlers.onError?.(message)
+  })
+
+  return es
+}
+
 export async function terminateSession(hash: string): Promise<void> {
   const res = await fetch(`/api/sessions/${hash}`, { method: "DELETE", signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) {

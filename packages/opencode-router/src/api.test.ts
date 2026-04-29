@@ -28,6 +28,8 @@ const mocks = {
   ensurePod: mock(() => Promise.resolve("abc123")),
   getPodState: mock(() => Promise.resolve("running")),
   getSessionHash: mock(() => "abc123456789"),
+  getSessionInfo: mock(() => Promise.resolve(null)),
+  getSessionProgress: mock(() => Promise.resolve({ stage: "initializing", message: "Initializing session..." })),
   terminateSession: mock(() => Promise.resolve()),
   resumeSession: mock(() => Promise.resolve()),
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
@@ -251,10 +253,6 @@ describe("GET /api/sessions (list) includes lastActivity", () => {
 
 describe("GET /api/sessions/:hash includes lastActivity", () => {
   it("single session response includes lastActivity and idleTimeoutMinutes", async () => {
-    // Current implementation calls getPodState which only returns state —
-    // the new implementation must call getSessionState or a richer lookup.
-    // This test will FAIL because the current GET /api/sessions/:hash returns
-    // { hash, state, url } with no lastActivity or idleTimeoutMinutes.
     mocks.getPodState.mockImplementation(() => Promise.resolve("running"))
 
     const req = fakeReq("GET", "/api/sessions/abc123456789")
@@ -961,5 +959,201 @@ describe("POST /api/admin/pull-image", () => {
     expect(res.statusCode).toBe(500)
     const body = JSON.parse(res.body)
     expect(body.error).toBe("Internal server error")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/:hash/events — SSE endpoint for session startup progress
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/:hash/events (SSE)", () => {
+  beforeEach(() => {
+    mocks.getSessionInfo.mockReset()
+    mocks.getSessionInfo.mockImplementation(() => Promise.resolve(null))
+    mocks.getSessionProgress.mockReset()
+    mocks.getSessionProgress.mockImplementation(() =>
+      Promise.resolve({ stage: "initializing", message: "Initializing session..." }),
+    )
+  })
+
+  // Helper to capture SSE stream
+  function fakeSseRes(): {
+    statusCode: number
+    headers: Record<string, string>
+    writeHead: Function
+    write: Function
+    end: Function
+    events: string[]
+    onClose: Function | null
+    _chunks: string[]
+  } {
+    const r: any = { statusCode: 200, headers: {}, events: [], _chunks: [], onClose: null }
+    r.writeHead = (status: number, headers?: object) => {
+      r.statusCode = status
+      Object.assign(r.headers, headers ?? {})
+      return r
+    }
+    r.write = (data: string) => {
+      r._chunks.push(data)
+      return true
+    }
+    r.end = () => {
+      if (r.onClose) r.onClose()
+    }
+    r.on = (event: string, cb: Function) => {
+      if (event === "close") r.onClose = cb
+    }
+    return r
+  }
+
+  it("returns 200 with SSE headers", async () => {
+    const req = fakeReq("GET", "/api/sessions/abc123456789/events")
+    const res = fakeSseRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers["Content-Type"]).toBe("text/event-stream")
+    expect(res.headers["Cache-Control"]).toBe("no-cache")
+    expect(res.headers["Connection"]).toBe("keep-alive")
+  })
+
+  it("sends progress events with stage and message", async () => {
+    // Mock getSessionInfo to return a session in "creating" state
+    mocks.getSessionInfo.mockImplementation(() =>
+      Promise.resolve({
+        hash: "abc123456789",
+        email: EMAIL,
+        repoUrl: "https://github.com/x/y",
+        branch: "main",
+        sourceBranch: "main",
+        state: "creating" as const,
+        url: "https://abc123456789.opencode.test.local",
+        lastActivity: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        idleTimeoutMinutes: 30,
+      }),
+    )
+
+    const req = fakeReq("GET", "/api/sessions/abc123456789/events")
+    const res = fakeSseRes()
+
+    // Set a timeout to end the response after a short time (simulate client disconnect)
+    setTimeout(() => {
+      res.end()
+    }, 100)
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: progress")
+    expect(sseData).toContain("initializing")
+    expect(sseData).toContain("Initializing session...")
+  })
+
+  it("sends state_change event when session state changes", async () => {
+    let callCount = 0
+    mocks.getSessionInfo.mockImplementation(() => {
+      callCount++
+      // First call (initial check): creating
+      // Second call (first timer tick): running — triggers state_change + complete
+      if (callCount <= 1) {
+        return Promise.resolve({
+          hash: "abc123456789",
+          email: EMAIL,
+          repoUrl: "https://github.com/x/y",
+          branch: "main",
+          sourceBranch: "main",
+          state: "creating" as const,
+          url: "https://abc123456789.opencode.test.local",
+          lastActivity: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          idleTimeoutMinutes: 30,
+        })
+      }
+      return Promise.resolve({
+        hash: "abc123456789",
+        email: EMAIL,
+        repoUrl: "https://github.com/x/y",
+        branch: "main",
+        sourceBranch: "main",
+        state: "running" as const,
+        url: "https://abc123456789.opencode.test.local",
+        lastActivity: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        idleTimeoutMinutes: 30,
+      })
+    })
+
+    const req = fakeReq("GET", "/api/sessions/abc123456789/events")
+    const res = fakeSseRes()
+    const streamDone = new Promise<void>((resolve) => {
+      const origEnd = res.end.bind(res)
+      res.end = () => {
+        origEnd()
+        resolve()
+      }
+    })
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+    expect(handled).toBe(true)
+
+    // Wait for the stream to close (implementation calls res.end() after complete event)
+    await streamDone
+
+    const sseData = res._chunks.join("")
+    // state_change is emitted when the state transitions to running
+    expect(sseData).toContain("event: state_change")
+    expect(sseData).toContain('"running"')
+    // complete event must also appear since session becomes running
+    expect(sseData).toContain("event: complete")
+  })
+
+  it("sends complete event when session is ready with deep link", async () => {
+    mocks.getSessionInfo.mockImplementation(() =>
+      Promise.resolve({
+        hash: "abc123456789",
+        email: EMAIL,
+        repoUrl: "https://github.com/x/y",
+        branch: "main",
+        sourceBranch: "main",
+        state: "running" as const,
+        url: "https://abc123456789.opencode.test.local/session/abc123",
+        lastActivity: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        idleTimeoutMinutes: 30,
+      }),
+    )
+
+    const req = fakeReq("GET", "/api/sessions/abc123456789/events")
+    const res = fakeSseRes()
+
+    setTimeout(() => {
+      res.end()
+    }, 100)
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: complete")
+    expect(sseData).toContain("https://abc123456789.opencode.test.local/session/abc123")
+  })
+
+  it("sends error event when session is not found", async () => {
+    mocks.getSessionInfo.mockImplementation(() => Promise.resolve(null))
+
+    // Use a valid 12-char hex hash that getSessionInfo returns null for
+    const req = fakeReq("GET", "/api/sessions/000000000000/events")
+    const res = fakeSseRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: error")
+    expect(sseData).toContain("not found")
   })
 })

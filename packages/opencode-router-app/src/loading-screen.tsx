@@ -1,55 +1,113 @@
-import { onCleanup, onMount } from "solid-js"
+import { For, createSignal, onCleanup, onMount } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
-import { getSessionState } from "./api"
+import { subscribeSessionEvents } from "./api"
 import { useT } from "./i18n"
 
-/** Max number of polls where state=running but no deep link before falling back to base URL. */
-const MAX_RUNNING_WITHOUT_DEEPLINK = 10
+/** Ordered startup stages — each maps to an i18n label key. */
+const STAGES = ["initializing", "configuring", "cloning", "starting", "readying"] as const
+type Stage = (typeof STAGES)[number]
+
+const STAGE_LABEL_KEY: Record<Stage, string> = {
+  initializing: "loading.stage.initializing",
+  configuring: "loading.stage.configuring",
+  cloning: "loading.stage.cloning",
+  starting: "loading.stage.starting",
+  readying: "loading.stage.readying",
+}
 
 export function LoadingScreen(props: { hash: string; url: string; onReady?: (url: string) => void }) {
   const t = useT(useI18n())
-  let timer: ReturnType<typeof setInterval>
-  let runningPolls = 0
+  const [stage, setStage] = createSignal<Stage>("initializing")
+  const [progressMessage, setProgressMessage] = createSignal(t("loading.subtitle"))
+  let es: EventSource | undefined
 
   onMount(() => {
-    timer = setInterval(async () => {
-      try {
-        const session = await getSessionState(props.hash)
-        if (session.state !== "running") {
-          runningPolls = 0
-          return
-        }
-        const url = session.url || props.url
-        // Prefer deep link (contains /session/). Fall back to base URL after
-        // MAX_RUNNING_WITHOUT_DEEPLINK polls to handle sessions without initialMessage.
-        const isDeepLink = url.includes("/session/")
-        if (isDeepLink || ++runningPolls >= MAX_RUNNING_WITHOUT_DEEPLINK) {
-          clearInterval(timer)
-          if (props.onReady) props.onReady(url)
-          else window.location.replace(url)
-        }
-      } catch {
-        // Retry on next tick
-      }
-    }, 3000)
+    es = subscribeSessionEvents(props.hash, {
+      onProgress: (s, message) => {
+        if (STAGES.includes(s as Stage)) setStage(s as Stage)
+        setProgressMessage(message)
+      },
+      onComplete: (url) => {
+        if (props.onReady) props.onReady(url)
+        else window.location.replace(url)
+      },
+      onError: () => {
+        // On SSE error, fall back to the base URL provided at creation time
+        if (props.onReady) props.onReady(props.url)
+        else window.location.replace(props.url)
+      },
+    })
   })
 
-  onCleanup(() => clearInterval(timer))
+  onCleanup(() => es?.close())
+
+  const stageIndex = () => STAGES.indexOf(stage())
 
   return (
-    <div class="flex flex-col items-center gap-4">
+    <div class="flex flex-col items-center gap-6" style={{ "max-width": "320px", width: "100%" }}>
+      {/* Arc spinner — Tailwind animate-spin drives the rotation reliably */}
       <div
-        class="size-6 rounded-full animate-spin"
+        class="animate-spin"
         style={{
-          border: "2px solid var(--border-base)",
+          width: "36px",
+          height: "36px",
+          "border-radius": "50%",
+          border: "3px solid var(--border-base)",
           "border-top-color": "var(--icon-strong-base)",
         }}
       />
-      <p class="text-14-medium" style={{ color: "var(--text-base)" }}>
+
+      {/* Title */}
+      <p class="text-14-medium text-center" style={{ color: "var(--text-base)" }}>
         {t("loading.title")}
       </p>
-      <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
-        {t("loading.subtitle")}
+
+      {/* Step progress track */}
+      <div class="flex flex-col gap-2" style={{ width: "100%" }}>
+        <For each={STAGES}>
+          {(s, i) => {
+            const isPast = () => i() < stageIndex()
+            const isCurrent = () => i() === stageIndex()
+            return (
+              <div class="flex items-center gap-3">
+                {/* Circle indicator */}
+                <div
+                  class="shrink-0 rounded-full"
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    background: isPast()
+                      ? "var(--surface-success-strong)"
+                      : isCurrent()
+                        ? "var(--icon-strong-base)"
+                        : "var(--border-base)",
+                    transition: "background 0.3s ease",
+                  }}
+                />
+                {/* Stage label */}
+                <span
+                  class="text-12-regular"
+                  style={{
+                    color: isCurrent()
+                      ? "var(--text-base)"
+                      : isPast()
+                        ? "var(--surface-success-strong)"
+                        : "var(--text-dimmed-base)",
+                    transition: "color 0.3s ease",
+                    "font-weight": isCurrent() ? "500" : undefined,
+                  }}
+                >
+                  {t(STAGE_LABEL_KEY[s] as Parameters<typeof t>[0])}
+                </span>
+              </div>
+            )
+          }}
+        </For>
+      </div>
+
+      {/* Live progress message */}
+      <p class="text-12-regular text-center" style={{ color: "var(--text-dimmed-base)" }}>
+        {progressMessage()}
       </p>
     </div>
   )

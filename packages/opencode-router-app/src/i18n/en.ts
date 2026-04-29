@@ -23,7 +23,13 @@ export const dict = {
   "form.error.sourceBranch.required": "Source branch is required",
 
   "loading.title": "Starting your OpenCode session...",
-  "loading.subtitle": "This usually takes a few seconds.",
+  "loading.subtitle": "Initializing session...",
+
+  "loading.stage.initializing": "Initializing",
+  "loading.stage.configuring": "Configuring environment",
+  "loading.stage.cloning": "Cloning repository",
+  "loading.stage.starting": "Starting OpenCode server",
+  "loading.stage.readying": "Finalizing session",
 
   "app.welcomeBack": "Welcome back, {{email}}",
   "app.sessions": "Sessions",

@@ -24,7 +24,13 @@ export const dict = {
   "form.error.sourceBranch.required": "Quell-Branch ist erforderlich",
 
   "loading.title": "Deine OpenCode-Sitzung wird gestartet...",
-  "loading.subtitle": "Das dauert normalerweise nur wenige Sekunden.",
+  "loading.subtitle": "Sitzung wird initialisiert...",
+
+  "loading.stage.initializing": "Initialisierung",
+  "loading.stage.configuring": "Umgebung konfigurieren",
+  "loading.stage.cloning": "Repository klonen",
+  "loading.stage.starting": "OpenCode-Server starten",
+  "loading.stage.readying": "Sitzung abschließen",
 
   "app.welcomeBack": "Willkommen zurück, {{email}}",
   "app.sessions": "Sitzungen",

@@ -92,6 +92,137 @@ export interface SessionInfo {
 }
 
 /**
+ * Get full session info for a single session by hash, including deep link URL.
+ * Reusable for both the polling GET endpoint and the SSE events endpoint.
+ * Returns null if the session's PVC is not found.
+ */
+export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
+  const proto = config.routerProto
+
+  let pvc: k8s.V1PersistentVolumeClaim
+  try {
+    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
+  } catch (err) {
+    if (isNotFound(err)) return null
+    throw err
+  }
+
+  const ann = pvc.metadata?.annotations ?? {}
+  const email = ann[ANNOTATION_USER_EMAIL] ?? ""
+
+  let pod: k8s.V1Pod | undefined
+  try {
+    const p = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
+    if (!p.metadata?.deletionTimestamp) pod = p
+  } catch (err) {
+    if (!isNotFound(err)) throw err
+  }
+
+  let state: PodState
+  if (!pod) {
+    state = "stopped"
+  } else if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
+    state = "running"
+  } else {
+    state = "creating"
+  }
+
+  const annotationActivity =
+    pod?.metadata?.annotations?.[ANNOTATION_LAST_ACTIVITY] ?? ann[ANNOTATION_LAST_ACTIVITY] ?? new Date().toISOString()
+
+  let lastActivity = annotationActivity
+  const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
+  let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
+
+  if (state === "running" && pod?.status?.podIP) {
+    const activity = await podActivityMs(pod.status.podIP, hash)
+    if (activity !== null) {
+      if (activity.ms > new Date(annotationActivity).getTime()) {
+        lastActivity = new Date(activity.ms).toISOString()
+      }
+      if (activity.sessionId) {
+        sessionUrl = deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
+      } else if (initialMessage) {
+        let base = `http://${pod.status.podIP}:${config.opencodePort}`
+        if (devProxy.enabled) {
+          const proxyTarget = await devProxy.target(hash)
+          if (proxyTarget) base = proxyTarget
+        }
+        const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
+        sessionUrl = bootstrappedId
+          ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
+          : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+      } else {
+        sessionUrl = newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+      }
+    }
+  }
+
+  return {
+    hash,
+    email,
+    repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
+    branch: ann[ANNOTATION_BRANCH] ?? "",
+    sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
+    state,
+    url: sessionUrl,
+    lastActivity,
+    createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
+    idleTimeoutMinutes: config.idleTimeoutMinutes,
+    description: initialMessage,
+  }
+}
+
+/**
+ * Get current progress stage for a session during startup.
+ * Uses K8s pod init container status to map to human-readable stages.
+ *
+ * Stages (in order):
+ *   initializing  — PVC/Pod just created, pod not yet scheduled
+ *   configuring   — Init container running config-seed phase
+ *   cloning       — Init container running git clone/checkout phase
+ *   starting      — Init container complete, main container starting
+ *   readying      — Pod ready, resolving deep-link URL
+ */
+export async function getSessionProgress(hash: string): Promise<{ stage: string; message: string }> {
+  const name = podName(hash)
+  try {
+    const pod = await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
+
+    // Pod is fully ready — deep link resolution stage
+    if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
+      return { stage: "readying", message: "Finalizing session..." }
+    }
+
+    const initStatuses = pod.status?.initContainerStatuses ?? []
+    const initState = initStatuses[0]
+
+    // Init container is running — determine which phase based on its logs/state
+    if (initState?.state?.running) {
+      // We can't easily inspect script phase from K8s API alone, so use
+      // timing heuristic: first ~10s = configuring, then = cloning
+      const startedAt = initState.state.running.startedAt
+      const elapsedMs = startedAt ? Date.now() - new Date(startedAt).getTime() : 0
+      if (elapsedMs < 10_000) {
+        return { stage: "configuring", message: "Configuring environment..." }
+      }
+      return { stage: "cloning", message: "Cloning repository..." }
+    }
+
+    // Init container completed, main container is starting
+    if (initState?.state?.terminated?.reason === "Completed") {
+      return { stage: "starting", message: "Starting OpenCode server..." }
+    }
+
+    // Pod scheduled but init not yet running, or no init status
+    return { stage: "initializing", message: "Initializing session..." }
+  } catch (err) {
+    if (isNotFound(err)) return { stage: "initializing", message: "Initializing session..." }
+    throw err
+  }
+}
+
+/**
  * Compute a deterministic, DNS-safe 12-char hex hash for a (email, repoUrl, branch) triple.
  * This is the stable identity for a session — used for pod name, PVC name, and URL slug.
  */
