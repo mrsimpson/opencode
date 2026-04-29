@@ -24,7 +24,6 @@ export function App() {
   const [sessions, setSessions] = createSignal<Session[]>([])
   const [email, setEmail] = createSignal("")
   const [terminating, setTerminating] = createSignal<Set<string>>(new Set())
-  const [mobileSessionsOpen, setMobileSessionsOpen] = createSignal(false)
 
   const [repoUrl, setRepoUrl] = createSignal("")
   const [sourceBranch, setSourceBranch] = createSignal("")
@@ -291,48 +290,14 @@ export function App() {
                   }}
                 />
 
-                {/* Session list: always visible on desktop, collapsed toggle on mobile */}
-                <Show when={sessions().length > 0}>
-                  {/* Desktop */}
-                  <div class="hidden md:block">
-                    <SessionList
-                      sessions={sessions()}
-                      terminating={terminating()}
-                      onOpenSession={handleOpenSession}
-                      onResumeSession={handleResumeSession}
-                      onTerminateSession={handleTerminateSession}
-                    />
-                  </div>
-
-                  {/* Mobile: toggle */}
-                  <div class="md:hidden flex flex-col gap-3">
-                    <button
-                      class="flex items-center gap-2 text-13-medium self-start"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "var(--text-dimmed-base)",
-                        padding: "0",
-                      }}
-                      onClick={() => setMobileSessionsOpen((v) => !v)}
-                    >
-                      <span>{mobileSessionsOpen() ? "▾" : "▸"}</span>
-                      <span>
-                        {t("app.sessions")} ({sessions().length})
-                      </span>
-                    </button>
-                    <Show when={mobileSessionsOpen()}>
-                      <SessionList
-                        sessions={sessions()}
-                        terminating={terminating()}
-                        onOpenSession={handleOpenSession}
-                        onResumeSession={handleResumeSession}
-                        onTerminateSession={handleTerminateSession}
-                      />
-                    </Show>
-                  </div>
-                </Show>
+                {/* Session list: always visible on all screen sizes */}
+                <SessionList
+                  sessions={sessions()}
+                  terminating={terminating()}
+                  onOpenSession={handleOpenSession}
+                  onResumeSession={handleResumeSession}
+                  onTerminateSession={handleTerminateSession}
+                />
               </div>
             </div>
           </Match>

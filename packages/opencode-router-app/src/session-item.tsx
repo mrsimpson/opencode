@@ -47,6 +47,12 @@ type Props = {
   active?: boolean
   onClick?: () => void
   trailing?: any
+  /** full variant only: whether detail panel is expanded */
+  expanded?: boolean
+  /** full variant only: called when `…` button is clicked */
+  onToggleExpand?: () => void
+  /** full variant only: called when the terminate button in the detail panel is clicked */
+  onTerminate?: () => void
 }
 
 export function SessionItem(props: Props) {
@@ -72,42 +78,99 @@ export function SessionItem(props: Props) {
       when={props.compact}
       fallback={
         /* ── FULL (main list) variant ── */
-        <div
-          class="flex items-center gap-3 px-4 py-3 group"
-          style={{
-            cursor: clickable() ? "pointer" : "default",
-            background: props.active ? "var(--background-highlight)" : undefined,
-          }}
-          onClick={() => clickable() && props.onClick?.()}
-        >
-          {/* Status dot — far left */}
-          <div class="shrink-0 self-start mt-1">
-            <StatusDot state={props.session.state} />
-          </div>
+        <div class="flex flex-col">
+          {/* Row */}
+          <div
+            class="flex items-center gap-3 px-4 py-3 group"
+            style={{
+              cursor: clickable() ? "pointer" : "default",
+              background: props.active ? "var(--background-highlight)" : undefined,
+            }}
+            onClick={() => clickable() && props.onClick?.()}
+          >
+            {/* Status dot — far left */}
+            <div class="shrink-0 self-start mt-1">
+              <StatusDot state={props.session.state} />
+            </div>
 
-          {/* Left: repo + message */}
-          <div class="flex flex-col flex-1 min-w-0">
-            <p class="text-13-medium truncate" style={{ color: "var(--text-base)" }}>
-              {repo()}
-            </p>
-            <Show when={props.session.description}>
-              <p class="text-12-regular truncate" style={{ color: "var(--text-dimmed-base)" }}>
-                {props.session.description}
+            {/* Left: repo + message */}
+            <div class="flex flex-col flex-1 min-w-0">
+              <p class="text-13-medium truncate" style={{ color: "var(--text-base)" }}>
+                {repo()}
               </p>
-            </Show>
+              <Show when={props.session.description}>
+                <p class="text-12-regular truncate" style={{ color: "var(--text-dimmed-base)" }}>
+                  {props.session.description}
+                </p>
+              </Show>
+            </div>
+
+            {/* `…` expand button — far right, stops propagation */}
+            <button
+              class="shrink-0 self-start mt-0.5 flex items-center justify-center w-7 h-7 rounded text-13-regular"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: props.expanded ? "var(--text-base)" : "var(--text-dimmed-base)",
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onToggleExpand?.()
+              }}
+              aria-label="Session details"
+              aria-expanded={props.expanded}
+            >
+              …
+            </button>
+
+            {props.trailing}
           </div>
 
-          {/* Right: created + idle label */}
-          <div class="shrink-0 flex flex-col items-end gap-0.5">
-            <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
-              {created()}
-            </p>
-            <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
-              {idle().label}
-            </p>
-          </div>
+          {/* Inline detail panel — always in DOM for CSS transition */}
+          <div
+            style={{
+              overflow: "hidden",
+              "max-height": props.expanded ? "300px" : "0",
+              transition: "max-height 200ms ease",
+            }}
+          >
+            <div class="flex flex-col gap-3 px-4 pb-4 pt-1" style={{ "border-top": "1px solid var(--border-base)" }}>
+              {/* Full description */}
+              <Show when={props.session.description}>
+                <p
+                  class="text-12-regular"
+                  style={{ color: "var(--text-dimmed-base)", "word-break": "break-word", "white-space": "pre-wrap" }}
+                >
+                  {props.session.description}
+                </p>
+              </Show>
 
-          {props.trailing}
+              {/* Created + idle status */}
+              <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
+                Created {created()} · {idle().label}
+              </p>
+
+              {/* Large terminate button */}
+              <button
+                class="text-13-medium rounded-lg w-full"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border-base)",
+                  cursor: "pointer",
+                  color: "var(--text-danger-base, #ef4444)",
+                  "min-height": "44px",
+                  padding: "10px 16px",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onTerminate?.()
+                }}
+              >
+                {t("session.action.terminate")}
+              </button>
+            </div>
+          </div>
         </div>
       }
     >

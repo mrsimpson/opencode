@@ -1,0 +1,15 @@
+{
+  "conversationId": "opencode-router-app-default-ugbby",
+  "projectPath": "/home/opencode/repo/packages/opencode-router-app",
+  "gitBranch": "default",
+  "currentPhase": "finalize",
+  "planFilePath": "/home/opencode/repo/packages/opencode-router-app/.vibe/development-plan-default.md",
+  "workflowName": "minor",
+  "requireReviewsBeforePhaseTransition": false,
+  "createdAt": "2026-04-29T20:46:56.786Z",
+  "updatedAt": "2026-04-29T21:05:55.999Z",
+  "sessionMetadata": {
+    "referenceId": "ses_22502d768ffeCm6jBIlAL75bSw",
+    "createdAt": "2026-04-29T20:45:17.995Z"
+  }
+}

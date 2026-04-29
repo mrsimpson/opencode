@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js"
+import { For, Show, createSignal } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import type { Session } from "./api"
 import { useT } from "./i18n"
@@ -14,6 +14,9 @@ type Props = {
 
 export function SessionList(props: Props) {
   const t = useT(useI18n())
+  const [expandedHash, setExpandedHash] = createSignal<string | null>(null)
+
+  const toggleExpand = (hash: string) => setExpandedHash((prev) => (prev === hash ? null : hash))
 
   return (
     <Show when={props.sessions.length > 0}>
@@ -35,32 +38,9 @@ export function SessionList(props: Props) {
                   if (session.state === "stopped") props.onResumeSession(session)
                   else if (session.state === "running") props.onOpenSession(session)
                 }}
-                trailing={
-                  <div class="flex items-center gap-2 shrink-0 self-start mt-1">
-                    <button
-                      class="opacity-0 group-hover:opacity-100 text-12-regular px-2 py-1 rounded"
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border-base)",
-                        cursor: "pointer",
-                        color: props.terminating.has(session.hash)
-                          ? "var(--text-dimmed-base)"
-                          : "var(--text-danger-base, #ef4444)",
-                      }}
-                      disabled={props.terminating.has(session.hash)}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        props.onTerminateSession(session)
-                      }}
-                      title={t("session.action.terminate")}
-                    >
-                      {props.terminating.has(session.hash) ? t("session.action.terminating") : "✕"}
-                    </button>
-                    <Show when={session.state !== "creating"}>
-                      <span style={{ color: "var(--icon-base)" }}>→</span>
-                    </Show>
-                  </div>
-                }
+                expanded={expandedHash() === session.hash}
+                onToggleExpand={() => toggleExpand(session.hash)}
+                onTerminate={() => props.onTerminateSession(session)}
               />
             </div>
           )}
