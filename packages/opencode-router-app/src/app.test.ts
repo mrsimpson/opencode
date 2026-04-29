@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { computeIdleStatus, type IdleLabels } from "./session-utils"
+import { computeIdleStatus, getPhaseKindAfterUrlRestore, type IdleLabels } from "./session-utils"
 
 const labels: IdleLabels = {
   stopsIn: (m) => `stops in ~${m}m`,
@@ -50,5 +50,32 @@ describe("computeIdleStatus", () => {
     const fiveMinsAgo = new Date(now.getTime() - 5 * 60_000).toISOString()
     const result = computeIdleStatus("creating", fiveMinsAgo, 15, labels)
     expect(result.stopsInMinutes).toBe(10)
+  })
+})
+
+describe("getPhaseKindAfterUrlRestore", () => {
+  it('returns "creating" when session was resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
+    expect(result).toBe("creating")
+  })
+
+  it('returns "creating" when URL does not contain "/session/" and not resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/")
+    expect(result).toBe("creating")
+  })
+
+  it('returns "open" when URL contains "/session/" and not resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/session/test")
+    expect(result).toBe("open")
+  })
+
+  it('returns "creating" when resumed, even if URL contains "/session/"', () => {
+    const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
+    expect(result).toBe("creating")
+  })
+
+  it('returns "creating" for URLs without path when not resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002")
+    expect(result).toBe("creating")
   })
 })

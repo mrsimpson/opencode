@@ -33,3 +33,19 @@ export function computeIdleStatus(
   }
   return { stopsInMinutes: null, stoppedMinutesAgo: 0, label: labels.stoppingSoon }
 }
+
+/**
+ * Determine the app phase kind after restoring from URL or popstate.
+ *
+ * After resuming a stopped session, always return "creating" to trigger
+ * LoadingScreen polling until the session is ready.
+ *
+ * For non-stopped sessions (not resumed), use the session URL to determine
+ * the phase: "creating" if URL doesn't contain "/session/", otherwise "open".
+ */
+export function getPhaseKindAfterUrlRestore(wasResumed: boolean, sessionUrl: string): "creating" | "open" {
+  if (wasResumed || !sessionUrl.includes("/session/")) {
+    return "creating"
+  }
+  return "open"
+}
