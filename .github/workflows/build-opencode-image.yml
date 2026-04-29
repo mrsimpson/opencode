@@ -98,7 +98,7 @@ jobs:
           echo "Pre-pulling image: $IMAGE"
 
           # Use kubectl port-forward to bypass oauth2-proxy and reach router service directly
-          kubectl port-forward -n opencode svc/opencode-router 3000:3000 &
+          kubectl port-forward -n code svc/opencode-router 3000:3000 &
           PF_PID=$!
           sleep 5
 
