@@ -29,5 +29,8 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# test artifacts
 .playwright-mcp
+.playwright-cli
 e2e*.png

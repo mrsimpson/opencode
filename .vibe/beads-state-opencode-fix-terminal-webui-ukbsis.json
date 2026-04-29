@@ -1,0 +1,34 @@
+{
+  "conversationId": "opencode-fix-terminal-webui-ukbsis",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-7",
+  "phaseTasks": [
+    {
+      "phaseId": "reproduce",
+      "phaseName": "Reproduce",
+      "taskId": "opencode-7.1"
+    },
+    {
+      "phaseId": "analyze",
+      "phaseName": "Analyze",
+      "taskId": "opencode-7.2"
+    },
+    {
+      "phaseId": "fix",
+      "phaseName": "Fix",
+      "taskId": "opencode-7.3"
+    },
+    {
+      "phaseId": "verify",
+      "phaseName": "Verify",
+      "taskId": "opencode-7.4"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-7.5"
+    }
+  ],
+  "createdAt": "2026-04-28T12:36:54.995Z",
+  "updatedAt": "2026-04-28T12:36:54.995Z"
+}
