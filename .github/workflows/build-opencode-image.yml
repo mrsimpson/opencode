@@ -109,7 +109,8 @@ jobs:
           kubectl get endpoints -n code || true
 
           # Use kubectl port-forward to bypass oauth2-proxy and reach router service directly
-          kubectl port-forward -n code svc/code 3000:3000 &
+          # The service exposes port 80 (router listens on 3000 internally)
+          kubectl port-forward -n code svc/code 3000:80 &
           PF_PID=$!
           echo "Port-forward PID: $PF_PID"
           sleep 10
