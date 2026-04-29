@@ -71,8 +71,8 @@ jobs:
       - name: Setup Tailscale
         uses: tailscale/github-action@v3
         with:
-          client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          client-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
 
       - name: Setup kubectl
         run: |
