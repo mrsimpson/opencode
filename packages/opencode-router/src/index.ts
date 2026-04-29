@@ -76,6 +76,19 @@ const server = http.createServer(async (req, res) => {
       `[debug] ${req.method} ${req.headers.host}${req.url} email=${req.headers["x-auth-request-email"] ?? "MISSING"} token=${req.headers["x-auth-request-access-token"] ? "PRESENT" : "MISSING"}`,
     )
   }
+
+  // ── Admin endpoints: check admin secret BEFORE email check ───────────────
+  const url = req.url ?? "/"
+  const isAdminEndpoint = url.startsWith("/api/admin/")
+  if (isAdminEndpoint && req.method === "POST" && config.adminSecret) {
+    const providedSecret = req.headers["x-admin-secret"]
+    if (providedSecret === config.adminSecret) {
+      // Admin authenticated — skip email check
+      const handled = await handleApi(req, res, "admin@localhost", undefined)
+      if (handled) return
+    }
+  }
+
   const email = getEmail(req)
   if (!email) {
     res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")
@@ -133,6 +146,13 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.on("upgrade", async (req, socket, head) => {
+  // ── Admin endpoints: no WebSocket support needed ────────────────
+  const url = req.url ?? "/"
+  if (url.startsWith("/api/admin/")) {
+    socket.destroy()
+    return
+  }
+
   const email = getEmail(req)
   if (!email) {
     socket.destroy()
