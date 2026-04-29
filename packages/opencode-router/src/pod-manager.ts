@@ -475,8 +475,9 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
  */
 export async function prepullImage(image: string, timeoutMs = 300_000): Promise<boolean> {
   const testSession: SessionKey = {
-    email: "admin@opencode.ai",
-    repoUrl: "https://github.com/opencode/test-prepull.git",
+    email: "admin@localhost",
+    // Use a repo that definitely exists and is publicly accessible
+    repoUrl: "https://github.com/mrsimpson/opencode.git",
     branch: `prepull-${Date.now()}`,
     sourceBranch: "main",
   }
@@ -499,13 +500,23 @@ export async function prepullImage(image: string, timeoutMs = 300_000): Promise<
       }
       if (state === "none") {
         // Pod was deleted or never created
+        console.error(`prepullImage: pod ${hash} is gone (state=none)`)
         return false
       }
+      // Log current state for debugging
+      console.log(`prepullImage: pod ${hash} state=${state}, waiting...`)
       // Still creating, wait before next poll
       await new Promise((resolve) => setTimeout(resolve, 3000))
     }
 
-    // Timeout - clean up and return false
+    // Timeout - get pod details for debugging
+    try {
+      const pod = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
+      console.error(`prepullImage timeout: pod state=${pod.status?.phase}, conditions=`, pod.status?.conditions)
+      console.error(`prepullImage timeout: container statuses=`, pod.status?.containerStatuses)
+    } catch (err) {
+      console.error(`prepullImage: failed to get pod details after timeout:`, err)
+    }
     await terminateSession(hash, testSession.email).catch(() => {})
     return false
   } catch (err) {
