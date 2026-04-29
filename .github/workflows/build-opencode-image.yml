@@ -73,11 +73,13 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
 
       - name: Setup kubectl
         run: |
-          echo "${{ secrets.KUBECONFIG }}" > kubeconfig
-          echo "KUBECONFIG=kubeconfig" >> $GITHUB_ENV
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBECONFIG }}" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
 
       - name: Pre-pull image on router (reduce cold start times)
         env:
