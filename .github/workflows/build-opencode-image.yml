@@ -68,26 +68,43 @@ jobs:
           docker push ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
           docker push ${{ env.IMAGE_NAME }}:latest
 
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Setup kubectl
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" > kubeconfig
+          echo "KUBECONFIG=kubeconfig" >> $GITHUB_ENV
+
       - name: Pre-pull image on router (reduce cold start times)
         env:
           ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
-          ROUTER_URL: ${{ secrets.ROUTER_URL }}
         run: |
-          # Skip if secrets not configured
-          if [ -z "$ADMIN_SECRET" ] || [ -z "$ROUTER_URL" ]; then
-            echo "Skipping pre-pull: ADMIN_SECRET or ROUTER_URL not configured"
+          # Skip if secret not configured
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "Skipping pre-pull: ADMIN_SECRET not configured"
             exit 0
           fi
 
           IMAGE="${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
           echo "Pre-pulling image: $IMAGE"
 
-          # Call the admin endpoint to pre-pull the image
+          # Use kubectl port-forward to bypass oauth2-proxy and reach router service directly
+          kubectl port-forward -n opencode svc/opencode-router 3000:3000 &
+          PF_PID=$!
+          sleep 5
+
+          # Call the admin endpoint via localhost (port-forwarded)
           RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST "$ROUTER_URL/api/admin/pull-image" \
+            -X POST "http://localhost:3000/api/admin/pull-image" \
             -H "Content-Type: application/json" \
             -H "X-Admin-Secret: $ADMIN_SECRET" \
             -d "{\"image\":\"$IMAGE\",\"updateConfig\":true}")
+
+          # Cleanup port-forward
+          kill $PF_PID 2>/dev/null || true
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
