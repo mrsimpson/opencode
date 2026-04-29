@@ -8,6 +8,8 @@ import {
   ensurePod,
   getPodState,
   getSessionHash,
+  getSessionInfo,
+  getSessionProgress,
   listUserSessions,
   prepullImage,
   remoteBranchExists,
@@ -172,6 +174,112 @@ export async function handleApi(
     }
     const branch = await suggestBranch(email, repoUrl)
     json(res, 200, { branch })
+    return true
+  }
+
+  // GET /api/sessions/:hash/events — SSE endpoint for session startup progress
+  //
+  // Streams session startup state as Server-Sent Events. Events emitted:
+  //   progress     { stage, message }  — human-readable startup stage update
+  //   state_change { state }           — when pod state transitions (creating → running)
+  //   complete     { url }             — session ready; frontend should navigate to url
+  //   error        { message }         — unrecoverable error; connection closes after
+  //
+  // Connection closes automatically after `complete` or `error`.
+  // Client disconnect is handled via res.on("close").
+  const eventsMatch = url.match(/^\/api\/sessions\/([a-f0-9]{12})\/events$/)
+  if (eventsMatch && req.method === "GET") {
+    const hash = eventsMatch[1]
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    })
+
+    /** Write a named SSE event with JSON data. */
+    const sendEvent = (event: string, data: object) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    // Check session exists before starting the poll loop
+    const initial = await getSessionInfo(hash)
+    if (!initial) {
+      sendEvent("error", { message: "session not found" })
+      res.end()
+      return true
+    }
+
+    let closed = false
+    res.on("close", () => {
+      closed = true
+    })
+
+    let lastState = initial.state
+    let lastStage = ""
+
+    // Send initial progress immediately
+    const progress = await getSessionProgress(hash)
+    lastStage = progress.stage
+    sendEvent("progress", progress)
+    if (lastState !== "creating") {
+      sendEvent("state_change", { state: lastState })
+    }
+
+    // If already running on first check, resolve immediately
+    if (initial.state === "running") {
+      sendEvent("progress", { stage: "readying", message: "Finalizing session..." })
+      sendEvent("complete", { url: initial.url })
+      res.end()
+      return true
+    }
+
+    // Poll every 1000ms for state/progress changes
+    const timer = setInterval(async () => {
+      if (closed) {
+        clearInterval(timer)
+        return
+      }
+      try {
+        const info = await getSessionInfo(hash)
+        if (!info) {
+          clearInterval(timer)
+          sendEvent("error", { message: "session not found" })
+          res.end()
+          return
+        }
+
+        // Emit state_change if state transitioned
+        if (info.state !== lastState) {
+          lastState = info.state
+          sendEvent("state_change", { state: info.state })
+        }
+
+        // Emit progress if stage changed (only while still creating)
+        if (info.state === "creating") {
+          const prog = await getSessionProgress(hash)
+          if (prog.stage !== lastStage) {
+            lastStage = prog.stage
+            sendEvent("progress", prog)
+          }
+          return
+        }
+
+        // Session is running — emit readying progress then complete with URL
+        if (info.state === "running") {
+          if (lastStage !== "readying") {
+            lastStage = "readying"
+            sendEvent("progress", { stage: "readying", message: "Finalizing session..." })
+          }
+          clearInterval(timer)
+          sendEvent("complete", { url: info.url })
+          res.end()
+        }
+      } catch {
+        // Transient error — retry on next tick
+      }
+    }, 1000)
+
     return true
   }
 
