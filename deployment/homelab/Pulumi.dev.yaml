@@ -1,7 +1,7 @@
 config:
   code:routerImage: ghcr.io/mrsimpson/opencode-router:0.0.1-main.5251c7d
   code:cfOperatorImage: ghcr.io/mrsimpson/opencode-cloudflare-operator:0.1.0-main.dd6299d
-  code:opencodeImage: ghcr.io/mrsimpson/opencode:1.14.20-main.3067616
+  code:opencodeImage: ghcr.io/mrsimpson/opencode:1.14.20-main.38ecea9
   code:homelabStack: mrsimpson/homelab/dev
   cloudflare:apiToken:
     secure: AAABAHpX+bs29JxwbLtL7Cu+4PeyLIFW8m3sAmwgIPsTJvuiynbDXfOa05NYvVTZBjwuVaiRuwtq4t3qhXFipKRKmGRU4c7q
