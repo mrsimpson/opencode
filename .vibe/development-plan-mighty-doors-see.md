@@ -371,7 +371,9 @@ _None yet_
 - [x] **Code Cleanup**: Removed debug output (`console.log` in pod-manager.ts)
 - [x] **Documentation Review**: Updated plan file with Entscheidung 8 (model filtering)
 - [x] **Final Validation**: Typecheck passed for both packages
-- [ ] **Git Commits**: Pending user request (CM1, CM2, CM3)
+- [x] **Git Commits**:
+  - CM1: `ffa83ade7 feat(router): add model selection API and session model support`
+  - CM2: `b7bff2063 feat(router-app): add model selection UI component`
 
 ---
 
