@@ -4,7 +4,8 @@ import { Button } from "@opencode-ai/ui/button"
 import { useT } from "./i18n"
 import { GIT_URL_PATTERN } from "./setup-form-utils"
 import { Autocomplete } from "./autocomplete"
-import type { Repo } from "./api"
+import type { Repo, ModelProvider } from "./api"
+import { ModelSelect } from "./model-select"
 
 type Props = {
   repoUrl: string
@@ -18,6 +19,11 @@ type Props = {
   submitting: boolean
   onSubmit: () => void
   ref?: (el: HTMLTextAreaElement) => void
+  // Model selection props
+  model: string
+  onModelChange: (v: string) => void
+  modelProviders: ModelProvider[]
+  modelsLoading: boolean
 }
 
 import type { DictKey } from "./i18n/en"
@@ -137,6 +143,14 @@ export function SessionInputBar(props: Props) {
             items={branchItems()}
           />
         </div>
+
+        {/* Model selection */}
+        <ModelSelect
+          value={props.model}
+          onChange={props.onModelChange}
+          providers={props.modelProviders}
+          loading={props.modelsLoading}
+        />
 
         <textarea
           ref={props.ref}

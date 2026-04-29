@@ -39,11 +39,15 @@ export async function createSession(
   branch: string,
   sourceBranch: string,
   initialMessage?: string,
+  model?: string,
 ): Promise<CreateSessionResponse> {
+  const body: Record<string, unknown> = { repoUrl, branch, sourceBranch }
+  if (initialMessage) body.initialMessage = initialMessage
+  if (model) body.model = model
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repoUrl, branch, sourceBranch, ...(initialMessage ? { initialMessage } : {}) }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (!res.ok) {
@@ -96,6 +100,17 @@ export interface Branch {
   name: string
 }
 
+export interface Model {
+  id: string
+  name: string
+}
+
+export interface ModelProvider {
+  id: string
+  name: string
+  models: Model[]
+}
+
 export async function listUserRepos(): Promise<Repo[]> {
   const res = await fetch("/api/user/repos", { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`Failed to list repos: ${res.status}`)
@@ -107,4 +122,11 @@ export async function listRepoBranches(repoFullName: string): Promise<Branch[]> 
   const res = await fetch(`/api/user/repos/branches?${params}`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`Failed to list branches: ${res.status}`)
   return res.json()
+}
+
+export async function listModels(): Promise<ModelProvider[]> {
+  const res = await fetch("/api/models", { signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!res.ok) throw new Error(`Failed to list models: ${res.status}`)
+  const data = await res.json()
+  return data.providers ?? []
 }

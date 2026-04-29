@@ -2,13 +2,22 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
-import { type Session, createSession, listSessions, resumeSession, suggestBranch, terminateSession } from "./api"
+import {
+  type Session,
+  createSession,
+  listSessions,
+  listModels,
+  resumeSession,
+  suggestBranch,
+  terminateSession,
+} from "./api"
 import { useT } from "./i18n"
 import { LoadingScreen } from "./loading-screen"
 import { SessionInputBar } from "./session-input-bar"
 import { SessionList } from "./session-list"
 import { SessionSidebar } from "./session-sidebar"
 import { buildSessionKey, GIT_URL_PATTERN } from "./setup-form-utils"
+import type { ModelProvider } from "./api"
 
 type AppPhase =
   | { kind: "loading" }
@@ -31,6 +40,10 @@ export function App() {
   const [promptText, setPromptText] = createSignal("")
   const [formError, setFormError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
+  // Model selection state
+  const [model, setModel] = createSignal("")
+  const [modelProviders, setModelProviders] = createSignal<ModelProvider[]>([])
+  const [modelsLoading, setModelsLoading] = createSignal(true)
 
   let promptRef: HTMLTextAreaElement | undefined
 
@@ -73,6 +86,12 @@ export function App() {
 
   onMount(() => {
     loadSessions().then(restoreFromUrl)
+    // Load models
+    setModelsLoading(true)
+    listModels()
+      .then((providers) => setModelProviders(providers))
+      .catch(() => setModelProviders([]))
+      .finally(() => setModelsLoading(false))
     const timer = setInterval(() => {
       const p = appPhase()
       if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
@@ -167,7 +186,13 @@ export function App() {
     setFormError("")
     setSubmitting(true)
     try {
-      const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch, promptText())
+      const result = await createSession(
+        validated.repoUrl,
+        sessionBranch(),
+        validated.sourceBranch,
+        promptText(),
+        model(),
+      )
       batch(() => {
         navigate(`/session/${result.hash}`)
         setAppPhase({ kind: "creating", hash: result.hash, url: result.url })
@@ -257,6 +282,10 @@ export function App() {
                   ref={(el) => {
                     promptRef = el
                   }}
+                  model={model()}
+                  onModelChange={setModel}
+                  modelProviders={modelProviders()}
+                  modelsLoading={modelsLoading()}
                 />
 
                 {/* Session list: always visible on desktop, collapsed toggle on mobile */}
