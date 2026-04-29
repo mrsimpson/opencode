@@ -100,17 +100,30 @@ jobs:
           IMAGE="${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
           echo "Pre-pulling image: $IMAGE"
 
+          # Debug: check router pod status
+          echo "=== Router pod status ==="
+          kubectl get pods -n code -o wide || true
+
+          # Debug: check service endpoints
+          echo "=== Service endpoints ==="
+          kubectl get endpoints -n code || true
+
           # Use kubectl port-forward to bypass oauth2-proxy and reach router service directly
           kubectl port-forward -n code svc/code 3000:3000 &
           PF_PID=$!
-          sleep 5
+          echo "Port-forward PID: $PF_PID"
+          sleep 10
+
+          # Debug: test if port-forward works
+          echo "=== Testing localhost:3000 ==="
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:3000/api/sessions || echo "Failed to reach localhost:3000"
 
           # Call the admin endpoint via localhost (port-forwarded)
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
+          RESPONSE=$(curl -v -w "\n%{http_code}" \
             -X POST "http://localhost:3000/api/admin/pull-image" \
             -H "Content-Type: application/json" \
             -H "X-Admin-Secret: $ADMIN_SECRET" \
-            -d "{\"image\":\"$IMAGE\",\"updateConfig\":true}")
+            -d "{\"image\":\"$IMAGE\",\"updateConfig\":true}" 2>&1)
 
           # Cleanup port-forward
           kill $PF_PID 2>/dev/null || true
