@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@ex-machina/opencode-anthropic-auth@1.7.5", "@codemcp/workflows-opencode@6.14.3"],
+  "plugin": ["@ex-machina/opencode-anthropic-auth@1.8.0", "@codemcp/workflows-opencode@6.16.1"],
   "model": "opencode/big-pickle",
   "default_agent": "workflow",
   "mcp": {
