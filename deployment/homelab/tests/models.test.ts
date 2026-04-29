@@ -1,19 +1,50 @@
 import { describe, it, expect } from "vitest"
-import { filterFreeModels, filterPaidModels } from "../src/models"
+import { filterFreeModels, filterPaidModels, formatPricing } from "../src/models"
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
 function model(id: string, prompt = "3", completion = "15") {
-  return { id, pricing: { prompt, completion }, supported_parameters: [] as string[] }
+  return { id, name: `Name ${id}`, pricing: { prompt, completion }, supported_parameters: [] as string[] }
 }
 function free(id: string) {
-  return { id, pricing: { prompt: "0", completion: "0" }, supported_parameters: ["tools"] }
+  return { id, name: `Free ${id}`, pricing: { prompt: "0", completion: "0" }, supported_parameters: ["tools"] }
 }
 function paid(id: string) {
-  return { id, pricing: { prompt: "1", completion: "5" }, supported_parameters: ["tools"] }
+  return {
+    id,
+    name: `Paid ${id}`,
+    pricing: { prompt: "0.000001", completion: "0.000005" },
+    supported_parameters: ["tools"],
+  }
 }
+
+// ---------------------------------------------------------------------------
+// formatPricing
+// ---------------------------------------------------------------------------
+
+describe("formatPricing", () => {
+  it("returns 'free' when both prompt and completion are '0'", () => {
+    expect(formatPricing("0", "0")).toBe("free")
+  })
+
+  it("formats per-million-token costs for paid models", () => {
+    // 0.000001 * 1_000_000 = 1 → $1/M
+    // 0.000005 * 1_000_000 = 5 → $5/M
+    expect(formatPricing("0.000001", "0.000005")).toBe("$1/M in / $5/M out")
+  })
+
+  it("formats small fractional costs correctly", () => {
+    // 0.00000002 * 1_000_000 = 0.02 → $0.02/M
+    expect(formatPricing("0.00000002", "0.00000006")).toBe("$0.02/M in / $0.06/M out")
+  })
+
+  it("strips trailing zeros from formatted values", () => {
+    // 0.000003 * 1_000_000 = 3 → $3/M (not $3.000/M)
+    expect(formatPricing("0.000003", "0.000015")).toBe("$3/M in / $15/M out")
+  })
+})
 
 // ---------------------------------------------------------------------------
 // filterFreeModels
@@ -57,9 +88,12 @@ describe("filterFreeModels", () => {
     ).toEqual({})
   })
 
-  it("maps each kept model to an empty object value", () => {
+  it("maps each kept model to an object with a name containing pricing", () => {
     const result = filterFreeModels([free("a/model:free"), free("b/model:free")])
-    for (const v of Object.values(result)) expect(v).toEqual({})
+    for (const v of Object.values(result)) {
+      expect(v).toHaveProperty("name")
+      expect((v as { name: string }).name).toContain("(free)")
+    }
   })
 })
 
@@ -93,8 +127,11 @@ describe("filterPaidModels", () => {
     expect(Object.keys(filterPaidModels(input))).toEqual(["a/first", "b/second", "c/third"])
   })
 
-  it("maps each kept model to an empty object value", () => {
+  it("maps each kept model to an object with a name containing pricing", () => {
     const result = filterPaidModels([paid("a/p1"), paid("b/p2")])
-    for (const v of Object.values(result)) expect(v).toEqual({})
+    for (const v of Object.values(result)) {
+      expect(v).toHaveProperty("name")
+      expect((v as { name: string }).name).toContain("/M in /")
+    }
   })
 })
