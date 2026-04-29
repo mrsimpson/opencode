@@ -75,9 +75,6 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
-      - name: Wait for Tailscale
-        run: sleep 10
-
       - name: Setup kubectl
         run: |
           mkdir -p "$HOME/.kube"
@@ -94,6 +91,40 @@ jobs:
           # Skip if secret not configured
           if [ -z "$ADMIN_SECRET" ]; then
             echo "Skipping pre-pull: ADMIN_SECRET not configured"
+            exit 0
+          fi
+
+          IMAGE="${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
+          echo "Pre-pulling image: $IMAGE"
+
+          # Use kubectl port-forward to bypass oauth2-proxy and reach router service directly
+          # The service exposes port 80 (which maps to pod port 3000)
+          kubectl port-forward -n code svc/code 3000:80 &
+          PF_PID=$!
+          sleep 5
+
+          # Call the admin endpoint via localhost (port-forwarded)
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "http://localhost:3000/api/admin/pull-image" \
+            -H "Content-Type: application/json" \
+            -H "X-Admin-Secret: $ADMIN_SECRET" \
+            -d "{\"image\":\"$IMAGE\",\"updateConfig\":true}")
+
+          # Cleanup port-forward
+          kill $PF_PID 2>/dev/null || true
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response ($HTTP_CODE): $BODY"
+
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Image pre-pulled successfully"
+          else
+            echo "⚠️ Warning: Failed to pre-pull image (HTTP $HTTP_CODE)"
+            echo "The image was built and pushed successfully, but pre-pull failed."
+            echo "New sessions may have slower cold starts until the image is cached."
+            # Don't fail the workflow - image is still available
             exit 0
           fi
 
