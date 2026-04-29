@@ -57,8 +57,8 @@ Add a new endpoint to the opencode router that pre-pulls container images after 
   - Call `prepullImage()` with the new image
   - If `updateConfig` is true, update the router's config.opencodeImage (in-memory)
   - Return status response: `{ "status": "success" | "failed", "message": "..." }`
-- [ ] **P4**: Add error handling and timeout handling for long-running operations
-- [ ] **P5**: Document the endpoint in API docs or README
+- [x] **P4**: Add error handling and timeout handling for long-running operations
+- [x] **P5**: Document the endpoint in API docs or README
 
 ### Completed
 
