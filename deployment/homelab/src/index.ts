@@ -431,15 +431,7 @@ export const app = homelab.createExposedWebApp(
       { name: "DEBUG_HEADERS", value: "true" },
       ...(defaultGitRepo ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }] : []),
       // Admin secret for CI endpoints (e.g. /api/admin/pull-image)
-      {
-        name: "ADMIN_SECRET",
-        valueFrom: {
-          secretKeyRef: {
-            name: `${APP_NAME}-admin-secret`,
-            key: "ADMIN_SECRET",
-          },
-        },
-      },
+      { name: "ADMIN_SECRET", value: adminSecretValue },
     ],
     probes: {
       readinessProbe: {
