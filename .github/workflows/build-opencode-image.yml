@@ -75,6 +75,9 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
+      - name: Wait for Tailscale
+        run: sleep 10
+
       - name: Setup kubectl
         run: |
           mkdir -p "$HOME/.kube"
@@ -84,7 +87,8 @@ jobs:
       - name: Verify cluster connectivity
         run: |
           kubectl cluster-info --request-timeout=10s
-          kubectl get svc -n code
+          kubectl get svc -A
+          kubectl get svc -n code -o wide || true
 
       - name: Pre-pull image on router (reduce cold start times)
         env:
