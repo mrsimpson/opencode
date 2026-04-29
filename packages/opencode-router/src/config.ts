@@ -59,4 +59,12 @@ export const config = {
    * Set DEBUG_HEADERS=true on the deployment to diagnose missing auth headers.
    */
   debugHeaders: process.env.DEBUG_HEADERS === "true",
-} as const
+  /**
+   * Secret for admin endpoints (e.g. /api/admin/pull-image).
+   * CI systems use X-Admin-Secret header to authenticate.
+   * Optional — when unset, admin endpoints are disabled.
+   */
+  get adminSecret() {
+    return process.env.ADMIN_SECRET
+  },
+}

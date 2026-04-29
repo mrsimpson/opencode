@@ -312,6 +312,28 @@ const cfSecret = new k8s.core.v1.Secret(
 )
 
 // ---------------------------------------------------------------------------
+// 6b. Secret — Admin secret for CI endpoints (e.g. /api/admin/pull-image)
+// ---------------------------------------------------------------------------
+
+const adminSecretValue = cfg.requireSecret("adminSecret")
+
+const adminSecret = new k8s.core.v1.Secret(
+  `${APP_NAME}-admin-secret`,
+  {
+    metadata: {
+      name: `${APP_NAME}-admin-secret`,
+      namespace: NAMESPACE,
+      labels: { app: APP_NAME },
+    },
+    type: "Opaque",
+    stringData: {
+      ADMIN_SECRET: adminSecretValue,
+    },
+  },
+  { dependsOn: [ns] },
+)
+
+// ---------------------------------------------------------------------------
 // 7. Cloudflare operator sidecar container spec
 //    Watches session pods, manages <hash>-oc.<domain> DNS + tunnel routes.
 // ---------------------------------------------------------------------------
@@ -408,6 +430,16 @@ export const app = homelab.createExposedWebApp(
       { name: "ROUTE_SUFFIX", value: ROUTE_SUFFIX },
       { name: "DEBUG_HEADERS", value: "true" },
       ...(defaultGitRepo ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }] : []),
+      // Admin secret for CI endpoints (e.g. /api/admin/pull-image)
+      {
+        name: "ADMIN_SECRET",
+        valueFrom: {
+          secretKeyRef: {
+            name: `${APP_NAME}-admin-secret`,
+            key: "ADMIN_SECRET",
+          },
+        },
+      },
     ],
     probes: {
       readinessProbe: {
@@ -435,7 +467,7 @@ export const app = homelab.createExposedWebApp(
     tags: ["opencode", "router", "ai"],
   },
   {
-    dependsOn: [roleBinding, pullSecret, cfSecret, apiKeysSecret, configMap],
+    dependsOn: [roleBinding, pullSecret, cfSecret, apiKeysSecret, configMap, adminSecret],
   },
 )
 

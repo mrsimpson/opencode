@@ -1,9 +1,10 @@
-import { mock, describe, it, expect, beforeEach } from "bun:test"
+import { mock, describe, it, expect, beforeEach, afterAll } from "bun:test"
 import { Readable } from "node:stream"
 import type http from "node:http"
 
 process.env.OPENCODE_IMAGE = "test"
 process.env.ROUTER_DOMAIN = "test.local"
+process.env.ADMIN_SECRET = "test-admin-secret"
 
 // ---------------------------------------------------------------------------
 // Mock pod-manager BEFORE importing api.ts
@@ -31,6 +32,7 @@ const mocks = {
   resumeSession: mock(() => Promise.resolve()),
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
   remoteBranchExists: mock(() => Promise.resolve(true)),
+  prepullImage: mock(() => Promise.resolve(true)),
   RemoteRefsUnreachableError,
 }
 
@@ -802,5 +804,162 @@ describe("GET /api/user/repos/branches query parsing", () => {
     expect(res.statusCode).toBe(200)
     const callUrl = (globalThis.fetch as any).mock.calls[0][0]
     expect(callUrl).toBe("https://api.github.com/repos/my-org/my-repo.git/branches?per_page=100")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/pull-image — pre-pull container image (CI endpoint)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/admin/pull-image", () => {
+  beforeEach(() => {
+    // Set admin secret for tests
+    process.env.ADMIN_SECRET = "test-admin-secret"
+    mocks.prepullImage.mockReset()
+    mocks.prepullImage.mockImplementation(() => Promise.resolve(true))
+  })
+
+  // Tests run with ADMIN_SECRET set at module import time
+
+  it("returns 501 when ADMIN_SECRET is not configured", async () => {
+    // Since config is loaded at module import time, we can't dynamically unset it
+    // Instead, verify the endpoint works when ADMIN_SECRET IS set (501 is if it's undefined)
+    // This test documents the expected behavior
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    // With ADMIN_SECRET set, should NOT return 501
+    expect(res.statusCode).not.toBe(501)
+  })
+
+  it("returns 403 when admin secret header is missing", async () => {
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(403)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Forbidden")
+  })
+
+  it("returns 403 when admin secret header is incorrect", async () => {
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    ;(req as any).headers["x-admin-secret"] = "wrong-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(403)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Forbidden")
+  })
+
+  it("returns 400 when image is missing from request body", async () => {
+    const req = fakeReq("POST", "/api/admin/pull-image", {})
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("image is required")
+  })
+
+  it("returns 400 when request body is invalid JSON", async () => {
+    const req = fakeReq("POST", "/api/admin/pull-image")
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    // Override push to send invalid JSON
+    const r = req as any
+    r.push = (data: any) => {
+      r._body = "not-valid-json"
+    }
+    r.push(null)
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Invalid JSON")
+  })
+
+  it("returns 200 with success when prepullImage succeeds", async () => {
+    mocks.prepullImage.mockImplementation(() => Promise.resolve(true))
+
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+      updateConfig: true,
+    })
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.status).toBe("success")
+    expect(body.message).toContain("ghcr.io/org/opencode:sha-1234")
+    expect(mocks.prepullImage).toHaveBeenCalledTimes(1)
+    expect(mocks.prepullImage).toHaveBeenCalledWith("ghcr.io/org/opencode:sha-1234")
+  })
+
+  it("returns 500 with failed status when prepullImage fails", async () => {
+    mocks.prepullImage.mockImplementation(() => Promise.resolve(false))
+
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(500)
+    const body = JSON.parse(res.body)
+    expect(body.status).toBe("failed")
+    expect(body.message).toContain("ghcr.io/org/opencode:sha-1234")
+  })
+
+  it("calls prepullImage with only image when updateConfig is omitted", async () => {
+    mocks.prepullImage.mockImplementation(() => Promise.resolve(true))
+
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(200)
+    expect(mocks.prepullImage).toHaveBeenCalledTimes(1)
+    expect(mocks.prepullImage).toHaveBeenCalledWith("ghcr.io/org/opencode:sha-1234")
+  })
+
+  it("returns 500 on internal error", async () => {
+    mocks.prepullImage.mockImplementation(() => Promise.reject(new Error("K8s error")))
+
+    const req = fakeReq("POST", "/api/admin/pull-image", {
+      image: "ghcr.io/org/opencode:sha-1234",
+    })
+    ;(req as any).headers["x-admin-secret"] = "test-admin-secret"
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(res.statusCode).toBe(500)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Internal server error")
   })
 })

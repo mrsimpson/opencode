@@ -68,6 +68,42 @@ jobs:
           docker push ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
           docker push ${{ env.IMAGE_NAME }}:latest
 
+      - name: Pre-pull image on router (reduce cold start times)
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          ROUTER_URL: ${{ secrets.ROUTER_URL }}
+        run: |
+          # Skip if secrets not configured
+          if [ -z "$ADMIN_SECRET" ] || [ -z "$ROUTER_URL" ]; then
+            echo "Skipping pre-pull: ADMIN_SECRET or ROUTER_URL not configured"
+            exit 0
+          fi
+
+          IMAGE="${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
+          echo "Pre-pulling image: $IMAGE"
+
+          # Call the admin endpoint to pre-pull the image
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "$ROUTER_URL/api/admin/pull-image" \
+            -H "Content-Type: application/json" \
+            -H "X-Admin-Secret: $ADMIN_SECRET" \
+            -d "{\"image\":\"$IMAGE\",\"updateConfig\":true}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response ($HTTP_CODE): $BODY"
+
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Image pre-pulled successfully"
+          else
+            echo "⚠️ Warning: Failed to pre-pull image (HTTP $HTTP_CODE)"
+            echo "The image was built and pushed successfully, but pre-pull failed."
+            echo "New sessions may have slower cold starts until the image is cached."
+            # Don't fail the workflow - image is still available
+            exit 0
+          fi
+
       - name: Update Pulumi stack config with new image tag
         run: |
           git config user.name "github-actions[bot]"

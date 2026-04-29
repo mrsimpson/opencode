@@ -247,8 +247,11 @@ export async function getPodState(hash: string): Promise<PodState> {
  * The git-init container:
  * - Clones repoUrl into /workspace if not already cloned
  * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
+ *
+ * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
  */
-export async function ensurePod(session: SessionKey, githubToken?: string): Promise<string> {
+export async function ensurePod(session: SessionKey, githubToken?: string, image?: string): Promise<string> {
+  const containerImage = image ?? config.opencodeImage
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
@@ -336,7 +339,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
     {
       name: "init",
       securityContext: secCtx,
-      image: config.opencodeImage,
+      image: containerImage,
       command: ["sh", "-c"],
       args: [initScript],
       ...(githubToken ? { envFrom: [{ secretRef: { name: githubSecretName(hash) } }] } : {}),
@@ -374,7 +377,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
       containers: [
         {
           name: "opencode",
-          image: config.opencodeImage,
+          image: containerImage,
           // Start the process in the cloned repo directory so opencode discovers the git project.
           // The init container clones directly into /workspace (subPath "repo" on the PVC).
           // The main container mounts the full PVC at /home/opencode, so the repo is at
@@ -457,6 +460,68 @@ export async function ensurePod(session: SessionKey, githubToken?: string): Prom
   }
 
   return hash
+}
+
+/**
+ * Pre-pull a container image by creating a test session, waiting for it to be ready,
+ * then terminating it. This ensures the image is cached on the node for faster cold starts.
+ *
+ * Uses the test session approach (see ADR-0003): create pod → wait for ready (smoke test)
+ * → delete pod. The readiness probe on /health validates the image actually works.
+ *
+ * @param image - The container image to pre-pull (e.g. "ghcr.io/org/opencode:sha-1234567")
+ * @param timeoutMs - Max time to wait for image pull + ready (default 5 minutes)
+ * @returns true if image was successfully pulled and verified, false otherwise
+ */
+export async function prepullImage(image: string, timeoutMs = 300_000): Promise<boolean> {
+  const testSession: SessionKey = {
+    email: "admin@opencode.ai",
+    repoUrl: "https://github.com/opencode/test-prepull.git",
+    branch: `prepull-${Date.now()}`,
+    sourceBranch: "main",
+  }
+
+  const hash = getSessionHash(testSession.email, testSession.repoUrl, testSession.branch)
+
+  try {
+    // Create PVC and pod with the new image
+    await ensurePVC(testSession)
+    await ensurePod(testSession, undefined, image)
+
+    // Poll until pod is running or timeout
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const state = await getPodState(hash)
+      if (state === "running") {
+        // Image pulled and verified (readiness probe passed = smoke test passed)
+        await terminateSession(hash, testSession.email)
+        return true
+      }
+      if (state === "none") {
+        // Pod was deleted or never created
+        return false
+      }
+      // Still creating, wait before next poll
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
+
+    // Timeout - clean up and return false
+    await terminateSession(hash, testSession.email).catch(() => {})
+    return false
+  } catch (err) {
+    console.error("prepullImage failed:", err)
+    // Clean up on error - terminateSession handles NotFound gracefully
+    try {
+      await terminateSession(hash, testSession.email)
+    } catch {
+      // PVC might not exist, clean up pod and PVC individually
+      await k8sApi.deleteNamespacedPod({ name: podName(hash), namespace: config.namespace }).catch(() => {})
+      await k8sApi
+        .deleteNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
+        .catch(() => {})
+    }
+    return false
+  }
 }
 
 /**
