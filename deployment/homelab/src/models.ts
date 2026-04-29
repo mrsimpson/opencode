@@ -5,9 +5,22 @@
 
 type RawModel = {
   id: string
+  name: string
   pricing: { prompt: string; completion: string }
   supported_parameters?: string[]
 }
+
+/**
+ * Format OpenRouter per-token pricing strings into a human-readable suffix.
+ * Values are dollars-per-token; multiply by 1,000,000 for $/M tokens.
+ * Free models return "free"; paid models return "$X in / $Y out".
+ */
+export function formatPricing(prompt: string, completion: string): string {
+  if (prompt === "0" && completion === "0") return "free"
+  const fmt = (v: string) => `$${(parseFloat(v) * 1_000_000).toPrecision(4).replace(/\.?0+$/, "")}/M`
+  return `${fmt(prompt)} in / ${fmt(completion)} out`
+}
+
 type LiveModel = { id: string }
 
 const EXCLUDED = new Set(["openrouter/free", "openrouter/elephant-alpha"])
@@ -32,7 +45,7 @@ export function filterFreeModels(models: RawModel[]): Record<string, object> {
     models
       .filter((m) => m.pricing.prompt === "0" && m.pricing.completion === "0")
       .filter((m) => !EXCLUDED.has(m.id) && !m.id.startsWith("google/lyria-") && !m.id.includes("guard"))
-      .map((m) => [m.id, {}]),
+      .map((m) => [m.id, { name: `${m.name} (${formatPricing(m.pricing.prompt, m.pricing.completion)})` }]),
   )
 }
 
@@ -45,7 +58,7 @@ export function filterPaidModels(models: RawModel[]): Record<string, object> {
     models
       .filter((m) => m.pricing.prompt !== "0" || m.pricing.completion !== "0")
       .slice(0, PAID_LIMIT)
-      .map((m) => [m.id, {}]),
+      .map((m) => [m.id, { name: `${m.name} (${formatPricing(m.pricing.prompt, m.pricing.completion)})` }]),
   )
 }
 
