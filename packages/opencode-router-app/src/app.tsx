@@ -9,6 +9,7 @@ import { SessionInputBar } from "./session-input-bar"
 import { SessionList } from "./session-list"
 import { SessionSidebar } from "./session-sidebar"
 import { buildSessionKey, GIT_URL_PATTERN } from "./setup-form-utils"
+import { getPhaseKindAfterUrlRestore } from "./session-utils"
 
 type AppPhase =
   | { kind: "loading" }
@@ -58,17 +59,33 @@ export function App() {
   }
 
   /** Restore app phase from the current browser URL after sessions have loaded. */
-  const restoreFromUrl = () => {
+  const restoreFromUrl = async () => {
     const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
     if (!m) return
     const hash = m[1]
     const session = sessions().find((s) => s.hash === hash)
     if (!session) return
-    if (session.url.includes("/session/")) {
-      setAppPhase({ kind: "open", hash, url: session.url })
-    } else {
-      setAppPhase({ kind: "creating", hash, url: session.url })
+
+    // Resume stopped sessions before setting app phase
+    let wasResumed = false
+    if (session.state === "stopped") {
+      try {
+        await resumeSession(session.hash)
+        wasResumed = true
+      } catch (error) {
+        console.error("Failed to resume session from URL", error)
+        setAppPhase({
+          kind: "error",
+          message: "Failed to resume session. Please try again or select a session from the list.",
+        })
+        return
+      }
     }
+
+    // After resuming, always set to "creating" to trigger LoadingScreen polling.
+    // For non-stopped sessions, use URL check to determine the phase.
+    const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
+    setAppPhase({ kind: phaseKind, hash, url: session.url })
   }
 
   onMount(() => {
@@ -77,7 +94,7 @@ export function App() {
       const p = appPhase()
       if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
     }, 5_000)
-    const onPopState = () => {
+    const onPopState = async () => {
       const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
       if (!m) {
         setAppPhase({ kind: "ready" })
@@ -85,13 +102,28 @@ export function App() {
       }
       const hash = m[1]
       const session = sessions().find((s) => s.hash === hash)
-      if (session) {
-        if (session.url.includes("/session/")) {
-          setAppPhase({ kind: "open", hash, url: session.url })
-        } else {
-          setAppPhase({ kind: "creating", hash, url: session.url })
+      if (!session) return
+
+      // Resume stopped sessions
+      let wasResumed = false
+      if (session.state === "stopped") {
+        try {
+          await resumeSession(session.hash)
+          wasResumed = true
+        } catch (error) {
+          console.error("Failed to resume session on popstate", error)
+          setAppPhase({
+            kind: "error",
+            message: "Failed to resume session. Please try again or select a session from the list.",
+          })
+          return
         }
       }
+
+      // After resuming, always set to "creating" to trigger LoadingScreen polling.
+      // For non-stopped sessions, use URL check to determine the phase.
+      const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
+      setAppPhase({ kind: phaseKind, hash, url: session.url })
     }
     window.addEventListener("popstate", onPopState)
     onCleanup(() => {
