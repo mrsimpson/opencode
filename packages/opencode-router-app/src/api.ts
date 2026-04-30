@@ -12,6 +12,16 @@ export interface Session {
   createdAt: string
   idleTimeoutMinutes: number
   description?: string
+  title?: string
+}
+
+export type StoredMessage = {
+  partID: string
+  messageID: string
+  sessionID: string
+  role: "user" | "assistant"
+  text: string
+  time: number
 }
 
 export interface SessionsResponse {
@@ -153,4 +163,26 @@ export async function listRepoBranches(repoFullName: string): Promise<Branch[]> 
   const res = await fetch(`/api/user/repos/branches?${params}`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`Failed to list branches: ${res.status}`)
   return res.json()
+}
+
+// Stub — to be implemented in GREEN phase
+export function subscribeSessionsStream(handlers: {
+  onSessions?: (data: { email: string; sessions: Session[] }) => void
+  onError?: (err: Event) => void
+}): EventSource {
+  // stub: creates EventSource but never calls handlers
+  return new EventSource("/api/sessions/stream")
+}
+
+// Stub — to be implemented in GREEN phase
+export function subscribeProgressStream(
+  hash: string,
+  handlers: {
+    onSnapshot?: (progress: { title?: string; messages: StoredMessage[] }) => void
+    onMessage?: (msg: StoredMessage) => void
+    onError?: (err: Event) => void
+  },
+): EventSource {
+  // stub: creates EventSource but never calls handlers
+  return new EventSource(`/api/sessions/${hash}/progress/stream`)
 }
