@@ -375,7 +375,13 @@ _None yet_
 - [x] **Git Commits**:
   - CM1: `ffa83ade7 feat(router): add model selection API and session model support`
   - CM2: `b7bff2063 feat(router-app): add model selection UI component`
-  - UI Fix: `39a87bf77 fix(router-app): improve model selection UI to match opencode style`
+  - UI Fix 1: `39a87bf77 fix(router-app): improve model selection UI to match opencode style`
+  - UI Fix 2: `e607de3ec fix(router-app): redesign model select with modal dialog (matching opencode UX)`
+    - Replaced dropdown with button + modal dialog (like opencode's DialogModel)
+    - Show current model as `Provider · Model` in button
+    - Modal has search/filter (like opencode's fuzzy search)
+    - Grouped model list by provider
+    - Visual checkmark for selected model
 
 ---
 
