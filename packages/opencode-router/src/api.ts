@@ -17,6 +17,14 @@ import {
   resumeSession,
   suggestBranch,
 } from "./pod-manager.js"
+import { podSecretStore } from "./pod-secret-store.js"
+import { messageStore } from "./message-store.js"
+import { createBroadcaster } from "./stream-broadcaster.js"
+import type { ProgressPushEvent, StoredMessage } from "./progress-types.js"
+
+// Module-level broadcaster singletons
+const sessionsChangedBroadcaster = createBroadcaster<void>()
+const progressBroadcaster = createBroadcaster<{ hash: string; message: StoredMessage }>()
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body))
@@ -92,6 +100,33 @@ export async function handleApi(
   if (url === "/api/ports" && req.method === "GET") {
     const ports = await getListeningPorts()
     json(res, 200, { ports })
+    return true
+  }
+
+  // GET /api/sessions/stream — SSE, emits full sessions snapshot when any session changes
+  if (url === "/api/sessions/stream" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    })
+    const sendSnapshot = async () => {
+      const sessions = await listUserSessions(email, req)
+      res.write(`event: sessions\ndata: ${JSON.stringify({ email, sessions })}\n\n`)
+    }
+    await sendSnapshot()
+    let closed = false
+    res.on("close", () => {
+      closed = true
+    })
+    const unsubscribe = sessionsChangedBroadcaster.subscribe(async () => {
+      if (closed) {
+        unsubscribe()
+        return
+      }
+      await sendSnapshot()
+    })
+    res.on("close", () => unsubscribe())
     return true
   }
 
@@ -174,6 +209,35 @@ export async function handleApi(
     }
     const branch = await suggestBranch(email, repoUrl)
     json(res, 200, { branch })
+    return true
+  }
+
+  // GET /api/sessions/:hash/progress/stream — SSE, emits message thread for a session
+  const progressStreamMatch = url.match(/^\/api\/sessions\/([a-f0-9]{12})\/progress\/stream$/)
+  if (progressStreamMatch && req.method === "GET") {
+    const hash = progressStreamMatch[1]
+    // Ownership check
+    const userSessions = await listUserSessions(email, req)
+    if (!userSessions.find((s) => s.hash === hash)) {
+      json(res, 403, { error: "Forbidden" })
+      return true
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    })
+    const progress = messageStore.get(hash) ?? { messages: [] }
+    res.write(`event: snapshot\ndata: ${JSON.stringify(progress)}\n\n`)
+    let closed = false
+    res.on("close", () => {
+      closed = true
+    })
+    const unsubscribe = progressBroadcaster.subscribe(({ hash: h, message }) => {
+      if (closed || h !== hash) return
+      res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`)
+    })
+    res.on("close", () => unsubscribe())
     return true
   }
 
@@ -488,6 +552,76 @@ export async function handleApi(
       json(res, 500, { error: "Internal server error" })
     }
 
+    return true
+  }
+
+  // POST /api/sessions/:hash/progress — pod plugin pushes session data
+  const progressPushMatch = url.match(/^\/api\/sessions\/([a-f0-9]{12})\/progress$/)
+  if (progressPushMatch && req.method === "POST") {
+    const hash = progressPushMatch[1]
+    const podSecret = req.headers["x-pod-secret"]
+    if (typeof podSecret !== "string" || !podSecretStore.verify(hash, podSecret)) {
+      json(res, 401, { error: "Unauthorized" })
+      return true
+    }
+    const raw = await readBody(req)
+    let event: ProgressPushEvent
+    try {
+      event = JSON.parse(raw)
+    } catch {
+      json(res, 400, { error: "Invalid JSON" })
+      return true
+    }
+    if (event.type === "session.title") {
+      messageStore.setTitle(hash, event.title)
+      sessionsChangedBroadcaster.emit()
+    } else if (event.type === "message.user") {
+      messageStore.addMessage(hash, {
+        partID: event.partID,
+        messageID: event.messageID,
+        sessionID: event.sessionID,
+        role: "user",
+        text: event.text,
+        time: event.time,
+      })
+      sessionsChangedBroadcaster.emit()
+      progressBroadcaster.emit({
+        hash,
+        message: {
+          partID: event.partID,
+          messageID: event.messageID,
+          sessionID: event.sessionID,
+          role: "user",
+          text: event.text,
+          time: event.time,
+        },
+      })
+    } else if (event.type === "message.assistant") {
+      messageStore.addMessage(hash, {
+        partID: event.partID,
+        messageID: event.messageID,
+        sessionID: event.sessionID,
+        role: "assistant",
+        text: event.text,
+        time: event.time,
+      })
+      sessionsChangedBroadcaster.emit()
+      progressBroadcaster.emit({
+        hash,
+        message: {
+          partID: event.partID,
+          messageID: event.messageID,
+          sessionID: event.sessionID,
+          role: "assistant",
+          text: event.text,
+          time: event.time,
+        },
+      })
+    } else {
+      json(res, 400, { error: "Unknown event type" })
+      return true
+    }
+    json(res, 200, { ok: true })
     return true
   }
 
