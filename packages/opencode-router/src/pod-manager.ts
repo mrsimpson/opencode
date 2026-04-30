@@ -4,6 +4,8 @@ import * as k8s from "@kubernetes/client-node"
 import { humanId as _humanId } from "human-id"
 import { config } from "./config.js"
 import * as devProxy from "./dev-proxy.js"
+import { podSecretStore } from "./pod-secret-store.js"
+import { messageStore } from "./message-store.js"
 
 const kc = new k8s.KubeConfig()
 // loadFromCluster() does not throw when not in a pod — it silently produces
@@ -89,6 +91,7 @@ export interface SessionInfo {
   createdAt: string
   idleTimeoutMinutes: number
   description?: string
+  title?: string
 }
 
 /**
@@ -170,6 +173,7 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
     createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
     idleTimeoutMinutes: config.idleTimeoutMinutes,
     description: initialMessage,
+    title: messageStore.get(hash)?.title,
   }
 }
 
@@ -386,12 +390,13 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
-  try {
-    await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    return hash // already exists
-  } catch (err) {
-    if (!isNotFound(err)) throw err
-  }
+  const existingPods = await k8sApi.listNamespacedPod({
+    namespace: config.namespace,
+    labelSelector: `${LABEL_SESSION_HASH}=${hash}`,
+  })
+  if (existingPods.items.some((p: k8s.V1Pod) => !p.metadata?.deletionTimestamp)) return hash
+
+  const podSecret = podSecretStore.generate(hash)
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
 
@@ -532,7 +537,10 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             failureThreshold: 20,
           },
           ports: [{ containerPort: config.opencodePort }],
-          env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
+          env: [
+            { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
+            { name: "OPENCODE_POD_SECRET", value: podSecret },
+          ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
@@ -867,7 +875,11 @@ export async function deleteIdlePods(): Promise<void> {
           .catch((err) => console.error(`Failed to delete pod ${name}:`, err))
 
         const hash = pod.metadata?.labels?.[LABEL_SESSION_HASH]
-        if (hash) activityThrottle.delete(hash)
+        if (hash) {
+          activityThrottle.delete(hash)
+          podSecretStore.delete(hash)
+          messageStore.delete(hash)
+        }
       }
     }
   } catch (err) {
@@ -906,6 +918,8 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   })
 
   activityThrottle.delete(hash)
+  podSecretStore.delete(hash)
+  messageStore.delete(hash)
 }
 
 /**
