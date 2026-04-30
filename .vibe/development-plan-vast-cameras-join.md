@@ -184,6 +184,7 @@ _None yet_
 - **No docs/ files exist**: Requirements, architecture, and design docs were not created for this project — all decisions are captured in this plan file.
 - **Final validation**: 53/53 router api tests pass, 19/19 frontend app tests pass, typecheck clean on both packages.
 - **CI gap: router-app changes did not trigger deployment**: The `build-opencode-router.yml` workflow only watched `packages/opencode-router/**` paths. Since the router-app SPA is built inside Stage 1 of the router's Dockerfile and bundled into the same image, any change to `packages/opencode-router-app/**` must also rebuild the router image. Fixed by adding `packages/opencode-router-app/**` to the workflow `paths` trigger. The full GitOps chain is: path trigger → image build → Pulumi.dev.yaml commit → deploy-homelab.yml push trigger → `pulumi up`.
+- **End-to-end GitOps chain validated live**: After pushing the CI fix to `main`, the full chain executed automatically and successfully in ~3 min total: Fork validation (45s ✅) → Build opencode-router image (1m36s ✅, pushed `ghcr.io/mrsimpson/opencode-router:0.0.1-main.b785fe7`) → Deploy to homelab (1m5s ✅, `~ 1 updated, 18 unchanged` via `pulumi up`). No manual intervention needed.
 
 ### Tasks
 
@@ -196,6 +197,7 @@ _None yet_
 - [x] Update plan file with commit phase decisions
 - [x] Make final commit
 - [x] Fix CI: add `packages/opencode-router-app/**` to `build-opencode-router.yml` path trigger
+- [x] Push to main and validate full GitOps chain fires end-to-end automatically
 
 ### Completed
 
@@ -203,6 +205,7 @@ _None yet_
 - Final validation: 53/53 router tests + 19/19 app tests green; typecheck clean
 - Documentation: all key decisions captured in this plan file
 - CI fix: router-app-only changes now trigger automatic image build and deployment
+- Live validation: full GitOps chain (validate → build → deploy) ran automatically on push, ~3 min total, all steps green
 
 ---
 
