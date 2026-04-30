@@ -40,6 +40,22 @@ const mocks = {
 
 mock.module("./pod-manager.js", () => mocks)
 
+// Mock new store modules (api.ts will import them after our new routes are added)
+const podSecretMocks = {
+  verify: mock((_hash: string, _secret: string) => true as boolean),
+  generate: mock((_hash: string) => "a".repeat(64)),
+  get: mock((_hash: string) => undefined as string | undefined),
+  delete: mock((_hash: string) => {}),
+}
+const messageStoreMocks = {
+  get: mock((_hash: string) => ({ title: undefined as string | undefined, messages: [] as object[] })),
+  setTitle: mock((_hash: string, _title: string) => {}),
+  addMessage: mock((_hash: string, _msg: object) => {}),
+  delete: mock((_hash: string) => {}),
+}
+mock.module("./pod-secret-store.js", () => ({ podSecretStore: podSecretMocks }))
+mock.module("./message-store.js", () => ({ messageStore: messageStoreMocks }))
+
 const { handleApi } = await import("./api.js")
 
 // ---------------------------------------------------------------------------
@@ -1155,5 +1171,309 @@ describe("GET /api/sessions/:hash/events (SSE)", () => {
     const sseData = res._chunks.join("")
     expect(sseData).toContain("event: error")
     expect(sseData).toContain("not found")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions/:hash/progress — pod plugin pushes session data
+// ---------------------------------------------------------------------------
+
+// SSE response helper (scoped here for new SSE tests below)
+function fakeSseResGlobal(): {
+  statusCode: number
+  headers: Record<string, string>
+  writeHead: Function
+  write: Function
+  end: Function
+  _chunks: string[]
+  on: Function
+} {
+  const r: any = { statusCode: 200, headers: {}, _chunks: [] }
+  r.writeHead = (status: number, headers?: object) => {
+    r.statusCode = status
+    Object.assign(r.headers, headers ?? {})
+    return r
+  }
+  r.write = (data: string) => {
+    r._chunks.push(data)
+    return true
+  }
+  r.end = () => {}
+  r.on = (_event: string, _cb: Function) => {}
+  return r
+}
+
+describe("POST /api/sessions/:hash/progress", () => {
+  beforeEach(() => {
+    podSecretMocks.verify.mockReset()
+    podSecretMocks.verify.mockImplementation(() => true)
+    messageStoreMocks.setTitle.mockReset()
+    messageStoreMocks.addMessage.mockReset()
+  })
+
+  it("returns 401 when X-Pod-Secret header is missing", async () => {
+    podSecretMocks.verify.mockImplementation(() => false)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "session.title",
+      sessionID: "sess-1",
+      title: "My Title",
+    })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it("returns 401 when X-Pod-Secret header is wrong", async () => {
+    podSecretMocks.verify.mockImplementation(() => false)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "session.title",
+      sessionID: "sess-1",
+      title: "My Title",
+    })
+    ;(req as any).headers["x-pod-secret"] = "wrong-secret"
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it("returns 200 with { ok: true } for valid session.title event", async () => {
+    podSecretMocks.verify.mockImplementation(() => true)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "session.title",
+      sessionID: "sess-1",
+      title: "My Title",
+    })
+    ;(req as any).headers["x-pod-secret"] = "valid-secret"
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ok).toBe(true)
+    expect(messageStoreMocks.setTitle).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns 200 with { ok: true } for valid message.user event", async () => {
+    podSecretMocks.verify.mockImplementation(() => true)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "message.user",
+      partID: "part-1",
+      messageID: "msg-1",
+      sessionID: "sess-1",
+      text: "Hello",
+      time: 1000,
+    })
+    ;(req as any).headers["x-pod-secret"] = "valid-secret"
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ok).toBe(true)
+    expect(messageStoreMocks.addMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns 200 with { ok: true } for valid message.assistant event", async () => {
+    podSecretMocks.verify.mockImplementation(() => true)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "message.assistant",
+      partID: "part-2",
+      messageID: "msg-1",
+      sessionID: "sess-1",
+      text: "World",
+      time: 2000,
+    })
+    ;(req as any).headers["x-pod-secret"] = "valid-secret"
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ok).toBe(true)
+    expect(messageStoreMocks.addMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns 400 when body is invalid JSON", async () => {
+    podSecretMocks.verify.mockImplementation(() => true)
+    // Build a request with non-JSON body
+    const r = new Readable() as any
+    r.method = "POST"
+    r.url = "/api/sessions/abc123456789/progress"
+    r.headers = { "x-pod-secret": "valid-secret" }
+    r.push("not-valid-json")
+    r.push(null)
+    const res = fakeRes()
+
+    const handled = await handleApi(r as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+
+  it("returns 400 when event type is unknown", async () => {
+    podSecretMocks.verify.mockImplementation(() => true)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/progress", {
+      type: "unknown.event",
+      sessionID: "sess-1",
+    })
+    ;(req as any).headers["x-pod-secret"] = "valid-secret"
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/stream — SSE session list stream
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/stream (SSE)", () => {
+  beforeEach(() => {
+    mocks.listUserSessions.mockReset()
+    mocks.listUserSessions.mockImplementation(() =>
+      Promise.resolve([
+        {
+          hash: "abc123456789",
+          email: EMAIL,
+          repoUrl: "https://github.com/x/y",
+          branch: "main",
+          state: "running",
+          url: "https://abc123456789.opencode.test.local",
+          lastActivity: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          idleTimeoutMinutes: 30,
+        },
+      ]),
+    )
+  })
+
+  it("returns 200 with Content-Type: text/event-stream header", async () => {
+    const req = fakeReq("GET", "/api/sessions/stream")
+    const res = fakeSseResGlobal()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers["Content-Type"]).toBe("text/event-stream")
+  })
+
+  it("sends initial sessions event immediately on connect with correct shape", async () => {
+    const req = fakeReq("GET", "/api/sessions/stream")
+    const res = fakeSseResGlobal()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: sessions")
+    const dataLine = sseData.split("\n").find((l) => l.startsWith("data:"))
+    expect(dataLine).toBeDefined()
+    const payload = JSON.parse(dataLine!.replace(/^data:\s*/, ""))
+    expect(payload.email).toBe(EMAIL)
+    expect(Array.isArray(payload.sessions)).toBe(true)
+  })
+
+  it("sessions event data contains the email field", async () => {
+    const req = fakeReq("GET", "/api/sessions/stream")
+    const res = fakeSseResGlobal()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain(EMAIL)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/:hash/progress/stream — SSE per-session message stream
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/:hash/progress/stream (SSE)", () => {
+  beforeEach(() => {
+    mocks.listUserSessions.mockReset()
+    mocks.listUserSessions.mockImplementation(() =>
+      Promise.resolve([
+        {
+          hash: "abc123456789",
+          email: EMAIL,
+          repoUrl: "https://github.com/x/y",
+          branch: "main",
+          state: "running",
+          url: "https://abc123456789.opencode.test.local",
+          lastActivity: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          idleTimeoutMinutes: 30,
+        },
+      ]),
+    )
+    messageStoreMocks.get.mockReset()
+    messageStoreMocks.get.mockImplementation(() => ({ title: "Test Title", messages: [] }))
+  })
+
+  it("returns 200 with Content-Type: text/event-stream for owned session", async () => {
+    const req = fakeReq("GET", "/api/sessions/abc123456789/progress/stream")
+    const res = fakeSseResGlobal()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers["Content-Type"]).toBe("text/event-stream")
+  })
+
+  it("sends snapshot event on connect with { title, messages } shape", async () => {
+    const req = fakeReq("GET", "/api/sessions/abc123456789/progress/stream")
+    const res = fakeSseResGlobal()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: snapshot")
+    const dataLine = sseData.split("\n").find((l) => l.startsWith("data:"))
+    expect(dataLine).toBeDefined()
+    const payload = JSON.parse(dataLine!.replace(/^data:\s*/, ""))
+    expect(Array.isArray(payload.messages)).toBe(true)
+  })
+
+  it("returns 403 when hash does not belong to authenticated user", async () => {
+    // listUserSessions returns sessions for a different hash
+    mocks.listUserSessions.mockImplementation(() =>
+      Promise.resolve([
+        {
+          hash: "000000000000",
+          email: EMAIL,
+          repoUrl: "https://github.com/x/y",
+          branch: "other",
+          state: "running",
+          url: "https://000000000000.opencode.test.local",
+          lastActivity: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          idleTimeoutMinutes: 30,
+        },
+      ]),
+    )
+
+    const req = fakeReq("GET", "/api/sessions/abc123456789/progress/stream")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(403)
   })
 })
