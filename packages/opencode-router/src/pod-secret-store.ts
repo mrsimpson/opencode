@@ -1,18 +1,21 @@
-// STUB — returns wrong values so tests fail on assertions
+import crypto from "node:crypto"
+
+const store = new Map<string, string>()
+
 export const podSecretStore = {
-  generate(_hash: string): string {
-    // stub: returns wrong length / wrong value
-    return "stub"
+  generate(hash: string): string {
+    const secret = crypto.randomBytes(32).toString("hex")
+    store.set(hash, secret)
+    return secret
   },
-  get(_hash: string): string | undefined {
-    // stub: always undefined
-    return undefined
+  get(hash: string): string | undefined {
+    return store.get(hash)
   },
-  delete(_hash: string): void {
-    // stub: no-op
+  delete(hash: string): void {
+    store.delete(hash)
   },
-  verify(_hash: string, _secret: string): boolean {
-    // stub: always false
-    return false
+  verify(hash: string, secret: string): boolean {
+    const stored = store.get(hash)
+    return stored !== undefined && stored === secret
   },
 }

@@ -1,18 +1,22 @@
 import type { StoredMessage, SessionProgress } from "./progress-types.js"
 
-// STUB — returns wrong values so tests fail on assertions
+const store = new Map<string, SessionProgress>()
+
 export const messageStore = {
-  setTitle(_hash: string, _title: string): void {
-    // stub: no-op
+  setTitle(hash: string, title: string): void {
+    const existing = store.get(hash) ?? { messages: [] }
+    store.set(hash, { ...existing, title })
   },
-  addMessage(_hash: string, _msg: StoredMessage): void {
-    // stub: no-op
+  addMessage(hash: string, msg: StoredMessage): void {
+    const existing = store.get(hash) ?? { messages: [] }
+    // dedup by partID
+    if (existing.messages.some((m) => m.partID === msg.partID)) return
+    store.set(hash, { ...existing, messages: [...existing.messages, msg] })
   },
-  get(_hash: string): SessionProgress | undefined {
-    // stub: always returns undefined (wrong for most tests)
-    return undefined
+  get(hash: string): SessionProgress | undefined {
+    return store.get(hash)
   },
-  delete(_hash: string): void {
-    // stub: no-op
+  delete(hash: string): void {
+    store.delete(hash)
   },
 }

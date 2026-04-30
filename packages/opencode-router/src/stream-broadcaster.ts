@@ -1,12 +1,12 @@
-// STUB — subscribe/emit wired up incorrectly so tests fail on assertions
 export function createBroadcaster<T>() {
+  const listeners = new Set<(value: T) => void>()
   return {
-    subscribe(_listener: (value: T) => void): () => void {
-      // stub: never stores listener, returns no-op unsubscribe
-      return () => {}
+    subscribe(listener: (value: T) => void): () => void {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
     },
-    emit(_value: T): void {
-      // stub: no-op — no listeners called
+    emit(value: T): void {
+      for (const listener of listeners) listener(value)
     },
   }
 }
