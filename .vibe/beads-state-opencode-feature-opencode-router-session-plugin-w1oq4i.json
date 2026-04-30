@@ -1,0 +1,29 @@
+{
+  "conversationId": "opencode-feature-opencode-router-session-plugin-w1oq4i",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-8",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-8.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-8.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-8.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-8.4"
+    }
+  ],
+  "createdAt": "2026-04-30T04:36:54.190Z",
+  "updatedAt": "2026-04-30T04:36:54.190Z"
+}
