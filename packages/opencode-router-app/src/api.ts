@@ -165,16 +165,19 @@ export async function listRepoBranches(repoFullName: string): Promise<Branch[]> 
   return res.json()
 }
 
-// Stub — to be implemented in GREEN phase
 export function subscribeSessionsStream(handlers: {
   onSessions?: (data: { email: string; sessions: Session[] }) => void
   onError?: (err: Event) => void
 }): EventSource {
-  // stub: creates EventSource but never calls handlers
-  return new EventSource("/api/sessions/stream")
+  const es = new EventSource("/api/sessions/stream")
+  es.addEventListener("sessions", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as { email: string; sessions: Session[] }
+    handlers.onSessions?.(data)
+  })
+  if (handlers.onError) es.onerror = handlers.onError
+  return es
 }
 
-// Stub — to be implemented in GREEN phase
 export function subscribeProgressStream(
   hash: string,
   handlers: {
@@ -183,6 +186,15 @@ export function subscribeProgressStream(
     onError?: (err: Event) => void
   },
 ): EventSource {
-  // stub: creates EventSource but never calls handlers
-  return new EventSource(`/api/sessions/${hash}/progress/stream`)
+  const es = new EventSource(`/api/sessions/${hash}/progress/stream`)
+  es.addEventListener("snapshot", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as { title?: string; messages: StoredMessage[] }
+    handlers.onSnapshot?.(data)
+  })
+  es.addEventListener("message", (e) => {
+    const data = JSON.parse((e as MessageEvent).data) as StoredMessage
+    handlers.onMessage?.(data)
+  })
+  if (handlers.onError) es.onerror = handlers.onError
+  return es
 }
