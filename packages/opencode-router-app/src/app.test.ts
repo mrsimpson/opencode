@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { computeIdleStatus, getPhaseKindAfterUrlRestore, type IdleLabels } from "./session-utils"
+import { subscribeSessionsStream } from "./api"
 
 const labels: IdleLabels = {
   stopsIn: (m) => `stops in ~${m}m`,
@@ -77,5 +78,33 @@ describe("getPhaseKindAfterUrlRestore", () => {
   it('returns "creating" for URLs without path when not resumed', () => {
     const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002")
     expect(result).toBe("creating")
+  })
+})
+
+describe("subscribeSessionsStream API contract", () => {
+  it("is a function accepting handlers object", () => {
+    expect(typeof subscribeSessionsStream).toBe("function")
+  })
+
+  it("does not require any handlers (all optional)", () => {
+    const originalEventSource = globalThis.EventSource
+    const mockEs = { addEventListener: () => {}, close: () => {}, onerror: null }
+    // Use a class so it satisfies `new EventSource(...)` call
+    class MockEventSource {
+      addEventListener() {}
+      close() {}
+      onerror = null
+    }
+    globalThis.EventSource = MockEventSource as any
+    expect(() => subscribeSessionsStream({})).not.toThrow()
+    globalThis.EventSource = originalEventSource
+  })
+})
+
+describe("app.tsx polling replacement", () => {
+  it("app.tsx source does not contain setInterval for session polling", async () => {
+    const src = await Bun.file(new URL("./app.tsx", import.meta.url)).text()
+    const matches = src.match(/setInterval/g)
+    expect(matches).toBeNull()
   })
 })
