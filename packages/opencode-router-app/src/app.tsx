@@ -2,7 +2,15 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
-import { type Session, createSession, listSessions, resumeSession, suggestBranch, terminateSession } from "./api"
+import {
+  type Session,
+  createSession,
+  listSessions,
+  resumeSession,
+  subscribeSessionsStream,
+  suggestBranch,
+  terminateSession,
+} from "./api"
 import { useT } from "./i18n"
 import { LoadingScreen } from "./loading-screen"
 import { SessionInputBar } from "./session-input-bar"
@@ -89,10 +97,23 @@ export function App() {
 
   onMount(() => {
     loadSessions().then(restoreFromUrl)
-    const timer = setInterval(() => {
-      const p = appPhase()
-      if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
-    }, 5_000)
+
+    // Use SSE stream instead of polling
+    let es: EventSource | null = null
+    const startStream = () => {
+      es?.close()
+      es = subscribeSessionsStream({
+        onSessions: (data) => {
+          batch(() => {
+            setEmail(data.email)
+            setSessions(data.sessions)
+            if (appPhase().kind === "loading") setAppPhase({ kind: "ready" })
+          })
+        },
+      })
+    }
+    startStream()
+
     const onPopState = async () => {
       const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
       if (!m) {
@@ -126,7 +147,7 @@ export function App() {
     }
     window.addEventListener("popstate", onPopState)
     onCleanup(() => {
-      clearInterval(timer)
+      es?.close()
       window.removeEventListener("popstate", onPopState)
     })
   })
