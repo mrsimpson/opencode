@@ -108,3 +108,10 @@ describe("app.tsx polling replacement", () => {
     expect(matches).toBeNull()
   })
 })
+
+describe("session-item.tsx title display", () => {
+  it("session-item.tsx source references session.title", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    expect(src).toContain("session.title")
+  })
+})
