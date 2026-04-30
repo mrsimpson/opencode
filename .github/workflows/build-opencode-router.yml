@@ -8,6 +8,7 @@ on:
       - homelab-deployment
     paths:
       - packages/opencode-router/**
+      - packages/opencode-router-app/**
       - .github/workflows/build-opencode-router.yml
   workflow_dispatch:
 

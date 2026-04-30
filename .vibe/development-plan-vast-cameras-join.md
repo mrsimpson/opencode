@@ -183,6 +183,7 @@ _None yet_
 - **Pre-existing test failures unrelated to this feature**: `hostname.test.ts` (config isolation) and `pod-manager.test.ts` (`bun install` dependency) failures are pre-existing and not caused by this work.
 - **No docs/ files exist**: Requirements, architecture, and design docs were not created for this project — all decisions are captured in this plan file.
 - **Final validation**: 53/53 router api tests pass, 19/19 frontend app tests pass, typecheck clean on both packages.
+- **CI gap: router-app changes did not trigger deployment**: The `build-opencode-router.yml` workflow only watched `packages/opencode-router/**` paths. Since the router-app SPA is built inside Stage 1 of the router's Dockerfile and bundled into the same image, any change to `packages/opencode-router-app/**` must also rebuild the router image. Fixed by adding `packages/opencode-router-app/**` to the workflow `paths` trigger. The full GitOps chain is: path trigger → image build → Pulumi.dev.yaml commit → deploy-homelab.yml push trigger → `pulumi up`.
 
 ### Tasks
 
@@ -194,12 +195,14 @@ _None yet_
 - [x] Run typecheck — clean on both packages
 - [x] Update plan file with commit phase decisions
 - [x] Make final commit
+- [x] Fix CI: add `packages/opencode-router-app/**` to `build-opencode-router.yml` path trigger
 
 ### Completed
 
 - Code cleanup: all red-phase development artifacts removed from test file
 - Final validation: 53/53 router tests + 19/19 app tests green; typecheck clean
 - Documentation: all key decisions captured in this plan file
+- CI fix: router-app-only changes now trigger automatic image build and deployment
 
 ---
 
