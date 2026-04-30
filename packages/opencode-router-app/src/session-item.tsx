@@ -98,6 +98,11 @@ export function SessionItem(props: Props) {
               <p class="text-13-medium truncate" style={{ color: "var(--text-base)" }}>
                 {repo()}
               </p>
+              <Show when={props.session.title}>
+                <p class="text-12-medium truncate" style={{ color: "var(--text-base)" }}>
+                  {props.session.title}
+                </p>
+              </Show>
               <Show when={props.session.description}>
                 <p class="text-12-regular truncate" style={{ color: "var(--text-dimmed-base)" }}>
                   {props.session.description}
@@ -136,6 +141,13 @@ export function SessionItem(props: Props) {
             }}
           >
             <div class="flex flex-col gap-3 px-4 pb-4 pt-1" style={{ "border-top": "1px solid var(--border-base)" }}>
+              {/* Title (shown when no description) */}
+              <Show when={props.session.title && !props.session.description}>
+                <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
+                  {props.session.title}
+                </p>
+              </Show>
+
               {/* Full description */}
               <Show when={props.session.description}>
                 <p
