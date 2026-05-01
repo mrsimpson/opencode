@@ -540,6 +540,8 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
           env: [
             { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
             { name: "OPENCODE_POD_SECRET", value: podSecret },
+            { name: "OPENCODE_SESSION_HASH", value: hash },
+            ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
           ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
