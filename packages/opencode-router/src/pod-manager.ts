@@ -531,7 +531,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             ].join("\n"),
           ],
           readinessProbe: {
-            httpGet: { path: "/health", port: config.opencodePort },
+            httpGet: { path: "/global/health", port: config.opencodePort },
             initialDelaySeconds: 5,
             periodSeconds: 3,
             failureThreshold: 20,
@@ -608,7 +608,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
  * then terminating it. This ensures the image is cached on the node for faster cold starts.
  *
  * Uses the test session approach (see ADR-0003): create pod → wait for ready (smoke test)
- * → delete pod. The readiness probe on /health validates the image actually works.
+ * → delete pod. The readiness probe on /global/health validates the image actually works.
  *
  * @param image - The container image to pre-pull (e.g. "ghcr.io/org/opencode:sha-1234567")
  * @param timeoutMs - Max time to wait for image pull + ready (default 5 minutes)
