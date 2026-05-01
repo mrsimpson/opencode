@@ -174,7 +174,15 @@ export function subscribeSessionsStream(handlers: {
     const data = JSON.parse((e as MessageEvent).data) as { email: string; sessions: Session[] }
     handlers.onSessions?.(data)
   })
-  if (handlers.onError) es.onerror = handlers.onError
+  // Named "error" event sent by the router when it can't list sessions
+  es.addEventListener("error", (e) => {
+    es.close()
+    handlers.onError?.(e)
+  })
+  // Also handle connection-level errors (e.g. server unreachable)
+  es.onerror = (e) => {
+    handlers.onError?.(e)
+  }
   return es
 }
 

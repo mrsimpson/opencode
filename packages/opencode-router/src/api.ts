@@ -111,8 +111,15 @@ export async function handleApi(
       Connection: "keep-alive",
     })
     const sendSnapshot = async () => {
-      const sessions = await listUserSessions(email, req)
-      res.write(`event: sessions\ndata: ${JSON.stringify({ email, sessions })}\n\n`)
+      try {
+        const sessions = await listUserSessions(email, req)
+        res.write(`event: sessions\ndata: ${JSON.stringify({ email, sessions })}\n\n`)
+      } catch (err) {
+        console.error("sessions/stream: listUserSessions failed:", err)
+        // Write an error event so the client can react, then close
+        res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to list sessions" })}\n\n`)
+        res.end()
+      }
     }
     await sendSnapshot()
     let closed = false

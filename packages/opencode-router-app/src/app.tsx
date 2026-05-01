@@ -5,7 +5,6 @@ import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "so
 import {
   type Session,
   createSession,
-  listSessions,
   resumeSession,
   subscribeSessionsStream,
   suggestBranch,
@@ -48,23 +47,6 @@ export function App() {
   /** Navigate the browser URL without a full-page reload. */
   const navigate = (path: string) => window.history.pushState({}, "", path)
 
-  const loadSessions = async () => {
-    try {
-      const data = await listSessions()
-      setEmail(data.email)
-      setSessions(data.sessions)
-      if (appPhase().kind === "loading") setAppPhase({ kind: "ready" })
-    } catch (err) {
-      const message =
-        err instanceof Error && err.name === "TimeoutError"
-          ? t("app.error.timeout")
-          : err instanceof Error
-            ? err.message
-            : t("app.error.connect")
-      setAppPhase({ kind: "error", message })
-    }
-  }
-
   /** Restore app phase from the current browser URL after sessions have loaded. */
   const restoreFromUrl = async () => {
     const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
@@ -96,9 +78,8 @@ export function App() {
   }
 
   onMount(() => {
-    loadSessions().then(restoreFromUrl)
-
-    // Use SSE stream instead of polling
+    // SSE stream provides the initial snapshot and all subsequent updates.
+    // loadSessions() is no longer called on mount — the SSE replaces polling.
     let es: EventSource | null = null
     const startStream = () => {
       es?.close()
@@ -107,8 +88,16 @@ export function App() {
           batch(() => {
             setEmail(data.email)
             setSessions(data.sessions)
-            if (appPhase().kind === "loading") setAppPhase({ kind: "ready" })
+            if (appPhase().kind === "loading") {
+              setAppPhase({ kind: "ready" })
+              restoreFromUrl()
+            }
           })
+        },
+        onError: () => {
+          if (appPhase().kind === "loading") {
+            setAppPhase({ kind: "error", message: t("app.error.connect") })
+          }
         },
       })
     }
@@ -191,7 +180,7 @@ export function App() {
                 navigate("/")
                 setAppPhase({ kind: "ready" })
               }
-              loadSessions()
+              // SSE stream will update session list automatically via sessionsChangedBroadcaster
             }}
           >
             {t("session.action.terminate")}
