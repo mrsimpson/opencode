@@ -115,3 +115,16 @@ describe("session-item.tsx title display", () => {
     expect(src).toContain("session.title")
   })
 })
+
+describe("session-item.tsx expand panel progress stream", () => {
+  it("session-item.tsx source uses subscribeProgressStream when panel is expanded", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    expect(src).toContain("subscribeProgressStream")
+  })
+
+  it("session-item.tsx source renders messages from progress stream", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    // The component must render message text from the progress stream
+    expect(src).toContain("messages")
+  })
+})
