@@ -44,35 +44,42 @@ const messageRoles = new Map<string, "user" | "assistant">()
 const RouterPlugin = async (input: any) => {
   // Startup replay: push all existing sessions/messages so the router recovers
   // state after a pod resume. The router deduplicates by partID — safe to replay.
-  try {
-    const listResult = await input.client.session.list()
-    const sessions: any[] = listResult.data ?? []
-    for (const session of sessions) {
-      if (session.title) {
-        await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
-      }
-      const msgResult = await input.client.session.messages({ path: { id: session.id } })
-      const messages: any[] = msgResult.data ?? []
-      for (const entry of messages) {
-        const msg = entry.info
-        const parts: any[] = entry.parts ?? []
-        for (const part of parts) {
-          if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
-            await pushEvent({
-              type: msg.role === "user" ? "message.user" : "message.assistant",
-              partID: part.id,
-              messageID: msg.id,
-              sessionID: session.id,
-              text: part.text ?? "",
-              time: msg.time?.created ?? Date.now(),
-            })
+  //
+  // Runs *after* returning hooks (via setTimeout) so the server finishes
+  // initialising and starts serving HTTP before we call input.client.
+  // Without this delay, session.list() would call the server before it's ready,
+  // creating a deadlock that prevents opencode from passing its readiness probe.
+  setTimeout(async () => {
+    try {
+      const listResult = await input.client.session.list()
+      const sessions: any[] = listResult.data ?? []
+      for (const session of sessions) {
+        if (session.title) {
+          await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
+        }
+        const msgResult = await input.client.session.messages({ path: { id: session.id } })
+        const messages: any[] = msgResult.data ?? []
+        for (const entry of messages) {
+          const msg = entry.info
+          const parts: any[] = entry.parts ?? []
+          for (const part of parts) {
+            if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
+              await pushEvent({
+                type: msg.role === "user" ? "message.user" : "message.assistant",
+                partID: part.id,
+                messageID: msg.id,
+                sessionID: session.id,
+                text: part.text ?? "",
+                time: msg.time?.created ?? Date.now(),
+              })
+            }
           }
         }
       }
+    } catch {
+      // Replay failure is non-fatal
     }
-  } catch {
-    // Replay failure is non-fatal — hooks still register
-  }
+  }, 5_000) // 5s delay — enough for opencode to finish initialising
 
   return {
     event: async ({ event }: { event: any }) => {

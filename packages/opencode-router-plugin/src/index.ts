@@ -6,35 +6,39 @@ const messageRoles = new Map<string, "user" | "assistant">()
 
 const RouterPlugin: Plugin = async (input) => {
   // Startup replay: push all existing sessions/messages so router recovers state after pod resume.
-  // This is idempotent — the router deduplicates by partID.
-  try {
-    const listResult = await input.client.session.list()
-    const sessions = listResult.data ?? []
-    for (const session of sessions) {
-      if (session.title) {
-        await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
-      }
-      const msgResult = await input.client.session.messages({ path: { id: session.id } })
-      const messages = msgResult.data ?? []
-      for (const entry of messages) {
-        const msg = entry.info
-        for (const part of (entry as any).parts ?? []) {
-          if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
-            await pushEvent({
-              type: msg.role === "user" ? "message.user" : "message.assistant",
-              partID: part.id,
-              messageID: msg.id,
-              sessionID: session.id,
-              text: part.text ?? "",
-              time: msg.time?.created ?? Date.now(),
-            })
+  // Runs *after* returning hooks so the server finishes init and starts serving HTTP first —
+  // avoids a deadlock where input.client.session.list() calls the server before it's ready.
+  // The router deduplicates by partID so replay is always safe to run.
+  setTimeout(async () => {
+    try {
+      const listResult = await input.client.session.list()
+      const sessions = listResult.data ?? []
+      for (const session of sessions) {
+        if (session.title) {
+          await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
+        }
+        const msgResult = await input.client.session.messages({ path: { id: session.id } })
+        const messages = msgResult.data ?? []
+        for (const entry of messages) {
+          const msg = entry.info
+          for (const part of (entry as any).parts ?? []) {
+            if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
+              await pushEvent({
+                type: msg.role === "user" ? "message.user" : "message.assistant",
+                partID: part.id,
+                messageID: msg.id,
+                sessionID: session.id,
+                text: part.text ?? "",
+                time: msg.time?.created ?? Date.now(),
+              })
+            }
           }
         }
       }
+    } catch {
+      // Replay failure is non-fatal
     }
-  } catch {
-    // Replay failure is non-fatal — hooks still register
-  }
+  }, 5_000) // 5s delay — enough for the server to finish starting up
 
   return {
     event: async ({ event }) => {
