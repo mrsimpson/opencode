@@ -1,7 +1,8 @@
-import { Show, createSignal } from "solid-js"
+import { For, Show, createEffect, createSignal, onCleanup } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import { Portal } from "solid-js/web"
-import type { Session } from "./api"
+import type { Session, StoredMessage } from "./api"
+import { subscribeProgressStream } from "./api"
 import { useT } from "./i18n"
 import { StatusDot } from "./status-dot"
 import { computeIdleStatus } from "./session-utils"
@@ -72,6 +73,26 @@ export function SessionItem(props: Props) {
   /** Second line for compact variant */
   const compactMeta = () =>
     props.session.state === "stopped" ? `stopped ${formatDate(props.session.lastActivity)}` : `started ${created()}`
+
+  // Live message thread from /progress/stream — opened when panel is expanded
+  const [messages, setMessages] = createSignal<StoredMessage[]>([])
+
+  createEffect(() => {
+    if (!props.expanded) {
+      setMessages([])
+      return
+    }
+    const es = subscribeProgressStream(props.session.hash, {
+      onSnapshot: (progress) => setMessages(progress.messages),
+      onMessage: (msg) =>
+        setMessages((prev) => {
+          // dedup by partID (router does it too, but be defensive client-side)
+          if (prev.some((m) => m.partID === msg.partID)) return prev
+          return [...prev, msg]
+        }),
+    })
+    onCleanup(() => es.close())
+  })
 
   return (
     <Show
@@ -156,6 +177,30 @@ export function SessionItem(props: Props) {
                 >
                   {props.session.description}
                 </p>
+              </Show>
+
+              {/* Live message thread from /progress/stream */}
+              <Show when={messages().length > 0}>
+                <div
+                  class="flex flex-col gap-1 max-h-40 overflow-y-auto"
+                  style={{ "border-top": "1px solid var(--border-base)", "padding-top": "8px" }}
+                >
+                  <For each={messages()}>
+                    {(msg) => (
+                      <div
+                        class="text-11-regular"
+                        style={{
+                          color: msg.role === "user" ? "var(--text-base)" : "var(--text-dimmed-base)",
+                          "text-align": msg.role === "user" ? "right" : "left",
+                          "word-break": "break-word",
+                          "white-space": "pre-wrap",
+                        }}
+                      >
+                        {msg.text}
+                      </div>
+                    )}
+                  </For>
+                </div>
               </Show>
 
               {/* Created + idle status */}
