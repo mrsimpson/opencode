@@ -1,12 +1,14 @@
-export interface Session {
-  hash: string
-  email: string
-  repoUrl: string
+import { z } from "zod"
+
+export const SessionSchema = z.object({
+  hash: z.string(),
+  email: z.string(),
+  repoUrl: z.string(),
   /** Session branch — auto-generated unique name (e.g. "calm-snails-dream") */
-  branch: string
+  branch: z.string(),
   /** Source branch the session was created from (e.g. "main") */
-  sourceBranch: string
-  state: "creating" | "running" | "stopped"
+  sourceBranch: z.string(),
+  state: z.enum(["creating", "running", "stopped"]),
   /**
    * Deep link URL to the opencode session, e.g.
    *   https://<hash>-oc.<domain>/<workspace-b64>/session/<sessionId>
@@ -14,26 +16,45 @@ export interface Session {
    * null when the pod is not running or the session URL is not yet resolved.
    * The events SSE fires `complete` only once this is non-null.
    */
-  url: string | null
-  lastActivity: string
-  createdAt: string
-  idleTimeoutMinutes: number
-  description?: string
-  title?: string
-}
+  url: z.string().nullable(),
+  lastActivity: z.string(),
+  createdAt: z.string(),
+  idleTimeoutMinutes: z.number(),
+  description: z.string().optional(),
+  title: z.string().optional(),
+})
+export type Session = z.infer<typeof SessionSchema>
 
-export type StoredMessage = {
-  partID: string
-  messageID: string
-  sessionID: string
-  role: "user" | "assistant"
-  text: string
-  time: number
-}
+export const StoredMessageSchema = z.object({
+  partID: z.string().min(1),
+  messageID: z.string().min(1),
+  sessionID: z.string().min(1),
+  role: z.enum(["user", "assistant"]),
+  text: z.string(),
+  time: z.number(),
+})
+export type StoredMessage = z.infer<typeof StoredMessageSchema>
 
-export interface SessionsResponse {
-  email: string
-  sessions: Session[]
+export const SessionsResponseSchema = z.object({
+  email: z.string(),
+  sessions: z.array(SessionSchema),
+})
+export type SessionsResponse = z.infer<typeof SessionsResponseSchema>
+
+export const SessionProgressSnapshotSchema = z.object({
+  title: z.string().optional(),
+  messages: z.array(StoredMessageSchema),
+})
+export type SessionProgressSnapshot = z.infer<typeof SessionProgressSnapshotSchema>
+
+const SessionEventsProgressSchema = z.object({ stage: z.string(), message: z.string() })
+const SessionEventsStateChangeSchema = z.object({ state: z.enum(["creating", "running", "stopped"]) })
+const SessionEventsCompleteSchema = z.object({ url: z.string() })
+const SessionEventsErrorSchema = z.object({ message: z.string() })
+
+/** Parse the JSON `data:` payload of an SSE MessageEvent or throw. */
+function parseSseData<T>(e: Event, schema: z.ZodType<T>): T {
+  return schema.parse(JSON.parse((e as MessageEvent).data))
 }
 
 const TIMEOUT_MS = 15_000
@@ -99,24 +120,43 @@ export function subscribeSessionEvents(hash: string, handlers: SessionEventHandl
   const es = new EventSource(`/api/sessions/${hash}/events`)
 
   es.addEventListener("progress", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as { stage: string; message: string }
-    handlers.onProgress?.(data.stage, data.message)
+    try {
+      const data = parseSseData(e, SessionEventsProgressSchema)
+      handlers.onProgress?.(data.stage, data.message)
+    } catch (err) {
+      console.warn("subscribeSessionEvents: invalid progress payload:", err)
+    }
   })
 
   es.addEventListener("state_change", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as { state: "creating" | "running" | "stopped" }
-    handlers.onStateChange?.(data.state)
+    try {
+      const data = parseSseData(e, SessionEventsStateChangeSchema)
+      handlers.onStateChange?.(data.state)
+    } catch (err) {
+      console.warn("subscribeSessionEvents: invalid state_change payload:", err)
+    }
   })
 
   es.addEventListener("complete", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as { url: string }
-    es.close()
-    handlers.onComplete?.(data.url)
+    try {
+      const data = parseSseData(e, SessionEventsCompleteSchema)
+      es.close()
+      handlers.onComplete?.(data.url)
+    } catch (err) {
+      console.warn("subscribeSessionEvents: invalid complete payload:", err)
+    }
   })
 
   es.addEventListener("error", (e) => {
     const raw = (e as MessageEvent).data
-    const message = raw ? (JSON.parse(raw) as { message: string }).message : "Connection error"
+    let message = "Connection error"
+    if (raw) {
+      try {
+        message = SessionEventsErrorSchema.parse(JSON.parse(raw)).message
+      } catch (err) {
+        console.warn("subscribeSessionEvents: invalid error payload:", err)
+      }
+    }
     es.close()
     handlers.onError?.(message)
   })
@@ -173,13 +213,16 @@ export async function listRepoBranches(repoFullName: string): Promise<Branch[]> 
 }
 
 export function subscribeSessionsStream(handlers: {
-  onSessions?: (data: { email: string; sessions: Session[] }) => void
+  onSessions?: (data: SessionsResponse) => void
   onError?: (err: Event) => void
 }): EventSource {
   const es = new EventSource("/api/sessions/stream")
   es.addEventListener("sessions", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as { email: string; sessions: Session[] }
-    handlers.onSessions?.(data)
+    try {
+      handlers.onSessions?.(parseSseData(e, SessionsResponseSchema))
+    } catch (err) {
+      console.warn("subscribeSessionsStream: invalid sessions payload:", err)
+    }
   })
   // Named "error" event sent by the router when it can't list sessions
   es.addEventListener("error", (e) => {
@@ -196,19 +239,25 @@ export function subscribeSessionsStream(handlers: {
 export function subscribeProgressStream(
   hash: string,
   handlers: {
-    onSnapshot?: (progress: { title?: string; messages: StoredMessage[] }) => void
+    onSnapshot?: (progress: SessionProgressSnapshot) => void
     onMessage?: (msg: StoredMessage) => void
     onError?: (err: Event) => void
   },
 ): EventSource {
   const es = new EventSource(`/api/sessions/${hash}/progress/stream`)
   es.addEventListener("snapshot", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as { title?: string; messages: StoredMessage[] }
-    handlers.onSnapshot?.(data)
+    try {
+      handlers.onSnapshot?.(parseSseData(e, SessionProgressSnapshotSchema))
+    } catch (err) {
+      console.warn("subscribeProgressStream: invalid snapshot payload:", err)
+    }
   })
   es.addEventListener("message", (e) => {
-    const data = JSON.parse((e as MessageEvent).data) as StoredMessage
-    handlers.onMessage?.(data)
+    try {
+      handlers.onMessage?.(parseSseData(e, StoredMessageSchema))
+    } catch (err) {
+      console.warn("subscribeProgressStream: invalid message payload:", err)
+    }
   })
   if (handlers.onError) es.onerror = handlers.onError
   return es

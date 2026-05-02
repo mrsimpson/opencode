@@ -20,7 +20,7 @@ import {
 import { podSecretStore } from "./pod-secret-store.js"
 import { messageStore } from "./message-store.js"
 import { sessionsChangedBroadcaster, progressBroadcaster } from "./stream-broadcaster.js"
-import type { ProgressPushEvent, StoredMessage } from "./progress-types.js"
+import { ProgressPushEventSchema, type StoredMessage } from "./progress-types.js"
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body))
@@ -600,13 +600,19 @@ export async function handleApi(
       return true
     }
     const raw = await readBody(req)
-    let event: ProgressPushEvent
+    let parsedJson: unknown
     try {
-      event = JSON.parse(raw)
+      parsedJson = JSON.parse(raw)
     } catch {
       json(res, 400, { error: "Invalid JSON" })
       return true
     }
+    const parsed = ProgressPushEventSchema.safeParse(parsedJson)
+    if (!parsed.success) {
+      json(res, 400, { error: "Invalid event payload" })
+      return true
+    }
+    const event = parsed.data
     if (event.type === "session.title") {
       messageStore.setTitle(hash, event.title)
       sessionsChangedBroadcaster.emit()
@@ -631,7 +637,7 @@ export async function handleApi(
           time: event.time,
         },
       })
-    } else if (event.type === "message.assistant") {
+    } else {
       messageStore.addMessage(hash, {
         partID: event.partID,
         messageID: event.messageID,
@@ -652,9 +658,6 @@ export async function handleApi(
           time: event.time,
         },
       })
-    } else {
-      json(res, 400, { error: "Unknown event type" })
-      return true
     }
     json(res, 200, { ok: true })
     return true
