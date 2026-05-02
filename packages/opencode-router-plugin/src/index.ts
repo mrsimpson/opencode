@@ -31,51 +31,59 @@ function lockToSession(sessionID: string): void {
   }
 }
 
-const RouterPlugin: Plugin = async (input) => {
-  // Startup replay: push all existing sessions/messages so router recovers state after pod resume.
-  // Runs *after* returning hooks so the server finishes init and starts serving HTTP first —
-  // avoids a deadlock where input.client.session.list() calls the server before it's ready.
-  // The router deduplicates by partID so replay is always safe to run.
-  setTimeout(async () => {
-    try {
-      const listResult = await input.client.session.list()
-      const sessions = listResult.data ?? []
+// Replay state from the running opencode server, populating allowedSessionIds
+// and re-pushing every existing message so the router recovers state after a
+// pod resume. The router deduplicates by partID, so replay is always safe.
+//
+// Exported (under __test) so tests can drive it synchronously without waiting
+// for the 5 s startup timeout.
+async function runStartupReplay(input: Parameters<Plugin>[0]): Promise<void> {
+  try {
+    const listResult = await input.client.session.list()
+    const sessions = listResult.data ?? []
 
-      // Lock down to sessions that exist at startup — only when sessions are found.
-      // Fresh pods have zero sessions; leaving allowedSessionIds = null lets the
-      // first session.created event (the router-bootstrapped session) be captured.
-      if (sessions.length > 0) {
-        allowedSessionIds = new Set(sessions.map((s) => s.id))
+    // Lock down to sessions that exist at startup — only when sessions are found.
+    // Fresh pods have zero sessions; leaving allowedSessionIds = null lets the
+    // first session.created event (the router-bootstrapped session) be captured.
+    if (sessions.length > 0) {
+      allowedSessionIds = new Set(sessions.map((s) => s.id))
+    }
+
+    for (const session of sessions) {
+      if (session.title) {
+        await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
       }
-
-      for (const session of sessions) {
-        if (session.title) {
-          await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
-        }
-        const msgResult = await input.client.session.messages({ path: { id: session.id } })
-        const messages = msgResult.data ?? []
-        for (const entry of messages) {
-          const msg = entry.info
-          for (const part of (entry as any).parts ?? []) {
-            if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
-              await pushEvent({
-                type: msg.role === "user" ? "message.user" : "message.assistant",
-                partID: part.id,
-                messageID: msg.id,
-                sessionID: session.id,
-                text: part.text ?? "",
-                time: msg.time?.created ?? Date.now(),
-              })
-            }
+      const msgResult = await input.client.session.messages({ path: { id: session.id } })
+      const messages = msgResult.data ?? []
+      for (const entry of messages) {
+        const msg = entry.info
+        for (const part of (entry as any).parts ?? []) {
+          if (part.type === "text" && (msg.role === "user" || msg.role === "assistant")) {
+            await pushEvent({
+              type: msg.role === "user" ? "message.user" : "message.assistant",
+              partID: part.id,
+              messageID: msg.id,
+              sessionID: session.id,
+              text: part.text ?? "",
+              time: msg.time?.created ?? Date.now(),
+            })
           }
         }
       }
-    } catch (err) {
-      // Replay failure is non-fatal — allowedSessionIds stays null (accept-all),
-      // but surface it so a chronically broken replay is diagnosable instead of silent.
-      console.warn("opencode-router-plugin: startup replay failed:", err)
     }
-  }, 5_000) // 5s delay — enough for the server to finish starting up
+  } catch (err) {
+    // Replay failure is non-fatal — allowedSessionIds stays null (accept-all),
+    // but surface it so a chronically broken replay is diagnosable instead of silent.
+    console.warn("opencode-router-plugin: startup replay failed:", err)
+  }
+}
+
+const RouterPlugin: Plugin = async (input) => {
+  // Run startup replay *after* returning hooks (via setTimeout) so the opencode
+  // server finishes initialising and starts serving HTTP first — without this
+  // delay, session.list() calls the server before it's ready, deadlocking the
+  // readiness probe.
+  setTimeout(() => runStartupReplay(input), 5_000)
 
   return {
     event: async ({ event }) => {
@@ -128,3 +136,21 @@ const RouterPlugin: Plugin = async (input) => {
 }
 
 export default { id: "opencode-router", server: RouterPlugin }
+
+/**
+ * Test-only handles into the plugin's module-level state. NOT a public API.
+ * Tests use these to reset state between cases and to drive the replay
+ * synchronously without waiting for the 5 s startup timeout.
+ */
+export const __test = {
+  reset(): void {
+    allowedSessionIds = null
+    messageRoles.clear()
+  },
+  getAllowedSessionIds(): Set<string> | null {
+    return allowedSessionIds
+  },
+  isAllowed,
+  lockToSession,
+  runStartupReplay,
+}

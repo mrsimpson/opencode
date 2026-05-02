@@ -1477,3 +1477,112 @@ describe("GET /api/sessions/:hash/progress/stream (SSE)", () => {
     expect(res.statusCode).toBe(403)
   })
 })
+
+// ---------------------------------------------------------------------------
+// snapshotInFlight serialization in /api/sessions/stream
+//
+// Guards the recent fix for "concurrent snapshot interleave": if multiple
+// `sessionsChangedBroadcaster.emit()` calls fire while an earlier sendSnapshot
+// is awaiting listUserSessions, they must collapse into exactly one follow-up
+// snapshot — not interleave or fire one per emit.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/stream snapshotInFlight serialization", () => {
+  // NOTE on test isolation: prior `GET /api/sessions/stream (SSE)` tests use a
+  // fake response whose `on("close", ...)` is a noop, so the handler's
+  // unsubscribe never fires and earlier subscribers stay attached to the
+  // module-level `sessionsChangedBroadcaster`. We therefore assert on writes
+  // to *our own* res only — that count is invariant under cross-test pollution.
+
+  it("collapses N concurrent emits during in-flight fetch into exactly 1 follow-up snapshot", async () => {
+    const { sessionsChangedBroadcaster } = await import("./stream-broadcaster.js")
+
+    // listUserSessions: first call hangs (initial fetch), second call hangs
+    // (the follow-up triggered by the collapsed emits), third+ return empty.
+    let resolveFirst!: (v: object[]) => void
+    let resolveSecond!: (v: object[]) => void
+    let myCallIndex = 0
+    mocks.listUserSessions.mockReset()
+    mocks.listUserSessions.mockImplementation((email: string) => {
+      // Only the calls from our handler matter — discriminate by our EMAIL,
+      // since leaked subscribers from prior tests use the same EMAIL we should
+      // just count up. Both controllable promises are claimed in order.
+      myCallIndex++
+      if (myCallIndex === 1) return new Promise<object[]>((r) => (resolveFirst = r))
+      if (myCallIndex === 2) return new Promise<object[]>((r) => (resolveSecond = r))
+      void email
+      return Promise.resolve([])
+    })
+
+    const req = fakeReq("GET", "/api/sessions/stream")
+    const res = fakeSseResGlobal()
+
+    // Start the handler — it subscribes (BEFORE the initial fetch, per the fix)
+    // and kicks off sendSnapshot. The await blocks until the initial fetch resolves.
+    const handlePromise = handleApi(req as any, res as any, EMAIL)
+
+    // Yield so the handler reaches `await listUserSessions(...)` and
+    // installs the broadcaster subscription.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Three emits while initial is still in-flight — should all collapse into
+    // a single pendingSnapshot=true on our handler. Without the guard our
+    // handler would queue 3 independent fetches and write 3 follow-up snapshots.
+    sessionsChangedBroadcaster.emit()
+    sessionsChangedBroadcaster.emit()
+    sessionsChangedBroadcaster.emit()
+
+    // Resolve the initial fetch — the finally block then tail-calls sendSnapshot
+    // once because pendingSnapshot was set.
+    resolveFirst([{ hash: "h1", email: EMAIL }])
+    await handlePromise
+
+    // The follow-up sendSnapshot is fire-and-forget — yield to let it run
+    // until it awaits the (hanging) second listUserSessions call.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Resolve the follow-up and let it write.
+    resolveSecond([{ hash: "h1", email: EMAIL }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Exactly two SSE `event: sessions` writes on OUR res — one initial + one
+    // collapsed follow-up. Without the guard, we'd see 4 (1 + 3).
+    const writes = res._chunks.filter((c: string) => c.includes("event: sessions"))
+    expect(writes.length).toBe(2)
+  })
+
+  it("a single emit during in-flight fetch produces exactly one follow-up (subscribe-before-emit)", async () => {
+    const { sessionsChangedBroadcaster } = await import("./stream-broadcaster.js")
+
+    let resolveFirst!: (v: object[]) => void
+    let myCallIndex = 0
+    mocks.listUserSessions.mockReset()
+    mocks.listUserSessions.mockImplementation(() => {
+      myCallIndex++
+      if (myCallIndex === 1) return new Promise<object[]>((r) => (resolveFirst = r))
+      return Promise.resolve([])
+    })
+
+    const req = fakeReq("GET", "/api/sessions/stream")
+    const res = fakeSseResGlobal()
+    const handlePromise = handleApi(req as any, res as any, EMAIL)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // One emit while initial is in-flight — without the subscribe-before-emit
+    // fix this would hit zero subscribers on our handler and be silently dropped.
+    sessionsChangedBroadcaster.emit()
+
+    resolveFirst([])
+    await handlePromise
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const writes = res._chunks.filter((c: string) => c.includes("event: sessions"))
+    expect(writes.length).toBe(2)
+  })
+})
