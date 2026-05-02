@@ -7,7 +7,14 @@ export interface Session {
   /** Source branch the session was created from (e.g. "main") */
   sourceBranch: string
   state: "creating" | "running" | "stopped"
-  url: string
+  /**
+   * Deep link URL to the opencode session, e.g.
+   *   https://<hash>-oc.<domain>/<workspace-b64>/session/<sessionId>
+   *
+   * null when the pod is not running or the session URL is not yet resolved.
+   * The events SSE fires `complete` only once this is non-null.
+   */
+  url: string | null
   lastActivity: string
   createdAt: string
   idleTimeoutMinutes: number
@@ -39,7 +46,7 @@ export async function listSessions(): Promise<SessionsResponse> {
 
 export interface CreateSessionResponse {
   hash: string
-  url: string
+  url: string | null
   state: "creating"
   error?: string
 }
@@ -65,7 +72,7 @@ export async function createSession(
 
 export async function getSessionState(
   hash: string,
-): Promise<{ hash: string; state: "creating" | "running" | "stopped"; url: string }> {
+): Promise<{ hash: string; state: "creating" | "running" | "stopped"; url: string | null }> {
   const res = await fetch(`/api/sessions/${hash}`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`Failed to get session state: ${res.status}`)
   return res.json()

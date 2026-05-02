@@ -135,6 +135,8 @@ const {
   _setHumanId,
   _setFetch,
   _setActivityFetch,
+  _setBootstrapFetch,
+  _setEmitSessionsChanged,
 } = await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
@@ -920,5 +922,70 @@ describe("getSessionInfo includes title from messageStore", () => {
     messageStoreMock.get.mockImplementation(() => undefined)
     const info = await (getSessionInfo as any)("abc123456789")
     expect(info?.title).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// sessionsChanged emission tests
+// ---------------------------------------------------------------------------
+
+describe("emitSessionsChanged injection", () => {
+  let emitCalls: number
+
+  beforeEach(() => {
+    emitCalls = 0
+    _setEmitSessionsChanged(() => {
+      emitCalls++
+    })
+  })
+
+  it("terminateSession emits sessionsChanged after deleting PVC+pod", async () => {
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [makePVC(hash, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(hash, EMAIL, REPO, BRANCH)]
+
+    await terminateSession(hash, EMAIL)
+
+    expect(emitCalls).toBe(1)
+  })
+
+  it("deleteIdlePods emits sessionsChanged for each deleted pod", async () => {
+    // Use a last-activity far in the past so it counts as idle
+    const oldActivity = new Date(Date.now() - 999 * 60_000).toISOString()
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [makePVC(hash, EMAIL, REPO, BRANCH, oldActivity)]
+    fakePods = [makeRunningPod(hash, EMAIL, REPO, BRANCH, oldActivity)]
+    // Activity fetch returns null so it skips the liveness check
+    _setActivityFetch(async () => new Response("null", { status: 200 }))
+
+    await deleteIdlePods()
+
+    expect(emitCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it("resumeSession emits sessionsChanged after recreating the pod", async () => {
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [
+      {
+        metadata: {
+          name: `opencode-pvc-${hash}`,
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": hash, "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": EMAIL,
+            "opencode.ai/repo-url": REPO,
+            "opencode.ai/branch": BRANCH,
+            "opencode.ai/source-branch": "main",
+          },
+        },
+      },
+    ]
+    fakePods = []
+    _setHumanId(() => "test-branch")
+    _setActivityFetch(async () => new Response("[]", { status: 200 }))
+
+    await resumeSession(hash, EMAIL)
+
+    expect(emitCalls).toBe(1)
   })
 })

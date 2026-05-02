@@ -55,28 +55,31 @@ describe("computeIdleStatus", () => {
 })
 
 describe("getPhaseKindAfterUrlRestore", () => {
+  // New contract: url is either null (not yet resolved) or a valid deep link.
+  // Bare root URLs are no longer a valid state — only null signals "not ready".
+
   it('returns "creating" when session was resumed', () => {
     const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("creating")
   })
 
-  it('returns "creating" when URL does not contain "/session/" and not resumed', () => {
-    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/")
+  it('returns "creating" when url is null and not resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(false, null)
     expect(result).toBe("creating")
   })
 
-  it('returns "open" when URL contains "/session/" and not resumed', () => {
+  it('returns "open" when url is a deep link and not resumed', () => {
     const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("open")
   })
 
-  it('returns "creating" when resumed, even if URL contains "/session/"', () => {
+  it('returns "creating" when resumed, even if url is a deep link', () => {
     const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("creating")
   })
 
-  it('returns "creating" for URLs without path when not resumed', () => {
-    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002")
+  it('returns "creating" when url is null and resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(true, null)
     expect(result).toBe("creating")
   })
 })

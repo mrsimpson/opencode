@@ -128,6 +128,154 @@ No custom compression is implemented:
 
 ## Notes
 
+### Session list SSE never refreshed (bug, fixed 2026-05-01)
+
+`sessionsChangedBroadcaster` was defined as a module-level singleton in `api.ts` but never called from `pod-manager.ts` (different module). As a result the SSE `/api/sessions/stream` only fired when the plugin pushed a message/title — **pod state transitions (creating→running, terminate, idle cleanup, resume) never triggered a refresh**.
+
+**Fix**: Moved broadcaster singletons to `stream-broadcaster.ts` as named exports (`sessionsChangedBroadcaster`, `progressBroadcaster`). `pod-manager.ts` imports via a local `let emitSessionsChanged` variable (injectable via `_setEmitSessionsChanged` for tests). Now `updateLastActivity`, `terminateSession`, `deleteIdlePods`, and `resumeSession` all call `emitSessionsChanged()`.
+
+### Root cause of multiple opencode sessions per pod (bug, fixed 2026-05-01)
+
+**Why two sessions were created**: The original `bootstrappedHashes: Set<string>` only tracked _whether_ bootstrap started, not its result. When two concurrent callers (e.g. the SSE session-list stream + the SSE events polling loop) both called `getSessionInfo` while the pod was first becoming `running`:
+
+1. First caller: `bootstrappedHashes` empty → calls `bootstrapPodSession` → adds hash to set → awaits `POST /session` (async)
+2. Second caller (same millisecond, JavaScript event loop): `bootstrappedHashes.has(hash) === true` → `bootstrapPodSession` returns `null` immediately → URL resolution falls through to `newSessionUrl`
+3. SSE events fires `complete` with `newSessionUrl` → LoadingScreen navigates there → **opencode auto-creates a new empty session**
+4. User interacts with that second session; bootstrap eventually finishes and the first session (with the initial prompt) is buried
+
+Additionally, any time bootstrap returned `null` (failure) the code fell through to `newSessionUrl` — which always creates a new session on interaction.
+
+**Fix**: Changed `bootstrappedSessions` to `Map<hash, Promise<string | null>>`. The Promise is stored **synchronously** before any `await`, so:
+
+- All concurrent callers return/await the **same Promise** — only one `POST /session` ever fires per pod hash
+- URL resolution always `await`s the bootstrap Promise; on failure it returns `null` (not a bare URL)
+- On success the Promise resolves to the session ID, which is cached permanently (until pod terminate/idle-delete) so all future URL lookups return the same stable deep link
+
+### No bare/fallback URLs — errors propagated properly (fixed 2026-05-02)
+
+**Problem**: Several code paths used bare pod root URLs or `newSessionUrl` as fallbacks:
+
+- `getSessionInfo`/`listUserSessions`: when bootstrap failed → bare pod root `https://<hash>-oc.<domain>/`
+- `getSessionInfo`/`listUserSessions`: when pod running with no sessions and no `initialMessage` → `newSessionUrl` (`/.../session`) which auto-creates a session on user interaction
+- `LoadingScreen` `onError` fallback: navigated to `props.url` (which could be a bare root) instead of surfacing an error
+- `app.tsx` `handleOpenSession`: used `session.url.includes("/session/")` string-sniff instead of typed null check
+
+**Fix**: `SessionInfo.url` (and frontend `Session.url`) is now `string | null`:
+
+- `null` = pod not running, pod unreachable, or bootstrap still in-flight
+- Non-null = always a valid deep link `/.../session/<sessionId>`
+- `newSessionUrl` function removed entirely
+
+`AppPhase.creating` no longer carries a `url` field — the LoadingScreen gets the URL exclusively from the events SSE `complete` event.
+
+The events SSE in `api.ts` now:
+
+- Only emits `complete` when `info.url !== null`
+- Keeps polling (up to 30 s) while `url` is null (bootstrap in-flight)
+- Emits `error` with `"session URL could not be resolved"` after the timeout
+
+`LoadingScreen` now accepts `onError` prop and surfaces the error to `app.tsx` (which sets `kind: "error"`) instead of navigating to a fallback URL.
+
+### Session list SSE not reactive to session creation (bug, fixed 2026-05-02)
+
+Two separate gaps in `api.ts`:
+
+1. **`POST /api/sessions` never called `sessionsChangedBroadcaster.emit()`** — creating a new session had no effect on the SSE session list. Fixed: emit is called immediately after `ensurePVC` + `ensurePod`.
+
+2. **`sessionUrl(hash)` helper returned bare pod root URL** — the helper `${proto}://${hash}${routeSuffix}.${domain}` was used in the `POST /api/sessions` response (`url` field), the `POST .../resume` response, and a `GET /api/sessions/:hash` fallback. Since `SessionInfo.url` is now `string | null`, all three now return `url: null`. The `sessionUrl` helper is removed.
+
+Full MECE audit confirmed: every session-mutating operation now emits `sessionsChangedBroadcaster`:
+
+- Create: `api.ts` after `ensurePod`
+- Resume: `pod-manager.terminateSession` → `emitSessionsChanged()`
+- Terminate: `pod-manager.terminateSession` → `emitSessionsChanged()`
+- Idle-delete: `pod-manager.deleteIdlePods` per pod → `emitSessionsChanged()`
+- Activity update: `pod-manager.updateLastActivity` → `emitSessionsChanged()`
+- Plugin push (title/message): `api.ts` progress push handler
+
+### Plugin session filtering (fixed 2026-05-02)
+
+The plugin previously pushed events for ALL sessions on the pod (startup replay + event hooks), not just the bootstrapped one. A user who happened to manually create a second session would have its messages pushed to the router under the same hash — contaminating the message store.
+
+**Fix** (both `opencode-router-plugin.ts` and `src/index.ts`):
+
+`allowedSessionIds: Set<string> | null` — module-level variable:
+
+- `null` = replay not yet complete → all session IDs accepted (events fired during the 5 s startup window are not silently dropped)
+- Set populated by the startup replay from `session.list()` — only the sessions that existed at boot are added
+- All event hooks (`event`, `experimental.text.complete`) check `isAllowed(sessionID)` before pushing
+- Replay failure leaves `allowedSessionIds === null` (accept-all) which is safe
+
+### Broadcaster injection for testing
+
+`_setEmitSessionsChanged(fn: () => void)` added to `pod-manager.ts` following the same `_set*` pattern as `_setApiClient`, `_setActivityFetch`, etc. Tests can now spy on emit calls without the global broadcaster singleton leaking across test files.
+
+### Plugin `allowedSessionIds` filter blocks all messages on fresh pods (fixed 2026-05-02)
+
+**Root cause**: The filter was designed to accept only session IDs that existed at startup. On a **fresh pod** no sessions exist yet — the router's `POST /session` bootstrap call happens _after_ the pod is ready, which is _after_ the plugin initialises. So:
+
+1. `setTimeout` fires after 5s → `session.list()` returns `[]`
+2. `allowedSessionIds = new Set([])` — empty set (was unconditional)
+3. `isAllowed(anyID)` → `false` for every session ID
+4. All events blocked — no messages ever reach the router
+
+The `null = accept-all` window only covers the first 5s. After that the empty set silently discarded everything.
+
+**Fix** (both `src/index.ts` and `opencode-router-plugin.ts`):
+
+1. **Empty replay → stay null**: `allowedSessionIds` is only populated if `sessions.length > 0`. A fresh pod leaves it `null` (accept-all).
+
+2. **`session.created` locks in the session**: Added `lockToSession(sessionID)` called on every `session.created` event. On a fresh pod (null → accept-all), the first `session.created` is always the router-bootstrapped session; `lockToSession` sets `allowedSessionIds = new Set([bootstrappedId])`, blocking any subsequently manually-created sessions. On a resumed pod, `allowedSessionIds` is already a populated Set from replay; `lockToSession` just adds the ID (idempotent).
+
+3. **`lockToSession` helper**:
+
+```ts
+function lockToSession(id: string) {
+  if (allowedSessionIds === null) allowedSessionIds = new Set([id])
+  else allowedSessionIds.add(id)
+}
+```
+
+### Session creation not propagated to session list SSE (fixed 2026-05-02)
+
+**Root cause**: Two bugs combined to make new sessions invisible to the observer's SSE stream.
+
+**Bug 1 — subscribe-after-emit race**: `GET /api/sessions/stream` first `await sendSnapshot()` (which calls k8s `list` — takes ~100–300ms), then subscribed to `sessionsChangedBroadcaster`. If the actor's `POST /api/sessions` completed (emitting `sessionsChangedBroadcaster`) while the observer was still in that initial `await listUserSessions`, the emit hit zero subscribers and was silently dropped.
+
+**Fix**: Subscribe to `sessionsChangedBroadcaster` **before** the initial `sendSnapshot()` call, not after. Any emit that fires during the initial fetch is now captured and triggers a follow-up snapshot.
+
+**Bug 2 — concurrent snapshot interleave**: If two `sendSnapshot` calls ran concurrently (initial + broadcaster-triggered), whichever k8s list call finished last would overwrite the other's write, potentially sending an older snapshot after a newer one.
+
+**Fix**: Added a `snapshotInFlight` + `pendingSnapshot` serialization guard inside `sendSnapshot`. If a fetch is already in-flight when a new emit arrives, the new one sets `pendingSnapshot = true`. After the in-flight fetch completes, it checks `pendingSnapshot` and re-runs once — guaranteeing exactly one follow-up and correct ordering.
+
+### Session deletion not reflected in SSE session list (fixed 2026-05-02)
+
+**Root cause**: `listUserSessions` filtered terminating **pods** (skipping pods with `deletionTimestamp`) but not terminating **PVCs**. When `terminateSession` calls `deleteNamespacedPersistentVolumeClaim` followed immediately by `emitSessionsChanged()`, the PVC is still present in the k8s API with `deletionTimestamp` set (deletion is async in k8s). `listUserSessions` therefore returned the terminated session as `stopped`, so the SSE session list snapshot still included it after deletion.
+
+**Fix**: Added `!pvc.metadata?.deletionTimestamp` to the `userPVCs` filter in `listUserSessions` — symmetric with the identical guard already present for pods on the line below.
+
+### ERR_STREAM_WRITE_AFTER_END crash in /events SSE (fixed 2026-05-02)
+
+**Root cause**: The `/api/sessions/:hash/events` handler used `setInterval(async () => {...}, 1000)`. An async callback registered by `setInterval` is **not awaited** — the next tick fires 1 s later regardless of whether the previous one finished. When the client disconnected mid-poll:
+
+1. `res.on("close")` set `closed = true`
+2. An async `getSessionInfo` was already in-flight from the previous tick
+3. It completed and called `sendEvent()` → `res.write()` → crash: `ERR_STREAM_WRITE_AFTER_END`
+
+The `clearInterval` + `res.end()` calls also had a race: `clearInterval` doesn't cancel the currently running async invocation.
+
+**Why `setInterval` at all**: The pod state (`creating → running`) transitions in Kubernetes asynchronously. `sessionsChangedBroadcaster` fires on `terminateSession`, `deleteIdlePods`, `resumeSession`, and `updateLastActivity` — but NOT when k8s first marks a pod Ready. So a polling loop is genuinely needed for this endpoint.
+
+**Fix**: Replaced `setInterval` with a recursive `setTimeout`-based `poll()` function. `setTimeout(poll, 1000)` is only called at the end of each async tick — after all awaits complete. This means:
+
+- The next poll is never scheduled until the current one fully finishes
+- `res.writableEnded` is checked at the top of every tick AND after every `await` (before any write)
+- `sendEvent()` returns `false` and the caller immediately returns if the connection is ended
+- `finish()` helper combines write + end with a `writableEnded` guard
+- No `closed` boolean needed — `res.writableEnded` is the authoritative source of truth
+
+The other two SSE handlers (`/sessions/stream`, `/progress/stream`) were also patched to guard writes with `res.writableEnded` checks.
+
 ### Current Architecture Summary
 
 **`packages/opencode-router`** (Node.js HTTP proxy, Kubernetes):

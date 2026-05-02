@@ -21,7 +21,7 @@ import { getPhaseKindAfterUrlRestore } from "./session-utils"
 type AppPhase =
   | { kind: "loading" }
   | { kind: "ready" }
-  | { kind: "creating"; hash: string; url: string }
+  | { kind: "creating"; hash: string }
   | { kind: "open"; hash: string; url: string }
   | { kind: "error"; message: string }
 
@@ -71,10 +71,14 @@ export function App() {
       }
     }
 
-    // After resuming, always set to "creating" to trigger LoadingScreen polling.
-    // For non-stopped sessions, use URL check to determine the phase.
+    // After resuming, always use LoadingScreen. For running sessions with a
+    // resolved URL go directly to open; otherwise LoadingScreen polls events SSE.
     const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
-    setAppPhase({ kind: phaseKind, hash, url: session.url })
+    if (phaseKind === "open" && session.url !== null) {
+      setAppPhase({ kind: "open", hash, url: session.url })
+    } else {
+      setAppPhase({ kind: "creating", hash })
+    }
   }
 
   onMount(() => {
@@ -129,10 +133,12 @@ export function App() {
         }
       }
 
-      // After resuming, always set to "creating" to trigger LoadingScreen polling.
-      // For non-stopped sessions, use URL check to determine the phase.
       const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
-      setAppPhase({ kind: phaseKind, hash, url: session.url })
+      if (phaseKind === "open" && session.url !== null) {
+        setAppPhase({ kind: "open", hash, url: session.url })
+      } else {
+        setAppPhase({ kind: "creating", hash })
+      }
     }
     window.addEventListener("popstate", onPopState)
     onCleanup(() => {
@@ -211,7 +217,7 @@ export function App() {
       const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch, promptText())
       batch(() => {
         navigate(`/session/${result.hash}`)
-        setAppPhase({ kind: "creating", hash: result.hash, url: result.url })
+        setAppPhase({ kind: "creating", hash: result.hash })
       })
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Network error")
@@ -222,17 +228,18 @@ export function App() {
 
   const handleOpenSession = (session: Session) => {
     navigate(`/session/${session.hash}`)
-    if (session.url.includes("/session/")) {
+    if (session.url !== null) {
       setAppPhase({ kind: "open", hash: session.hash, url: session.url })
     } else {
-      setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
+      // URL not yet resolved — LoadingScreen polls the events SSE until the deep link arrives
+      setAppPhase({ kind: "creating", hash: session.hash })
     }
   }
 
   const handleResumeSession = async (session: Session) => {
     await resumeSession(session.hash)
     navigate(`/session/${session.hash}`)
-    setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
+    setAppPhase({ kind: "creating", hash: session.hash })
   }
 
   const activeHash = () => {
@@ -317,9 +324,11 @@ export function App() {
               <div class="flex flex-1 items-center justify-center">
                 <LoadingScreen
                   hash={p().hash}
-                  url={p().url}
                   onReady={(url) => {
                     setAppPhase({ kind: "open", hash: p().hash, url })
+                  }}
+                  onError={(message) => {
+                    setAppPhase({ kind: "error", message })
                   }}
                 />
               </div>
