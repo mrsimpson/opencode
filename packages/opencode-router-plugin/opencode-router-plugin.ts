@@ -41,6 +41,34 @@ async function pushEvent(event: PushEvent): Promise<void> {
 // Map messageID → role for text part attribution (user message detection)
 const messageRoles = new Map<string, "user" | "assistant">()
 
+/**
+ * Set of opencode session IDs this plugin is allowed to push events for.
+ *
+ * - null  = replay not yet complete (or fresh pod with no sessions) → accept all
+ * - Set   = replay completed AND found ≥1 session → only those IDs are accepted
+ *
+ * On a fresh pod the replay finds zero sessions and leaves this null so the
+ * first session.created event (the router-bootstrapped session) is not dropped.
+ * Once that event fires we lock down to just that session ID.
+ *
+ * On a resumed pod the replay finds the existing sessions and populates the set
+ * before any new events arrive — correct by construction.
+ */
+let allowedSessionIds: Set<string> | null = null
+
+function isAllowed(sessionID: string): boolean {
+  // null = replay not yet complete (or fresh pod); accept everything
+  return allowedSessionIds === null || allowedSessionIds.has(sessionID)
+}
+
+function lockToSession(sessionID: string): void {
+  if (allowedSessionIds === null) {
+    allowedSessionIds = new Set([sessionID])
+  } else {
+    allowedSessionIds.add(sessionID)
+  }
+}
+
 const RouterPlugin = async (input: any) => {
   // Startup replay: push all existing sessions/messages so the router recovers
   // state after a pod resume. The router deduplicates by partID — safe to replay.
@@ -53,6 +81,14 @@ const RouterPlugin = async (input: any) => {
     try {
       const listResult = await input.client.session.list()
       const sessions: any[] = listResult.data ?? []
+
+      // Lock down to sessions found at startup — only when sessions are present.
+      // Fresh pods have zero sessions; leaving allowedSessionIds = null lets the
+      // first session.created event (the router-bootstrapped session) be captured.
+      if (sessions.length > 0) {
+        allowedSessionIds = new Set(sessions.map((s: any) => s.id))
+      }
+
       for (const session of sessions) {
         if (session.title) {
           await pushEvent({ type: "session.title", sessionID: session.id, title: session.title })
@@ -77,7 +113,7 @@ const RouterPlugin = async (input: any) => {
         }
       }
     } catch {
-      // Replay failure is non-fatal
+      // Replay failure is non-fatal — allowedSessionIds stays null (accept-all)
     }
   }, 5_000) // 5s delay — enough for opencode to finish initialising
 
@@ -87,7 +123,13 @@ const RouterPlugin = async (input: any) => {
       if (e.type === "session.created" || e.type === "session.updated") {
         const title = e.properties?.info?.title
         const sessionID = e.properties?.sessionID ?? e.properties?.info?.id
-        if (title && sessionID) await pushEvent({ type: "session.title", sessionID, title })
+        if (!sessionID) return
+        // On a fresh pod allowedSessionIds is null — the first session.created
+        // is the router-bootstrapped session; lock down to it immediately.
+        if (e.type === "session.created") lockToSession(sessionID)
+        if (title && isAllowed(sessionID)) {
+          await pushEvent({ type: "session.title", sessionID, title })
+        }
       }
       if (e.type === "message.updated") {
         const info = e.properties?.info
@@ -96,13 +138,14 @@ const RouterPlugin = async (input: any) => {
       if (e.type === "message.part.updated") {
         const part = e.properties?.part
         if (part?.type === "text") {
+          const sessionID = part.sessionID ?? e.properties?.sessionID
           const role = messageRoles.get(part.messageID)
-          if (role === "user") {
+          if (role === "user" && isAllowed(sessionID)) {
             await pushEvent({
               type: "message.user",
               partID: part.id,
               messageID: part.messageID,
-              sessionID: part.sessionID ?? e.properties?.sessionID,
+              sessionID,
               text: part.text ?? "",
               time: e.properties?.time ?? Date.now(),
             })
@@ -111,6 +154,7 @@ const RouterPlugin = async (input: any) => {
       }
     },
     "experimental.text.complete": async (inp: any, output: any) => {
+      if (!isAllowed(inp.sessionID)) return
       await pushEvent({
         type: "message.assistant",
         partID: inp.partID,
