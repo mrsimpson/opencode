@@ -70,8 +70,10 @@ const RouterPlugin: Plugin = async (input) => {
           }
         }
       }
-    } catch {
-      // Replay failure is non-fatal — allowedSessionIds stays null (accept-all)
+    } catch (err) {
+      // Replay failure is non-fatal — allowedSessionIds stays null (accept-all),
+      // but surface it so a chronically broken replay is diagnosable instead of silent.
+      console.warn("opencode-router-plugin: startup replay failed:", err)
     }
   }, 5_000) // 5s delay — enough for the server to finish starting up
 
