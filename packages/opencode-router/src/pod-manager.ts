@@ -125,31 +125,25 @@ export interface SessionInfo {
 }
 
 /**
- * Get full session info for a single session by hash, including deep link URL.
- * Reusable for both the polling GET endpoint and the SSE events endpoint.
- * Returns null if the session's PVC is not found.
+ * Derive the SessionInfo wire payload for a single (PVC, optional Pod) pair.
+ *
+ * Shared between getSessionInfo (single-hash lookup) and listUserSessions (per-user listing).
+ * Both paths need identical state derivation, lastActivity merge, deep-link URL resolution,
+ * and title merge from messageStore — keeping them in one place prevents the two from drifting.
+ *
+ * Caller responsibilities:
+ *   - Resolve `pod` to undefined when terminating (deletionTimestamp set) or absent.
+ *   - Pass `email` from the trusted source for the call (PVC annotation for single-hash,
+ *     authenticated request email for the per-user path).
  */
-export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
-  const proto = config.routerProto
-
-  let pvc: k8s.V1PersistentVolumeClaim
-  try {
-    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
-  } catch (err) {
-    if (isNotFound(err)) return null
-    throw err
-  }
-
+async function buildSessionInfo(
+  hash: string,
+  pvc: k8s.V1PersistentVolumeClaim,
+  pod: k8s.V1Pod | undefined,
+  email: string,
+): Promise<SessionInfo> {
   const ann = pvc.metadata?.annotations ?? {}
-  const email = ann[ANNOTATION_USER_EMAIL] ?? ""
-
-  let pod: k8s.V1Pod | undefined
-  try {
-    const p = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
-    if (!p.metadata?.deletionTimestamp) pod = p
-  } catch (err) {
-    if (!isNotFound(err)) throw err
-  }
+  const proto = config.routerProto
 
   let state: PodState
   if (!pod) {
@@ -210,6 +204,32 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
     description: initialMessage,
     title: messageStore.get(hash)?.title,
   }
+}
+
+/**
+ * Get full session info for a single session by hash, including deep link URL.
+ * Reusable for both the polling GET endpoint and the SSE events endpoint.
+ * Returns null if the session's PVC is not found.
+ */
+export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
+  let pvc: k8s.V1PersistentVolumeClaim
+  try {
+    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
+  } catch (err) {
+    if (isNotFound(err)) return null
+    throw err
+  }
+
+  let pod: k8s.V1Pod | undefined
+  try {
+    const p = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
+    if (!p.metadata?.deletionTimestamp) pod = p
+  } catch (err) {
+    if (!isNotFound(err)) throw err
+  }
+
+  const email = pvc.metadata?.annotations?.[ANNOTATION_USER_EMAIL] ?? ""
+  return buildSessionInfo(hash, pvc, pod, email)
 }
 
 /**
@@ -747,10 +767,8 @@ export async function getPodIP(hash: string): Promise<string | null> {
  */
 export async function listUserSessions(
   email: string,
-  req: import("node:http").IncomingMessage,
+  _req: import("node:http").IncomingMessage,
 ): Promise<SessionInfo[]> {
-  const proto = config.routerProto
-
   const pvcList = await k8sApi.listNamespacedPersistentVolumeClaim({
     namespace: config.namespace,
     labelSelector: `${LABEL_MANAGED_BY}=${MANAGED_BY_VALUE}`,
@@ -774,71 +792,9 @@ export async function listUserSessions(
   }
 
   const results = await Promise.allSettled(
-    userPVCs.map(async (pvc: k8s.V1PersistentVolumeClaim) => {
-      const ann = pvc.metadata?.annotations ?? {}
+    userPVCs.map((pvc: k8s.V1PersistentVolumeClaim) => {
       const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
-      const pod = podMap.get(hash)
-
-      let state: PodState
-      if (!pod) {
-        state = "stopped"
-      } else if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
-        state = "running"
-      } else {
-        state = "creating"
-      }
-
-      const annotationActivity =
-        pod?.metadata?.annotations?.[ANNOTATION_LAST_ACTIVITY] ??
-        ann[ANNOTATION_LAST_ACTIVITY] ??
-        new Date().toISOString()
-
-      let lastActivity = annotationActivity
-      const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
-      let sessionUrl: string | null = null
-
-      if (state === "running" && pod?.status?.podIP) {
-        const activity = await podActivityMs(pod.status.podIP, hash)
-        if (activity !== null) {
-          if (activity.ms > new Date(annotationActivity).getTime()) {
-            lastActivity = new Date(activity.ms).toISOString()
-          }
-          if (initialMessage) {
-            // Sessions with an initialMessage must always link to the bootstrapped session.
-            // All concurrent callers await the same Promise — only one POST /session is ever sent.
-            let base = `http://${pod.status.podIP}:${config.opencodePort}`
-            if (devProxy.enabled) {
-              const proxyTarget = await devProxy.target(hash)
-              if (proxyTarget) base = proxyTarget
-            }
-            const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
-            sessionUrl = bootstrappedId
-              ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
-              : null
-          } else if (activity.sessionId) {
-            sessionUrl = deepLinkUrl(
-              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
-              activity.sessionId,
-            )
-          }
-          // else: running pod with no sessions and no initialMessage → url stays null
-        }
-        // else: pod unreachable → url stays null
-      }
-
-      return {
-        hash,
-        email,
-        repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
-        branch: ann[ANNOTATION_BRANCH] ?? "",
-        sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
-        state,
-        url: sessionUrl,
-        lastActivity,
-        createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
-        idleTimeoutMinutes: config.idleTimeoutMinutes,
-        description: ann[ANNOTATION_INITIAL_MESSAGE],
-      }
+      return buildSessionInfo(hash, pvc, podMap.get(hash), email)
     }),
   )
   return results.flatMap((r) => {
