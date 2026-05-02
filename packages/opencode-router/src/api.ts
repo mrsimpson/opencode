@@ -19,12 +19,8 @@ import {
 } from "./pod-manager.js"
 import { podSecretStore } from "./pod-secret-store.js"
 import { messageStore } from "./message-store.js"
-import { createBroadcaster } from "./stream-broadcaster.js"
+import { sessionsChangedBroadcaster, progressBroadcaster } from "./stream-broadcaster.js"
 import type { ProgressPushEvent, StoredMessage } from "./progress-types.js"
-
-// Module-level broadcaster singletons
-const sessionsChangedBroadcaster = createBroadcaster<void>()
-const progressBroadcaster = createBroadcaster<{ hash: string; message: StoredMessage }>()
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body))
@@ -39,11 +35,6 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks).toString("utf-8")
-}
-
-/** Build the public URL for a session subdomain. */
-function sessionUrl(hash: string): string {
-  return `${config.routerProto}://${hash}${config.routeSuffix}.${config.routerDomain}`
 }
 
 /**
@@ -110,30 +101,48 @@ export async function handleApi(
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     })
+    // Serialize concurrent snapshot fetches: if one is already in-flight,
+    // set a flag so we re-run after it completes rather than interleave.
+    let snapshotInFlight = false
+    let pendingSnapshot = false
+
     const sendSnapshot = async () => {
+      if (res.writableEnded) return
+      if (snapshotInFlight) {
+        pendingSnapshot = true
+        return
+      }
+      snapshotInFlight = true
       try {
         const sessions = await listUserSessions(email, req)
-        res.write(`event: sessions\ndata: ${JSON.stringify({ email, sessions })}\n\n`)
+        if (!res.writableEnded) res.write(`event: sessions\ndata: ${JSON.stringify({ email, sessions })}\n\n`)
       } catch (err) {
         console.error("sessions/stream: listUserSessions failed:", err)
-        // Write an error event so the client can react, then close
-        res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to list sessions" })}\n\n`)
-        res.end()
+        if (!res.writableEnded) {
+          res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to list sessions" })}\n\n`)
+          res.end()
+        }
+      } finally {
+        snapshotInFlight = false
+        if (pendingSnapshot && !res.writableEnded) {
+          pendingSnapshot = false
+          // Tail-call: flush the pending emit that arrived while we were in-flight
+          sendSnapshot()
+        }
       }
     }
-    await sendSnapshot()
-    let closed = false
-    res.on("close", () => {
-      closed = true
-    })
-    const unsubscribe = sessionsChangedBroadcaster.subscribe(async () => {
-      if (closed) {
+
+    // Subscribe BEFORE the initial fetch so any emit that fires during the
+    // initial k8s list call is not silently dropped (subscribe-after-emit race).
+    const unsubscribe = sessionsChangedBroadcaster.subscribe(() => {
+      if (res.writableEnded) {
         unsubscribe()
         return
       }
-      await sendSnapshot()
+      sendSnapshot()
     })
     res.on("close", () => unsubscribe())
+    await sendSnapshot()
     return true
   }
 
@@ -201,8 +210,9 @@ export async function handleApi(
 
     await ensurePVC(session)
     await ensurePod(session, githubToken)
+    sessionsChangedBroadcaster.emit()
 
-    json(res, 201, { hash, url: sessionUrl(hash), state: "creating" })
+    json(res, 201, { hash, url: null, state: "creating" })
     return true
   }
 
@@ -236,12 +246,8 @@ export async function handleApi(
     })
     const progress = messageStore.get(hash) ?? { messages: [] }
     res.write(`event: snapshot\ndata: ${JSON.stringify(progress)}\n\n`)
-    let closed = false
-    res.on("close", () => {
-      closed = true
-    })
     const unsubscribe = progressBroadcaster.subscribe(({ hash: h, message }) => {
-      if (closed || h !== hash) return
+      if (res.writableEnded || h !== hash) return
       res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`)
     })
     res.on("close", () => unsubscribe())
@@ -268,88 +274,110 @@ export async function handleApi(
       Connection: "keep-alive",
     })
 
-    /** Write a named SSE event with JSON data. */
-    const sendEvent = (event: string, data: object) => {
+    /**
+     * Write a named SSE event with JSON data.
+     * Returns false if the connection is already closed (caller should stop polling).
+     */
+    const sendEvent = (event: string, data: object): boolean => {
+      if (res.writableEnded) return false
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      return true
+    }
+
+    const finish = (event: string, data: object) => {
+      if (res.writableEnded) return
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      res.end()
     }
 
     // Check session exists before starting the poll loop
     const initial = await getSessionInfo(hash)
     if (!initial) {
-      sendEvent("error", { message: "session not found" })
-      res.end()
+      finish("error", { message: "session not found" })
       return true
     }
 
-    let closed = false
-    res.on("close", () => {
-      closed = true
-    })
-
     let lastState = initial.state
     let lastStage = ""
+    // Limit how long we wait for a running pod to resolve its deep link URL.
+    // Each poll is 1 s; 30 polls = 30 s max after the pod becomes running.
+    let runningPollCount = initial.state === "running" ? 1 : 0
+    const MAX_RUNNING_POLLS = 30
 
     // Send initial progress immediately
     const progress = await getSessionProgress(hash)
     lastStage = progress.stage
-    sendEvent("progress", progress)
+    if (!sendEvent("progress", progress)) return true
     if (lastState !== "creating") {
-      sendEvent("state_change", { state: lastState })
+      if (!sendEvent("state_change", { state: lastState })) return true
     }
 
-    // If already running on first check, resolve immediately
+    // If already running on first check, try to resolve URL immediately
     if (initial.state === "running") {
-      sendEvent("progress", { stage: "readying", message: "Finalizing session..." })
-      sendEvent("complete", { url: initial.url })
-      res.end()
-      return true
+      if (!sendEvent("progress", { stage: "readying", message: "Finalizing session..." })) return true
+      if (initial.url !== null) {
+        finish("complete", { url: initial.url })
+        return true
+      }
+      // URL not yet resolved — fall through to the polling loop
     }
 
-    // Poll every 1000ms for state/progress changes
-    const timer = setInterval(async () => {
-      if (closed) {
-        clearInterval(timer)
-        return
-      }
+    // Poll every 1000ms for state/progress changes.
+    // Uses recursive setTimeout (not setInterval) so each async tick fully
+    // completes before the next one is scheduled — eliminates write-after-end races.
+    const poll = async () => {
+      if (res.writableEnded) return
       try {
         const info = await getSessionInfo(hash)
+
+        // Re-check after await — client may have disconnected while we awaited k8s
+        if (res.writableEnded) return
+
         if (!info) {
-          clearInterval(timer)
-          sendEvent("error", { message: "session not found" })
-          res.end()
+          finish("error", { message: "session not found" })
           return
         }
 
         // Emit state_change if state transitioned
         if (info.state !== lastState) {
           lastState = info.state
-          sendEvent("state_change", { state: info.state })
+          if (!sendEvent("state_change", { state: info.state })) return
         }
 
         // Emit progress if stage changed (only while still creating)
         if (info.state === "creating") {
           const prog = await getSessionProgress(hash)
+          if (res.writableEnded) return
           if (prog.stage !== lastStage) {
             lastStage = prog.stage
-            sendEvent("progress", prog)
+            if (!sendEvent("progress", prog)) return
           }
+          setTimeout(poll, 1000)
           return
         }
 
-        // Session is running — emit readying progress then complete with URL
+        // Pod is running — wait for URL to be resolved (bootstrap in-flight returns null)
         if (info.state === "running") {
           if (lastStage !== "readying") {
             lastStage = "readying"
-            sendEvent("progress", { stage: "readying", message: "Finalizing session..." })
+            if (!sendEvent("progress", { stage: "readying", message: "Finalizing session..." })) return
           }
-          clearInterval(timer)
-          sendEvent("complete", { url: info.url })
-          res.end()
+          runningPollCount++
+          if (info.url !== null) {
+            finish("complete", { url: info.url })
+            return
+          }
+          if (runningPollCount >= MAX_RUNNING_POLLS) {
+            finish("error", { message: "session URL could not be resolved" })
+            return
+          }
         }
       } catch {
-        // Transient error — retry on next tick
+        // Transient k8s error — retry on next tick
       }
-    }, 1000)
+      setTimeout(poll, 1000)
+    }
+    setTimeout(poll, 1000)
 
     return true
   }
@@ -364,12 +392,12 @@ export async function handleApi(
       json(res, 200, session)
       return true
     }
-    // Fallback: not owned by this user but hash exists
+    // Fallback: not owned by this user but hash exists — no deep link available
     const state = await getPodState(hash)
     json(res, 200, {
       hash,
       state,
-      url: sessionUrl(hash),
+      url: null,
       lastActivity: new Date().toISOString(),
       idleTimeoutMinutes: config.idleTimeoutMinutes,
     })
@@ -394,7 +422,7 @@ export async function handleApi(
       }
       throw err
     }
-    json(res, 200, { hash, state: "creating", url: sessionUrl(hash) })
+    json(res, 200, { hash, state: "creating", url: null })
     return true
   }
 
