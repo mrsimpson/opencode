@@ -1450,6 +1450,30 @@ describe("GET /api/sessions/:hash/progress/stream (SSE)", () => {
     expect(Array.isArray(payload.messages)).toBe(true)
   })
 
+  it("subscribes to progressBroadcaster before writing snapshot — emits during/after the handler reach the same res", async () => {
+    const { progressBroadcaster } = await import("./stream-broadcaster.js")
+    const req = fakeReq("GET", "/api/sessions/abc123456789/progress/stream")
+    const res = fakeSseResGlobal()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    progressBroadcaster.emit({
+      hash: "abc123456789",
+      message: {
+        partID: "part-after-snapshot",
+        messageID: "m1",
+        sessionID: "s1",
+        role: "assistant",
+        text: "hello",
+        time: 1,
+      },
+    })
+
+    const sseData = res._chunks.join("")
+    expect(sseData).toContain("event: message")
+    expect(sseData).toContain("part-after-snapshot")
+  })
+
   it("returns 403 when hash does not belong to authenticated user", async () => {
     // listUserSessions returns sessions for a different hash
     mocks.listUserSessions.mockImplementation(() =>

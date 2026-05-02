@@ -244,13 +244,18 @@ export async function handleApi(
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     })
-    const progress = messageStore.get(hash) ?? { messages: [] }
-    res.write(`event: snapshot\ndata: ${JSON.stringify(progress)}\n\n`)
+    // Subscribe BEFORE writing the snapshot so any progressBroadcaster.emit()
+    // that arrives during snapshot serialisation is not silently dropped.
+    // Symmetric with the subscribe-before-fetch fix in /api/sessions/stream.
+    // The snapshot itself already includes any message stored before this
+    // moment, so the listener safely deduplicates by partID on the client.
     const unsubscribe = progressBroadcaster.subscribe(({ hash: h, message }) => {
       if (res.writableEnded || h !== hash) return
       res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`)
     })
     res.on("close", () => unsubscribe())
+    const progress = messageStore.get(hash) ?? { messages: [] }
+    res.write(`event: snapshot\ndata: ${JSON.stringify(progress)}\n\n`)
     return true
   }
 
