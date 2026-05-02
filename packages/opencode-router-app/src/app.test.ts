@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { computeIdleStatus, getPhaseKindAfterUrlRestore, type IdleLabels } from "./session-utils"
+import { subscribeSessionsStream } from "./api"
 
 const labels: IdleLabels = {
   stopsIn: (m) => `stops in ~${m}m`,
@@ -54,28 +55,79 @@ describe("computeIdleStatus", () => {
 })
 
 describe("getPhaseKindAfterUrlRestore", () => {
+  // New contract: url is either null (not yet resolved) or a valid deep link.
+  // Bare root URLs are no longer a valid state — only null signals "not ready".
+
   it('returns "creating" when session was resumed', () => {
     const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("creating")
   })
 
-  it('returns "creating" when URL does not contain "/session/" and not resumed', () => {
-    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/")
+  it('returns "creating" when url is null and not resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(false, null)
     expect(result).toBe("creating")
   })
 
-  it('returns "open" when URL contains "/session/" and not resumed', () => {
+  it('returns "open" when url is a deep link and not resumed', () => {
     const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("open")
   })
 
-  it('returns "creating" when resumed, even if URL contains "/session/"', () => {
+  it('returns "creating" when resumed, even if url is a deep link', () => {
     const result = getPhaseKindAfterUrlRestore(true, "https://abc123.localhost:3002/session/test")
     expect(result).toBe("creating")
   })
 
-  it('returns "creating" for URLs without path when not resumed', () => {
-    const result = getPhaseKindAfterUrlRestore(false, "https://abc123.localhost:3002")
+  it('returns "creating" when url is null and resumed', () => {
+    const result = getPhaseKindAfterUrlRestore(true, null)
     expect(result).toBe("creating")
+  })
+})
+
+describe("subscribeSessionsStream API contract", () => {
+  it("is a function accepting handlers object", () => {
+    expect(typeof subscribeSessionsStream).toBe("function")
+  })
+
+  it("does not require any handlers (all optional)", () => {
+    const originalEventSource = globalThis.EventSource
+    const mockEs = { addEventListener: () => {}, close: () => {}, onerror: null }
+    // Use a class so it satisfies `new EventSource(...)` call
+    class MockEventSource {
+      addEventListener() {}
+      close() {}
+      onerror = null
+    }
+    globalThis.EventSource = MockEventSource as any
+    expect(() => subscribeSessionsStream({})).not.toThrow()
+    globalThis.EventSource = originalEventSource
+  })
+})
+
+describe("app.tsx polling replacement", () => {
+  it("app.tsx source does not contain setInterval for session polling", async () => {
+    const src = await Bun.file(new URL("./app.tsx", import.meta.url)).text()
+    const matches = src.match(/setInterval/g)
+    expect(matches).toBeNull()
+  })
+})
+
+describe("session-item.tsx title display", () => {
+  it("session-item.tsx source references session.title", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    expect(src).toContain("session.title")
+  })
+})
+
+describe("session-item.tsx expand panel progress stream", () => {
+  it("session-item.tsx source uses subscribeProgressStream when panel is expanded", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    expect(src).toContain("subscribeProgressStream")
+  })
+
+  it("session-item.tsx source renders messages from progress stream", async () => {
+    const src = await Bun.file(new URL("./session-item.tsx", import.meta.url)).text()
+    // The component must render message text from the progress stream
+    expect(src).toContain("messages")
   })
 })

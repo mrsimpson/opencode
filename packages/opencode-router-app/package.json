@@ -15,7 +15,8 @@
   "dependencies": {
     "@opencode-ai/ui": "workspace:*",
     "@kobalte/core": "catalog:",
-    "solid-js": "catalog:"
+    "solid-js": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
