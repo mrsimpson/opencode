@@ -39,6 +39,13 @@ export const config = {
    */
   routerProto: process.env.ROUTER_PROTO ?? "https",
   /**
+   * The internal URL the opencode-router-plugin uses to push session progress events back
+   * to this router from inside the cluster (e.g. "http://opencode-router.opencode-router.svc.cluster.local").
+   * When unset, the plugin is not configured and no progress events are pushed.
+   * Example: OPENCODE_ROUTER_URL=http://opencode-router.opencode-router.svc.cluster.local
+   */
+  opencodeRouterUrl: process.env.OPENCODE_ROUTER_URL,
+  /**
    * Dev-only: when set, the router proxies the setup UI to this Vite dev server URL
    * instead of serving static files from publicDir. Enables HMR without a redirect loop.
    * Example: DEV_VITE_URL=http://localhost:5173

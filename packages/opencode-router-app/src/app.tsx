@@ -2,7 +2,14 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
-import { type Session, createSession, listSessions, resumeSession, suggestBranch, terminateSession } from "./api"
+import {
+  type Session,
+  createSession,
+  resumeSession,
+  subscribeSessionsStream,
+  suggestBranch,
+  terminateSession,
+} from "./api"
 import { useT } from "./i18n"
 import { LoadingScreen } from "./loading-screen"
 import { SessionInputBar } from "./session-input-bar"
@@ -14,7 +21,7 @@ import { getPhaseKindAfterUrlRestore } from "./session-utils"
 type AppPhase =
   | { kind: "loading" }
   | { kind: "ready" }
-  | { kind: "creating"; hash: string; url: string }
+  | { kind: "creating"; hash: string }
   | { kind: "open"; hash: string; url: string }
   | { kind: "error"; message: string }
 
@@ -40,23 +47,6 @@ export function App() {
   /** Navigate the browser URL without a full-page reload. */
   const navigate = (path: string) => window.history.pushState({}, "", path)
 
-  const loadSessions = async () => {
-    try {
-      const data = await listSessions()
-      setEmail(data.email)
-      setSessions(data.sessions)
-      if (appPhase().kind === "loading") setAppPhase({ kind: "ready" })
-    } catch (err) {
-      const message =
-        err instanceof Error && err.name === "TimeoutError"
-          ? t("app.error.timeout")
-          : err instanceof Error
-            ? err.message
-            : t("app.error.connect")
-      setAppPhase({ kind: "error", message })
-    }
-  }
-
   /** Restore app phase from the current browser URL after sessions have loaded. */
   const restoreFromUrl = async () => {
     const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
@@ -81,18 +71,42 @@ export function App() {
       }
     }
 
-    // After resuming, always set to "creating" to trigger LoadingScreen polling.
-    // For non-stopped sessions, use URL check to determine the phase.
+    // After resuming, always use LoadingScreen. For running sessions with a
+    // resolved URL go directly to open; otherwise LoadingScreen polls events SSE.
     const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
-    setAppPhase({ kind: phaseKind, hash, url: session.url })
+    if (phaseKind === "open" && session.url !== null) {
+      setAppPhase({ kind: "open", hash, url: session.url })
+    } else {
+      setAppPhase({ kind: "creating", hash })
+    }
   }
 
   onMount(() => {
-    loadSessions().then(restoreFromUrl)
-    const timer = setInterval(() => {
-      const p = appPhase()
-      if (p.kind === "ready" || p.kind === "loading" || p.kind === "open") loadSessions()
-    }, 5_000)
+    // SSE stream provides the initial snapshot and all subsequent updates.
+    // loadSessions() is no longer called on mount — the SSE replaces polling.
+    let es: EventSource | null = null
+    const startStream = () => {
+      es?.close()
+      es = subscribeSessionsStream({
+        onSessions: (data) => {
+          batch(() => {
+            setEmail(data.email)
+            setSessions(data.sessions)
+            if (appPhase().kind === "loading") {
+              setAppPhase({ kind: "ready" })
+              restoreFromUrl()
+            }
+          })
+        },
+        onError: () => {
+          if (appPhase().kind === "loading") {
+            setAppPhase({ kind: "error", message: t("app.error.connect") })
+          }
+        },
+      })
+    }
+    startStream()
+
     const onPopState = async () => {
       const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
       if (!m) {
@@ -119,14 +133,16 @@ export function App() {
         }
       }
 
-      // After resuming, always set to "creating" to trigger LoadingScreen polling.
-      // For non-stopped sessions, use URL check to determine the phase.
       const phaseKind = getPhaseKindAfterUrlRestore(wasResumed, session.url)
-      setAppPhase({ kind: phaseKind, hash, url: session.url })
+      if (phaseKind === "open" && session.url !== null) {
+        setAppPhase({ kind: "open", hash, url: session.url })
+      } else {
+        setAppPhase({ kind: "creating", hash })
+      }
     }
     window.addEventListener("popstate", onPopState)
     onCleanup(() => {
-      clearInterval(timer)
+      es?.close()
       window.removeEventListener("popstate", onPopState)
     })
   })
@@ -170,7 +186,7 @@ export function App() {
                 navigate("/")
                 setAppPhase({ kind: "ready" })
               }
-              loadSessions()
+              // SSE stream will update session list automatically via sessionsChangedBroadcaster
             }}
           >
             {t("session.action.terminate")}
@@ -201,7 +217,7 @@ export function App() {
       const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch, promptText())
       batch(() => {
         navigate(`/session/${result.hash}`)
-        setAppPhase({ kind: "creating", hash: result.hash, url: result.url })
+        setAppPhase({ kind: "creating", hash: result.hash })
       })
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Network error")
@@ -212,17 +228,18 @@ export function App() {
 
   const handleOpenSession = (session: Session) => {
     navigate(`/session/${session.hash}`)
-    if (session.url.includes("/session/")) {
+    if (session.url !== null) {
       setAppPhase({ kind: "open", hash: session.hash, url: session.url })
     } else {
-      setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
+      // URL not yet resolved — LoadingScreen polls the events SSE until the deep link arrives
+      setAppPhase({ kind: "creating", hash: session.hash })
     }
   }
 
   const handleResumeSession = async (session: Session) => {
     await resumeSession(session.hash)
     navigate(`/session/${session.hash}`)
-    setAppPhase({ kind: "creating", hash: session.hash, url: session.url })
+    setAppPhase({ kind: "creating", hash: session.hash })
   }
 
   const activeHash = () => {
@@ -307,9 +324,11 @@ export function App() {
               <div class="flex flex-1 items-center justify-center">
                 <LoadingScreen
                   hash={p().hash}
-                  url={p().url}
                   onReady={(url) => {
                     setAppPhase({ kind: "open", hash: p().hash, url })
+                  }}
+                  onError={(message) => {
+                    setAppPhase({ kind: "error", message })
                   }}
                 />
               </div>

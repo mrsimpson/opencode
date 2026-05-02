@@ -4,6 +4,9 @@ import * as k8s from "@kubernetes/client-node"
 import { humanId as _humanId } from "human-id"
 import { config } from "./config.js"
 import * as devProxy from "./dev-proxy.js"
+import { podSecretStore } from "./pod-secret-store.js"
+import { messageStore } from "./message-store.js"
+import { sessionsChangedBroadcaster as _sessionsChangedBroadcaster } from "./stream-broadcaster.js"
 
 const kc = new k8s.KubeConfig()
 // loadFromCluster() does not throw when not in a pod — it silently produces
@@ -47,8 +50,25 @@ export function _setBootstrapFetch(fn: FetchFn) {
   bootstrapFetchImpl = fn
 }
 
-/** Hashes for which a bootstrap session call is in-flight or completed this process lifetime. */
-const bootstrappedHashes = new Set<string>()
+/** Emit a sessions-changed signal — injectable for testing. */
+let emitSessionsChanged: () => void = () => _sessionsChangedBroadcaster.emit()
+/** For testing only: replace the sessionsChanged emit function. */
+export function _setEmitSessionsChanged(fn: () => void) {
+  emitSessionsChanged = fn
+}
+
+/**
+ * Tracks the in-flight or completed bootstrap for each pod hash.
+ *
+ * Value is a Promise that resolves to the opencode session ID (string) on success
+ * or `null` on failure. All concurrent callers await the same Promise so only one
+ * `POST /session` is ever sent per hash. Callers treat null as "still pending" and
+ * keep the session URL as null until the next poll succeeds or a timeout fires.
+ *
+ * Key is absent if bootstrap has never been attempted for this hash.
+ * Key is deleted on failure (so the next poll can retry) or on pod termination/idle-delete.
+ */
+const bootstrappedSessions = new Map<string, Promise<string | null>>()
 
 const LABEL_SESSION_HASH = "opencode.ai/session-hash"
 const LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
@@ -84,39 +104,46 @@ export interface SessionInfo {
   /** Source branch the session was created from (e.g. "main") */
   sourceBranch: string
   state: PodState
-  url: string
+  /**
+   * Deep link URL to the specific opencode session, e.g.
+   *   https://<hash>-oc.<domain>/<workspace-b64>/session/<sessionId>
+   *
+   * null when:
+   *   - pod is not running (stopped / creating)
+   *   - pod is running but the session URL is not yet resolved (bootstrap in-flight)
+   *   - pod is running but the activity endpoint is unreachable
+   *
+   * Never a bare pod root or a "new session" URL — consumers must wait for a non-null
+   * value before opening the session, and surface an error if it never arrives.
+   */
+  url: string | null
   lastActivity: string
   createdAt: string
   idleTimeoutMinutes: number
   description?: string
+  title?: string
 }
 
 /**
- * Get full session info for a single session by hash, including deep link URL.
- * Reusable for both the polling GET endpoint and the SSE events endpoint.
- * Returns null if the session's PVC is not found.
+ * Derive the SessionInfo wire payload for a single (PVC, optional Pod) pair.
+ *
+ * Shared between getSessionInfo (single-hash lookup) and listUserSessions (per-user listing).
+ * Both paths need identical state derivation, lastActivity merge, deep-link URL resolution,
+ * and title merge from messageStore — keeping them in one place prevents the two from drifting.
+ *
+ * Caller responsibilities:
+ *   - Resolve `pod` to undefined when terminating (deletionTimestamp set) or absent.
+ *   - Pass `email` from the trusted source for the call (PVC annotation for single-hash,
+ *     authenticated request email for the per-user path).
  */
-export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
-  const proto = config.routerProto
-
-  let pvc: k8s.V1PersistentVolumeClaim
-  try {
-    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
-  } catch (err) {
-    if (isNotFound(err)) return null
-    throw err
-  }
-
+async function buildSessionInfo(
+  hash: string,
+  pvc: k8s.V1PersistentVolumeClaim,
+  pod: k8s.V1Pod | undefined,
+  email: string,
+): Promise<SessionInfo> {
   const ann = pvc.metadata?.annotations ?? {}
-  const email = ann[ANNOTATION_USER_EMAIL] ?? ""
-
-  let pod: k8s.V1Pod | undefined
-  try {
-    const p = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
-    if (!p.metadata?.deletionTimestamp) pod = p
-  } catch (err) {
-    if (!isNotFound(err)) throw err
-  }
+  const proto = config.routerProto
 
   let state: PodState
   if (!pod) {
@@ -132,7 +159,7 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
 
   let lastActivity = annotationActivity
   const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
-  let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
+  let sessionUrl: string | null = null
 
   if (state === "running" && pod?.status?.podIP) {
     const activity = await podActivityMs(pod.status.podIP, hash)
@@ -140,9 +167,10 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
       if (activity.ms > new Date(annotationActivity).getTime()) {
         lastActivity = new Date(activity.ms).toISOString()
       }
-      if (activity.sessionId) {
-        sessionUrl = deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
-      } else if (initialMessage) {
+      if (initialMessage) {
+        // Sessions with an initialMessage must always link to the bootstrapped session.
+        // All concurrent callers await the same Promise — only one POST /session is ever sent.
+        // Returns null while bootstrap is in-flight or if it has permanently failed.
         let base = `http://${pod.status.podIP}:${config.opencodePort}`
         if (devProxy.enabled) {
           const proxyTarget = await devProxy.target(hash)
@@ -151,11 +179,15 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
         const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
         sessionUrl = bootstrappedId
           ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
-          : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
-      } else {
-        sessionUrl = newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
+          : null
+      } else if (activity.sessionId) {
+        // No initialMessage: link to the most recently active session on the pod.
+        sessionUrl = deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
       }
+      // else: running pod with no sessions yet and no initialMessage → url stays null
+      // (caller should keep waiting; this resolves once the user creates a session manually)
     }
+    // else: pod unreachable → url stays null
   }
 
   return {
@@ -170,7 +202,34 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
     createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
     idleTimeoutMinutes: config.idleTimeoutMinutes,
     description: initialMessage,
+    title: messageStore.get(hash)?.title,
   }
+}
+
+/**
+ * Get full session info for a single session by hash, including deep link URL.
+ * Reusable for both the polling GET endpoint and the SSE events endpoint.
+ * Returns null if the session's PVC is not found.
+ */
+export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
+  let pvc: k8s.V1PersistentVolumeClaim
+  try {
+    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
+  } catch (err) {
+    if (isNotFound(err)) return null
+    throw err
+  }
+
+  let pod: k8s.V1Pod | undefined
+  try {
+    const p = await k8sApi.readNamespacedPod({ name: podName(hash), namespace: config.namespace })
+    if (!p.metadata?.deletionTimestamp) pod = p
+  } catch (err) {
+    if (!isNotFound(err)) throw err
+  }
+
+  const email = pvc.metadata?.annotations?.[ANNOTATION_USER_EMAIL] ?? ""
+  return buildSessionInfo(hash, pvc, pod, email)
 }
 
 /**
@@ -256,42 +315,56 @@ function deepLinkUrl(podUrl: string, sessionId: string): string {
   return `${podUrl}/${WORKSPACE_BASE64}/session/${sessionId}`
 }
 
-function newSessionUrl(podUrl: string): string {
-  return `${podUrl}/${WORKSPACE_BASE64}/session`
-}
-
 /**
  * Create an opencode session on a running pod and fire the initial message via
- * prompt_async. Returns the deep-link URL to the new session, or null if the
- * pod is not yet reachable or the call fails.
+ * prompt_async. Returns the opencode session ID on success, or null on failure.
  *
- * Guarded by `bootstrappedHashes` so concurrent polls don't create duplicate sessions.
+ * Concurrent callers all await the same in-flight Promise — only one POST /session
+ * is ever sent per pod hash. On failure the entry is deleted so the next poll can
+ * retry. On success the entry persists so future URL lookups always return the same
+ * session ID (stable deep link even after activity on other sessions on the same pod).
  */
-async function bootstrapPodSession(base: string, hash: string, initialMessage: string): Promise<string | null> {
-  if (bootstrappedHashes.has(hash)) return null
-  bootstrappedHashes.add(hash)
-  try {
-    const createRes = await bootstrapFetchImpl(`${base}/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    if (!createRes.ok) return null
-    const session = (await createRes.json()) as { id?: string }
-    const sessionId = session.id
-    if (!sessionId) return null
-    const promptRes = await bootstrapFetchImpl(`${base}/session/${sessionId}/prompt_async`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parts: [{ type: "text", text: initialMessage }] }),
-    })
-    if (!promptRes.ok) return null
-    return sessionId
-  } catch {
-    // Remove from set on failure so a later poll can retry
-    bootstrappedHashes.delete(hash)
-    return null
-  }
+function bootstrapPodSession(base: string, hash: string, initialMessage: string): Promise<string | null> {
+  const existing = bootstrappedSessions.get(hash)
+  if (existing !== undefined) return existing
+
+  const promise = (async () => {
+    try {
+      const createRes = await bootstrapFetchImpl(`${base}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (!createRes.ok) {
+        bootstrappedSessions.delete(hash)
+        return null
+      }
+      const session = (await createRes.json()) as { id?: string }
+      const sessionId = session.id
+      if (!sessionId) {
+        bootstrappedSessions.delete(hash)
+        return null
+      }
+      const promptRes = await bootstrapFetchImpl(`${base}/session/${sessionId}/prompt_async`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parts: [{ type: "text", text: initialMessage }] }),
+      })
+      if (!promptRes.ok) {
+        bootstrappedSessions.delete(hash)
+        return null
+      }
+      return sessionId
+    } catch {
+      // Remove on failure so a later poll can retry
+      bootstrappedSessions.delete(hash)
+      return null
+    }
+  })()
+
+  // Store immediately so concurrent callers await the same promise
+  bootstrappedSessions.set(hash, promise)
+  return promise
 }
 
 async function ensureGithubTokenSecret(hash: string, token: string): Promise<void> {
@@ -386,12 +459,13 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
-  try {
-    await k8sApi.readNamespacedPod({ name, namespace: config.namespace })
-    return hash // already exists
-  } catch (err) {
-    if (!isNotFound(err)) throw err
-  }
+  const existingPods = await k8sApi.listNamespacedPod({
+    namespace: config.namespace,
+    labelSelector: `${LABEL_SESSION_HASH}=${hash}`,
+  })
+  if (existingPods.items.some((p: k8s.V1Pod) => !p.metadata?.deletionTimestamp)) return hash
+
+  const podSecret = podSecretStore.generate(hash)
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
 
@@ -526,13 +600,18 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             ].join("\n"),
           ],
           readinessProbe: {
-            httpGet: { path: "/health", port: config.opencodePort },
+            httpGet: { path: "/global/health", port: config.opencodePort },
             initialDelaySeconds: 5,
             periodSeconds: 3,
             failureThreshold: 20,
           },
           ports: [{ containerPort: config.opencodePort }],
-          env: [{ name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" }],
+          env: [
+            { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
+            { name: "OPENCODE_POD_SECRET", value: podSecret },
+            { name: "OPENCODE_SESSION_HASH", value: hash },
+            ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
+          ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
@@ -598,7 +677,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
  * then terminating it. This ensures the image is cached on the node for faster cold starts.
  *
  * Uses the test session approach (see ADR-0003): create pod → wait for ready (smoke test)
- * → delete pod. The readiness probe on /health validates the image actually works.
+ * → delete pod. The readiness probe on /global/health validates the image actually works.
  *
  * @param image - The container image to pre-pull (e.g. "ghcr.io/org/opencode:sha-1234567")
  * @param timeoutMs - Max time to wait for image pull + ready (default 5 minutes)
@@ -688,17 +767,16 @@ export async function getPodIP(hash: string): Promise<string | null> {
  */
 export async function listUserSessions(
   email: string,
-  req: import("node:http").IncomingMessage,
+  _req: import("node:http").IncomingMessage,
 ): Promise<SessionInfo[]> {
-  const proto = config.routerProto
-
   const pvcList = await k8sApi.listNamespacedPersistentVolumeClaim({
     namespace: config.namespace,
     labelSelector: `${LABEL_MANAGED_BY}=${MANAGED_BY_VALUE}`,
   })
 
   const userPVCs = pvcList.items.filter(
-    (pvc: k8s.V1PersistentVolumeClaim) => pvc.metadata?.annotations?.[ANNOTATION_USER_EMAIL] === email,
+    (pvc: k8s.V1PersistentVolumeClaim) =>
+      pvc.metadata?.annotations?.[ANNOTATION_USER_EMAIL] === email && !pvc.metadata?.deletionTimestamp,
   )
   if (userPVCs.length === 0) return []
 
@@ -714,69 +792,9 @@ export async function listUserSessions(
   }
 
   const results = await Promise.allSettled(
-    userPVCs.map(async (pvc: k8s.V1PersistentVolumeClaim) => {
-      const ann = pvc.metadata?.annotations ?? {}
+    userPVCs.map((pvc: k8s.V1PersistentVolumeClaim) => {
       const hash = pvc.metadata?.labels?.[LABEL_SESSION_HASH] ?? ""
-      const pod = podMap.get(hash)
-
-      let state: PodState
-      if (!pod) {
-        state = "stopped"
-      } else if (pod.status?.conditions?.find((c) => c.type === "Ready" && c.status === "True") && pod.status?.podIP) {
-        state = "running"
-      } else {
-        state = "creating"
-      }
-
-      const annotationActivity =
-        pod?.metadata?.annotations?.[ANNOTATION_LAST_ACTIVITY] ??
-        ann[ANNOTATION_LAST_ACTIVITY] ??
-        new Date().toISOString()
-
-      let lastActivity = annotationActivity
-      const initialMessage = ann[ANNOTATION_INITIAL_MESSAGE]
-      let sessionUrl = `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`
-
-      if (state === "running" && pod?.status?.podIP) {
-        const activity = await podActivityMs(pod.status.podIP, hash)
-        if (activity !== null) {
-          if (activity.ms > new Date(annotationActivity).getTime()) {
-            lastActivity = new Date(activity.ms).toISOString()
-          }
-          if (activity.sessionId) {
-            sessionUrl = deepLinkUrl(
-              `${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`,
-              activity.sessionId,
-            )
-          } else if (initialMessage) {
-            let base = `http://${pod.status.podIP}:${config.opencodePort}`
-            if (devProxy.enabled) {
-              const proxyTarget = await devProxy.target(hash)
-              if (proxyTarget) base = proxyTarget
-            }
-            const bootstrappedId = await bootstrapPodSession(base, hash, initialMessage)
-            sessionUrl = bootstrappedId
-              ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
-              : newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
-          } else {
-            sessionUrl = newSessionUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`)
-          }
-        }
-      }
-
-      return {
-        hash,
-        email,
-        repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
-        branch: ann[ANNOTATION_BRANCH] ?? "",
-        sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
-        state,
-        url: sessionUrl,
-        lastActivity,
-        createdAt: ann[ANNOTATION_CREATED_AT] ?? lastActivity,
-        idleTimeoutMinutes: config.idleTimeoutMinutes,
-        description: ann[ANNOTATION_INITIAL_MESSAGE],
-      }
+      return buildSessionInfo(hash, pvc, podMap.get(hash), email)
     }),
   )
   return results.flatMap((r) => {
@@ -813,6 +831,8 @@ export function updateLastActivity(hash: string): void {
     .catch((err) => {
       console.error(`Failed to update last-activity for ${name}:`, err)
     })
+  // Notify SSE session-list subscribers that last-activity changed
+  emitSessionsChanged()
 }
 
 /**
@@ -867,7 +887,13 @@ export async function deleteIdlePods(): Promise<void> {
           .catch((err) => console.error(`Failed to delete pod ${name}:`, err))
 
         const hash = pod.metadata?.labels?.[LABEL_SESSION_HASH]
-        if (hash) activityThrottle.delete(hash)
+        if (hash) {
+          activityThrottle.delete(hash)
+          bootstrappedSessions.delete(hash)
+          podSecretStore.delete(hash)
+          messageStore.delete(hash)
+          emitSessionsChanged()
+        }
       }
     }
   } catch (err) {
@@ -906,6 +932,10 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   })
 
   activityThrottle.delete(hash)
+  bootstrappedSessions.delete(hash)
+  podSecretStore.delete(hash)
+  messageStore.delete(hash)
+  emitSessionsChanged()
 }
 
 /**
@@ -935,6 +965,7 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
   await ensurePod(session, githubToken)
+  emitSessionsChanged()
 }
 
 function hasCode(err: unknown): err is { code: number } {

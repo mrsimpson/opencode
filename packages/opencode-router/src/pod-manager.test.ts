@@ -1,8 +1,26 @@
-import { describe, it, expect, beforeEach } from "bun:test"
+import { describe, it, expect, beforeEach, mock } from "bun:test"
 
 // Set required env vars before config module is loaded
 process.env.OPENCODE_IMAGE = "test"
 process.env.ROUTER_DOMAIN = "test.local"
+
+// ---------------------------------------------------------------------------
+// Store mocks — must be declared BEFORE the pod-manager module is imported
+// ---------------------------------------------------------------------------
+const podSecretStoreMock = {
+  generate: mock((_hash: string) => "aabbcc"),
+  delete: mock((_hash: string) => {}),
+  get: mock((_hash: string) => undefined as string | undefined),
+  verify: mock((_hash: string, _s: string) => false),
+}
+const messageStoreMock = {
+  get: mock((_hash: string) => undefined),
+  setTitle: mock((_hash: string, _title: string) => {}),
+  addMessage: mock((_hash: string, _msg: object) => {}),
+  delete: mock((_hash: string) => {}),
+}
+mock.module("./pod-secret-store.js", () => ({ podSecretStore: podSecretStoreMock }))
+mock.module("./message-store.js", () => ({ messageStore: messageStoreMock }))
 
 // --- Fake k8s client state (mutated per test via helpers below) ---
 let fakePVCs: object[] = []
@@ -110,11 +128,15 @@ const {
   suggestBranch,
   remoteBranchExists,
   deleteIdlePods,
+  getSessionInfo,
+  getSessionHash,
   RemoteRefsUnreachableError,
   _setApiClient,
   _setHumanId,
   _setFetch,
   _setActivityFetch,
+  _setBootstrapFetch,
+  _setEmitSessionsChanged,
 } = await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
@@ -731,5 +753,239 @@ describe("prepullImage", () => {
 
     // Restore
     ;(globalThis as any).getSessionHash = originalGetSessionHash
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ensurePod — injects OPENCODE_POD_SECRET env var
+// ---------------------------------------------------------------------------
+describe("ensurePod injects OPENCODE_POD_SECRET", () => {
+  beforeEach(() => {
+    // reset mocks and fake state
+    podSecretStoreMock.generate.mockReset()
+    podSecretStoreMock.generate.mockImplementation(() => "deadbeef".repeat(8)) // 64 chars
+    createPodCalls = []
+    fakePods = []
+    fakePVCs = [
+      {
+        metadata: {
+          name: "opencode-pvc-abc123456789",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123456789", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": "user@test.com",
+            "opencode.ai/repo-url": "https://github.com/x/y",
+            "opencode.ai/branch": "test-branch",
+            "opencode.ai/source-branch": "main",
+          },
+        },
+      },
+    ]
+  })
+
+  it("calls podSecretStore.generate with the session hash", async () => {
+    const session = {
+      email: "user@test.com",
+      repoUrl: "https://github.com/x/y",
+      branch: "test-branch",
+      sourceBranch: "main",
+    }
+    const { ensurePod } = await import("./pod-manager.js")
+    await (ensurePod as any)(session)
+    expect(podSecretStoreMock.generate).toHaveBeenCalledTimes(1)
+    // The hash passed to generate must match getSessionHash output
+    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+    expect((podSecretStoreMock.generate as any).mock.calls[0][0]).toBe(hash)
+  })
+
+  it("injects OPENCODE_POD_SECRET env var into the pod container", async () => {
+    podSecretStoreMock.generate.mockImplementation(() => "mysecret123")
+    const session = {
+      email: "user@test.com",
+      repoUrl: "https://github.com/x/y",
+      branch: "test-branch",
+      sourceBranch: "main",
+    }
+    const { ensurePod } = await import("./pod-manager.js")
+    await (ensurePod as any)(session)
+    const podBody = (createPodCalls[0] as any)?.body
+    const envVars = podBody?.spec?.containers?.[0]?.env ?? []
+    const secretEnv = envVars.find((e: any) => e.name === "OPENCODE_POD_SECRET")
+    expect(secretEnv).toBeDefined()
+    expect(secretEnv?.value).toBe("mysecret123")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// terminateSession — clears podSecretStore and messageStore
+// ---------------------------------------------------------------------------
+describe("terminateSession clears stores", () => {
+  beforeEach(() => {
+    podSecretStoreMock.delete.mockReset()
+    messageStoreMock.delete.mockReset()
+    // Set up a session to terminate
+    fakePVCs = [
+      {
+        metadata: {
+          name: "opencode-pvc-abc123456789",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123456789", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: { "opencode.ai/user-email": "owner@test.com" },
+        },
+      },
+    ]
+    fakePods = []
+    fakeSecrets = []
+  })
+
+  it("calls podSecretStore.delete with the hash after termination", async () => {
+    await (terminateSession as any)("abc123456789", "owner@test.com")
+    expect(podSecretStoreMock.delete).toHaveBeenCalledTimes(1)
+    expect((podSecretStoreMock.delete as any).mock.calls[0][0]).toBe("abc123456789")
+  })
+
+  it("calls messageStore.delete with the hash after termination", async () => {
+    await (terminateSession as any)("abc123456789", "owner@test.com")
+    expect(messageStoreMock.delete).toHaveBeenCalledTimes(1)
+    expect((messageStoreMock.delete as any).mock.calls[0][0]).toBe("abc123456789")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deleteIdlePods — clears podSecretStore and messageStore for idle pods
+// ---------------------------------------------------------------------------
+describe("deleteIdlePods clears stores for deleted pods", () => {
+  beforeEach(() => {
+    podSecretStoreMock.delete.mockReset()
+    messageStoreMock.delete.mockReset()
+    // An idle pod (last activity far in the past)
+    fakePods = [
+      {
+        metadata: {
+          name: "opencode-session-abc123456789",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123456789", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: { "opencode.ai/last-activity": new Date(Date.now() - 999_999_999).toISOString() },
+        },
+        status: { podIP: null }, // no IP → skip activity check
+      },
+    ]
+    fakePVCs = []
+  })
+
+  it("calls podSecretStore.delete for idle pods that get deleted", async () => {
+    await (deleteIdlePods as any)()
+    expect(podSecretStoreMock.delete).toHaveBeenCalledTimes(1)
+    expect((podSecretStoreMock.delete as any).mock.calls[0][0]).toBe("abc123456789")
+  })
+
+  it("calls messageStore.delete for idle pods that get deleted", async () => {
+    await (deleteIdlePods as any)()
+    expect(messageStoreMock.delete).toHaveBeenCalledTimes(1)
+    expect((messageStoreMock.delete as any).mock.calls[0][0]).toBe("abc123456789")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getSessionInfo — includes title from messageStore
+// ---------------------------------------------------------------------------
+describe("getSessionInfo includes title from messageStore", () => {
+  beforeEach(() => {
+    messageStoreMock.get.mockReset()
+    messageStoreMock.get.mockImplementation(() => ({ title: "My Session Title", messages: [] }))
+    fakePVCs = [
+      {
+        metadata: {
+          name: "opencode-pvc-abc123456789",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123456789", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": "user@test.com",
+            "opencode.ai/repo-url": "https://github.com/x/y",
+            "opencode.ai/branch": "test-branch",
+            "opencode.ai/source-branch": "main",
+            "opencode.ai/last-activity": new Date().toISOString(),
+            "opencode.ai/created-at": new Date().toISOString(),
+          },
+        },
+      },
+    ]
+    fakePods = []
+  })
+
+  it("returns title from messageStore in SessionInfo", async () => {
+    const info = await (getSessionInfo as any)("abc123456789")
+    expect(info?.title).toBe("My Session Title")
+  })
+
+  it("returns undefined title when messageStore has no entry", async () => {
+    messageStoreMock.get.mockImplementation(() => undefined)
+    const info = await (getSessionInfo as any)("abc123456789")
+    expect(info?.title).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// sessionsChanged emission tests
+// ---------------------------------------------------------------------------
+
+describe("emitSessionsChanged injection", () => {
+  let emitCalls: number
+
+  beforeEach(() => {
+    emitCalls = 0
+    _setEmitSessionsChanged(() => {
+      emitCalls++
+    })
+  })
+
+  it("terminateSession emits sessionsChanged after deleting PVC+pod", async () => {
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [makePVC(hash, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(hash, EMAIL, REPO, BRANCH)]
+
+    await terminateSession(hash, EMAIL)
+
+    expect(emitCalls).toBe(1)
+  })
+
+  it("deleteIdlePods emits sessionsChanged for each deleted pod", async () => {
+    // Use a last-activity far in the past so it counts as idle
+    const oldActivity = new Date(Date.now() - 999 * 60_000).toISOString()
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [makePVC(hash, EMAIL, REPO, BRANCH, oldActivity)]
+    fakePods = [makeRunningPod(hash, EMAIL, REPO, BRANCH, oldActivity)]
+    // Activity fetch returns null so it skips the liveness check
+    _setActivityFetch(async () => new Response("null", { status: 200 }))
+
+    await deleteIdlePods()
+
+    expect(emitCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it("resumeSession emits sessionsChanged after recreating the pod", async () => {
+    const hash = computeHash(EMAIL, REPO, BRANCH)
+    fakePVCs = [
+      {
+        metadata: {
+          name: `opencode-pvc-${hash}`,
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": hash, "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": EMAIL,
+            "opencode.ai/repo-url": REPO,
+            "opencode.ai/branch": BRANCH,
+            "opencode.ai/source-branch": "main",
+          },
+        },
+      },
+    ]
+    fakePods = []
+    _setHumanId(() => "test-branch")
+    _setActivityFetch(async () => new Response("[]", { status: 200 }))
+
+    await resumeSession(hash, EMAIL)
+
+    expect(emitCalls).toBe(1)
   })
 })

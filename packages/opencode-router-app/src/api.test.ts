@@ -1,5 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test"
-import { terminateSession, resumeSession, suggestBranch, type Session } from "./api"
+import {
+  terminateSession,
+  resumeSession,
+  suggestBranch,
+  subscribeSessionsStream,
+  subscribeProgressStream,
+  type Session,
+} from "./api"
 
 const fetchMock = mock(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
 global.fetch = fetchMock as any
@@ -92,5 +99,164 @@ describe("Session type", () => {
     }
     expect(typeof s.lastActivity).toBe("string")
     expect(typeof s.idleTimeoutMinutes).toBe("number")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Session interface includes title
+// ---------------------------------------------------------------------------
+describe("Session interface includes title", () => {
+  it("Session objects with title are accepted", () => {
+    const session: Session = {
+      hash: "abc123456789",
+      email: "user@test.com",
+      repoUrl: "https://github.com/x/y",
+      branch: "main",
+      sourceBranch: "main",
+      state: "running",
+      url: "https://abc123456789.test.local",
+      lastActivity: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      idleTimeoutMinutes: 30,
+      title: "My session title",
+    }
+    expect(session.title).toBe("My session title")
+  })
+
+  it("Session objects without title are also valid (title is optional)", () => {
+    const session: Session = {
+      hash: "abc123456789",
+      email: "user@test.com",
+      repoUrl: "https://github.com/x/y",
+      branch: "main",
+      sourceBranch: "main",
+      state: "running",
+      url: "https://abc123456789.test.local",
+      lastActivity: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      idleTimeoutMinutes: 30,
+    }
+    expect(session.title).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// subscribeSessionsStream — SSE subscription
+// ---------------------------------------------------------------------------
+describe("subscribeSessionsStream", () => {
+  it("is exported from api.ts", () => {
+    expect(typeof subscribeSessionsStream).toBe("function")
+  })
+
+  it("returns an EventSource connected to /api/sessions/stream", () => {
+    // Mock EventSource globally
+    const originalEventSource = globalThis.EventSource
+    const mockEs = {
+      close: mock(() => {}),
+      addEventListener: mock((_event: string, _handler: Function) => {}),
+      url: "/api/sessions/stream",
+      readyState: 0,
+    }
+    globalThis.EventSource = mock(() => mockEs) as any
+
+    const es = subscribeSessionsStream({})
+    expect(globalThis.EventSource as any).toHaveBeenCalledWith("/api/sessions/stream")
+
+    globalThis.EventSource = originalEventSource
+  })
+
+  it("calls onSessions handler when sessions event fires", () => {
+    // We test the handler wiring by checking if addEventListener is called with "sessions"
+    const originalEventSource = globalThis.EventSource
+    const listeners: Record<string, Function> = {}
+    const mockEs = {
+      close: mock(() => {}),
+      addEventListener: mock((event: string, handler: Function) => {
+        listeners[event] = handler
+      }),
+      url: "/api/sessions/stream",
+    }
+    globalThis.EventSource = mock(() => mockEs) as any
+
+    const onSessions = mock((_data: object) => {})
+    subscribeSessionsStream({ onSessions })
+
+    // Simulate the "sessions" event
+    const payload = { email: "user@test.com", sessions: [] }
+    listeners["sessions"]?.({ data: JSON.stringify(payload) })
+
+    expect(onSessions).toHaveBeenCalledTimes(1)
+    expect((onSessions as any).mock.calls[0][0]).toEqual(payload)
+
+    globalThis.EventSource = originalEventSource
+  })
+})
+
+// ---------------------------------------------------------------------------
+// subscribeProgressStream — SSE subscription for progress
+// ---------------------------------------------------------------------------
+describe("subscribeProgressStream", () => {
+  it("is exported from api.ts", () => {
+    expect(typeof subscribeProgressStream).toBe("function")
+  })
+
+  it("returns an EventSource connected to /api/sessions/:hash/progress/stream", () => {
+    const originalEventSource = globalThis.EventSource
+    const mockEs = {
+      close: mock(() => {}),
+      addEventListener: mock((_event: string, _handler: Function) => {}),
+    }
+    globalThis.EventSource = mock(() => mockEs) as any
+
+    subscribeProgressStream("abc123456789", {})
+    expect(globalThis.EventSource as any).toHaveBeenCalledWith("/api/sessions/abc123456789/progress/stream")
+
+    globalThis.EventSource = originalEventSource
+  })
+
+  it("calls onSnapshot handler when snapshot event fires", () => {
+    const originalEventSource = globalThis.EventSource
+    const listeners: Record<string, Function> = {}
+    const mockEs = {
+      close: mock(() => {}),
+      addEventListener: mock((event: string, handler: Function) => {
+        listeners[event] = handler
+      }),
+    }
+    globalThis.EventSource = mock(() => mockEs) as any
+
+    const onSnapshot = mock((_progress: object) => {})
+    subscribeProgressStream("abc123456789", { onSnapshot })
+
+    const payload = { title: "Test", messages: [] }
+    listeners["snapshot"]?.({ data: JSON.stringify(payload) })
+
+    expect(onSnapshot).toHaveBeenCalledTimes(1)
+    expect((onSnapshot as any).mock.calls[0][0]).toEqual(payload)
+
+    globalThis.EventSource = originalEventSource
+  })
+
+  it("calls onMessage handler when message event fires", () => {
+    const originalEventSource = globalThis.EventSource
+    const listeners: Record<string, Function> = {}
+    const mockEs = {
+      close: mock(() => {}),
+      addEventListener: mock((event: string, handler: Function) => {
+        listeners[event] = handler
+      }),
+    }
+    globalThis.EventSource = mock(() => mockEs) as any
+
+    const onMessage = mock((_msg: object) => {})
+    subscribeProgressStream("abc123456789", { onMessage })
+
+    const msg = { partID: "p1", messageID: "m1", sessionID: "s1", role: "user", text: "hi", time: 1000 }
+    listeners["message"]?.({ data: JSON.stringify(msg) })
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect((onMessage as any).mock.calls[0][0]).toEqual(msg)
+
+    globalThis.EventSource = originalEventSource
   })
 })

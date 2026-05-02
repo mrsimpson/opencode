@@ -15,7 +15,11 @@ const STAGE_LABEL_KEY: Record<Stage, string> = {
   readying: "loading.stage.readying",
 }
 
-export function LoadingScreen(props: { hash: string; url: string; onReady?: (url: string) => void }) {
+export function LoadingScreen(props: {
+  hash: string
+  onReady?: (url: string) => void
+  onError?: (message: string) => void
+}) {
   const t = useT(useI18n())
   const [stage, setStage] = createSignal<Stage>("initializing")
   let es: EventSource | undefined
@@ -29,10 +33,8 @@ export function LoadingScreen(props: { hash: string; url: string; onReady?: (url
         if (props.onReady) props.onReady(url)
         else window.location.replace(url)
       },
-      onError: () => {
-        // On SSE error, fall back to the base URL provided at creation time
-        if (props.onReady) props.onReady(props.url)
-        else window.location.replace(props.url)
+      onError: (message) => {
+        if (props.onError) props.onError(message)
       },
     })
   })

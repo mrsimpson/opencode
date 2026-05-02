@@ -41,10 +41,10 @@ export function computeIdleStatus(
  * LoadingScreen polling until the session is ready.
  *
  * For non-stopped sessions (not resumed), use the session URL to determine
- * the phase: "creating" if URL doesn't contain "/session/", otherwise "open".
+ * the phase: "creating" if URL is null (not yet resolved), otherwise "open".
  */
-export function getPhaseKindAfterUrlRestore(wasResumed: boolean, sessionUrl: string): "creating" | "open" {
-  if (wasResumed || !sessionUrl.includes("/session/")) {
+export function getPhaseKindAfterUrlRestore(wasResumed: boolean, sessionUrl: string | null): "creating" | "open" {
+  if (wasResumed || sessionUrl === null) {
     return "creating"
   }
   return "open"
