@@ -371,6 +371,15 @@ const operatorSidecar = [
           },
         },
       },
+      {
+        name: "ROUTER_ADMIN_SECRET",
+        valueFrom: {
+          secretKeyRef: {
+            name: `${APP_NAME}-admin-secret`,
+            key: "ADMIN_SECRET",
+          },
+        },
+      },
     ],
     readinessProbe: {
       httpGet: { path: "/healthz", port: 8080 },
