@@ -360,7 +360,7 @@ const operatorSidecar = [
       { name: "ROUTE_SUFFIX", value: ROUTE_SUFFIX },
       { name: "ROUTER_SERVICE_URL", value: ROUTER_SERVICE_URL },
       // Direct ClusterIP URL for admin API calls — bypasses Traefik/oauth2 middleware
-      { name: "ROUTER_ADMIN_URL", value: pulumi.interpolate`http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:3000` },
+      { name: "ROUTER_ADMIN_URL", value: pulumi.interpolate`http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80` },
       { name: "INGRESSROUTE_NAMESPACE", value: NAMESPACE },
       { name: "OAUTH2_CHAIN_MIDDLEWARE", value: `${APP_NAME}-oauth2-chain` },
       { name: "ROUTER_SERVICE_NAME", value: APP_NAME },
