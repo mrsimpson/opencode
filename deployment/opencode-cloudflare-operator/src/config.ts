@@ -27,10 +27,9 @@ export const config = {
   routerServiceUrl: required("ROUTER_SERVICE_URL"),
   /**
    * Direct in-cluster URL to the router service for admin API calls (bypasses Traefik/oauth2).
-   * Defaults to ROUTER_SERVICE_URL if not set, but should point directly to the router ClusterIP
-   * (e.g. http://code.code.svc.cluster.local:3000) so oauth2 middleware is not applied.
+   * Should point directly to the router ClusterIP (e.g. http://code.code.svc.cluster.local:3000).
    */
-  routerAdminUrl: process.env.ROUTER_ADMIN_URL ?? required("ROUTER_SERVICE_URL"),
+  routerAdminUrl: required("ROUTER_ADMIN_URL"),
   /** Admin secret for authenticating operator calls to the router API */
   routerAdminSecret: required("ROUTER_ADMIN_SECRET"),
   /** Port for the health check HTTP server */
