@@ -16,6 +16,7 @@ COPY packages/function/package.json packages/function/
 COPY packages/opencode/package.json packages/opencode/
 COPY packages/opencode-router/package.json packages/opencode-router/
 COPY packages/opencode-router-app/package.json packages/opencode-router-app/
+COPY packages/opencode-router-plugin/package.json packages/opencode-router-plugin/
 COPY packages/plugin/package.json packages/plugin/
 COPY packages/script/package.json packages/script/
 COPY packages/sdk/js/package.json packages/sdk/js/
@@ -50,6 +51,7 @@ COPY packages/function/package.json packages/function/
 COPY packages/opencode/package.json packages/opencode/
 COPY packages/opencode-router/package.json packages/opencode-router/
 COPY packages/opencode-router-app/package.json packages/opencode-router-app/
+COPY packages/opencode-router-plugin/package.json packages/opencode-router-plugin/
 COPY packages/plugin/package.json packages/plugin/
 COPY packages/script/package.json packages/script/
 COPY packages/sdk/js/package.json packages/sdk/js/
