@@ -7,20 +7,8 @@ import { createIngressRoutes, deleteIngressRoutes } from "./ingressroute.js"
 /** Label selector for session PVCs (used to detect termination) */
 const PVC_LABEL_SELECTOR = "app.kubernetes.io/managed-by=opencode-router"
 
-/**
- * Poll the session pod for listening ports (>3000).
- * Returns array of port numbers.
- */
-export async function pollPodPorts(podIP: string): Promise<number[]> {
-  try {
-    const res = await fetch(`http://${podIP}:${config.opencodePort}/api/ports`)
-    if (!res.ok) return []
-    const data = (await res.json()) as { ports: number[] }
-    return data.ports ?? []
-  } catch {
-    return []
-  }
-}
+/** Interval between port-polling cycles per active pod (ms) */
+const PORT_POLL_INTERVAL_MS = 30_000
 
 // ---------------------------------------------------------------------------
 // Kubernetes client
@@ -35,24 +23,130 @@ if (fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
 }
 
 // ---------------------------------------------------------------------------
-// Pod watch
+// Per-pod port polling loop
+// ---------------------------------------------------------------------------
+
+/**
+ * Track which ports we have already provisioned per session hash so we don't
+ * re-create ingress entries on every poll cycle.
+ */
+const provisionedPorts = new Map<string, Set<number>>()
+
+/**
+ * Track active polling timers so we can cancel them when a pod is deleted.
+ */
+const podPollers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/**
+ * Create Traefik IngressRoutes for a single dev-server port on a session.
+ * No per-port Cloudflare DNS/tunnel entries — the wildcard covers *.domain.
+ */
+async function provisionPortRoute(hash: string, port: number): Promise<void> {
+  const portHostname = sessionPortHostname(hash, port)
+  await createIngressRoutes(portHostname)
+  console.log(`Provisioned ${portHostname} (port ${port})`)
+}
+
+/**
+ * Fetch the current list of dev-server ports reported by a session pod from
+ * the router API. The pod pushes ports via POST /api/sessions/:hash/ports;
+ * we poll GET /api/sessions/:hash/ports with the admin secret.
+ */
+export async function fetchSessionPorts(hash: string): Promise<number[]> {
+  const res = await fetch(`${config.routerServiceUrl}/api/sessions/${hash}/ports`, {
+    headers: { "x-admin-secret": config.routerAdminSecret },
+  })
+  if (!res.ok) {
+    throw new Error(`GET /api/sessions/${hash}/ports → HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as { ports: number[] }
+  return body.ports
+}
+
+/**
+ * Start a recurring polling loop that checks for new dev-server ports reported
+ * by the pod to the router, and provisions Traefik IngressRoutes for any newly
+ * discovered ports.
+ *
+ * The loop stops when `stopPodPoller(podName)` is called (on pod deletion).
+ */
+function startPodPoller(podName: string, hash: string): void {
+  const poll = async () => {
+    if (!podPollers.has(podName)) return // poller was stopped
+
+    try {
+      const ports = await fetchSessionPorts(hash)
+      if (ports.length > 0) {
+        console.log(`Port poll ${hash}: reported ports = [${ports.join(", ")}]`)
+      }
+
+      const already = provisionedPorts.get(hash) ?? new Set<number>()
+      const newPorts = ports.filter((p) => !already.has(p))
+
+      for (const port of newPorts) {
+        try {
+          await provisionPortRoute(hash, port)
+          already.add(port)
+        } catch (err) {
+          console.error(`Failed to provision port ${port} for ${hash}:`, err)
+        }
+      }
+      if (newPorts.length > 0) {
+        provisionedPorts.set(hash, already)
+      }
+    } catch (err) {
+      console.error(`Port poll error for ${hash}:`, err)
+    }
+
+    if (podPollers.has(podName)) {
+      podPollers.set(
+        podName,
+        setTimeout(() => void poll(), PORT_POLL_INTERVAL_MS),
+      )
+    }
+  }
+
+  podPollers.set(
+    podName,
+    setTimeout(() => void poll(), PORT_POLL_INTERVAL_MS),
+  )
+  console.log(`Started port poller for pod ${podName} (hash ${hash}), interval ${PORT_POLL_INTERVAL_MS}ms`)
+}
+
+/**
+ * Stop the port polling loop for a pod.
+ */
+function stopPodPoller(podName: string): void {
+  const timer = podPollers.get(podName)
+  if (timer !== undefined) {
+    clearTimeout(timer)
+    podPollers.delete(podName)
+    console.log(`Stopped port poller for pod ${podName}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pod watch handlers
 // ---------------------------------------------------------------------------
 
 /**
  * Provision Cloudflare DNS record + tunnel route + IngressRoutes for a new session pod.
- * Also polls for user-started dev server ports (>3000) and creates per-port routes.
+ * Then starts a background poller that watches for dev-server ports reported to the router.
  */
 async function onPodAdded(pod: k8s.V1Pod): Promise<void> {
   const hash = pod.metadata?.labels?.[config.sessionHashLabel]
   if (!hash) return
 
+  const podName = pod.metadata?.name
+  if (!podName) return
+
   const hostname = sessionHostname(hash)
-  console.log(`Pod added: ${pod.metadata?.name} → provisioning ${hostname}`)
+  console.log(`Pod added: ${podName} → provisioning ${hostname}`)
 
   try {
     const tunnelCname = await getTunnelCname()
 
-    // Create main session route (port 4096)
+    // Create main session route (opencode port)
     await Promise.all([
       createDnsRecord(hostname, tunnelCname),
       createTunnelRoute(hostname),
@@ -60,26 +154,11 @@ async function onPodAdded(pod: k8s.V1Pod): Promise<void> {
     ])
     console.log(`Provisioned ${hostname} (main port)`)
 
-    // Poll for dev server ports and create per-port routes
-    const podIP = pod.status?.podIP
-    if (podIP) {
-      const ports = await pollPodPorts(podIP)
-      console.log(`Found dev server ports for ${hash}: ${ports.join(", ") || "none"}`)
+    // Initialise the provisioned-ports set for this session
+    provisionedPorts.set(hash, new Set<number>())
 
-      for (const port of ports) {
-        const portHostname = sessionPortHostname(hash, port)
-        try {
-          await Promise.all([
-            createDnsRecord(portHostname, tunnelCname),
-            createTunnelRoute(portHostname),
-            createIngressRoutes(portHostname),
-          ])
-          console.log(`Provisioned ${portHostname} (port ${port})`)
-        } catch (err) {
-          console.error(`Failed to provision ${portHostname}:`, err)
-        }
-      }
-    }
+    // Start background poller for user dev-server ports
+    startPodPoller(podName, hash)
   } catch (err) {
     console.error(`Failed to provision ${hostname}:`, err)
   }
@@ -94,16 +173,34 @@ async function onPodDeleted(pod: k8s.V1Pod): Promise<void> {
   const hash = pod.metadata?.labels?.[config.sessionHashLabel]
   if (!hash) return
 
+  const podName = pod.metadata?.name
+  if (!podName) return
+
+  // Stop background port poller
+  stopPodPoller(podName)
+
   const hostname = sessionHostname(hash)
-  console.log(`Pod deleted: ${pod.metadata?.name} → removing routing for ${hostname} (DNS kept for resumption)`)
+  console.log(`Pod deleted: ${podName} → removing routing for ${hostname} (DNS kept for resumption)`)
 
   try {
-    await Promise.all([
-      // Keep DNS: allows resumption without NXDOMAIN
-      deleteTunnelRoute(hostname),
-      deleteIngressRoutes(hostname),
-    ])
+    const provisioned = provisionedPorts.get(hash) ?? new Set<number>()
+
+    // Remove main session route (keep DNS for resumption)
+    await Promise.all([deleteTunnelRoute(hostname), deleteIngressRoutes(hostname)])
     console.log(`Removed routing for ${hostname}`)
+
+    // Remove per-port IngressRoutes (no Cloudflare DNS/tunnel per port — wildcard covers it)
+    for (const port of provisioned) {
+      const portHostname = sessionPortHostname(hash, port)
+      try {
+        await deleteIngressRoutes(portHostname)
+        console.log(`Removed IngressRoutes for ${portHostname} (port ${port})`)
+      } catch (err) {
+        console.error(`Failed to remove IngressRoutes for ${portHostname}:`, err)
+      }
+    }
+
+    provisionedPorts.delete(hash)
   } catch (err) {
     console.error(`Failed to remove routing for ${hostname}:`, err)
   }
@@ -127,6 +224,10 @@ async function onPvcDeleted(pvc: k8s.V1PersistentVolumeClaim): Promise<void> {
     console.error(`Failed to terminate ${hostname}:`, err)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pod watch
+// ---------------------------------------------------------------------------
 
 /**
  * Start watching pods with exponential backoff on failure.
@@ -242,6 +343,7 @@ console.log(`  Tunnel ID         : ${config.cfTunnelId}`)
 console.log(`  IngressRoute ns   : ${config.ingressRouteNamespace}`)
 console.log(`  OAuth2 middleware  : ${config.oauth2ChainMiddleware}`)
 console.log(`  Router svc name   : ${config.routerServiceName}`)
+console.log(`  Port poll interval: ${PORT_POLL_INTERVAL_MS}ms`)
 
 void startWatch()
 void startPvcWatch()

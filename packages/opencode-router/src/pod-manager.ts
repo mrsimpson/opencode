@@ -6,6 +6,7 @@ import { config } from "./config.js"
 import * as devProxy from "./dev-proxy.js"
 import { podSecretStore } from "./pod-secret-store.js"
 import { messageStore } from "./message-store.js"
+import { portStore } from "./port-store.js"
 import { sessionsChangedBroadcaster as _sessionsChangedBroadcaster } from "./stream-broadcaster.js"
 
 const kc = new k8s.KubeConfig()
@@ -892,6 +893,7 @@ export async function deleteIdlePods(): Promise<void> {
           bootstrappedSessions.delete(hash)
           podSecretStore.delete(hash)
           messageStore.delete(hash)
+          portStore.delete(hash)
           emitSessionsChanged()
         }
       }
@@ -935,6 +937,7 @@ export async function terminateSession(hash: string, email: string): Promise<voi
   bootstrappedSessions.delete(hash)
   podSecretStore.delete(hash)
   messageStore.delete(hash)
+  portStore.delete(hash)
   emitSessionsChanged()
 }
 

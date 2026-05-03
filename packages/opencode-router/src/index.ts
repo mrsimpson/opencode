@@ -89,6 +89,25 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ── Pod port push: POST /api/sessions/:hash/ports (x-pod-secret, no email) ─
+  if (/^\/api\/sessions\/[a-f0-9]{12}\/ports$/.test(url) && req.method === "POST") {
+    // Pod-secret auth is enforced inside handleApi — no email needed here
+    const handled = await handleApi(req, res, "pod@localhost", undefined)
+    if (handled) return
+  }
+
+  // ── Operator port poll: GET /api/sessions/:hash/ports requires admin secret ─
+  const isPortsGet = /^\/api\/sessions\/[a-f0-9]{12}\/ports$/.test(url) && req.method === "GET"
+  if (isPortsGet && config.adminSecret) {
+    const providedSecret = req.headers["x-admin-secret"]
+    if (providedSecret !== config.adminSecret) {
+      res.writeHead(403, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Forbidden" }))
+      return
+    }
+    const handled = await handleApi(req, res, "admin@localhost", undefined)
+    if (handled) return
+  }
+
   const email = getEmail(req)
   if (!email) {
     res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")

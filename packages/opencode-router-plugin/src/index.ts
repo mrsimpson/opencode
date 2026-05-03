@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { pushEvent } from "./plugin.js"
+import { startPortWatcher } from "./port-watcher.js"
 
 // Map messageID → role for text part attribution
 const messageRoles = new Map<string, "user" | "assistant">()
@@ -84,6 +85,9 @@ const RouterPlugin: Plugin = async (input) => {
   // delay, session.list() calls the server before it's ready, deadlocking the
   // readiness probe.
   setTimeout(() => runStartupReplay(input), 5_000)
+
+  // Start background port watcher (no-op on non-Linux or missing env vars)
+  startPortWatcher()
 
   return {
     event: async ({ event }) => {

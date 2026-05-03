@@ -8,6 +8,7 @@ const testEnvKeys = [
   "CF_TUNNEL_ID",
   "DOMAIN",
   "ROUTER_SERVICE_URL",
+  "ROUTER_ADMIN_SECRET",
   "WATCH_NAMESPACE",
   "POD_LABEL_SELECTOR",
   "INGRESSROUTE_NAMESPACE",
@@ -24,6 +25,7 @@ const testEnvKeys = [
 // Mock config - this will override the real config module
 vi.mock("../src/config.js", () => ({
   config: {
+    opencodePort: 4096,
     watchNamespace: "code",
     podLabelSelector: "app.kubernetes.io/managed-by=opencode-router",
     sessionHashLabel: "opencode.ai/session-hash",
@@ -33,12 +35,14 @@ vi.mock("../src/config.js", () => ({
     domain: "no-panic.org",
     routeSuffix: "-oc",
     routerServiceUrl: "http://traefik-controller.traefik-system.svc.cluster.local:80",
+    routerAdminSecret: "test-admin-secret",
     healthPort: 8080,
     ingressRouteNamespace: "code",
     oauth2ChainMiddleware: "code-oauth2-chain",
     routerServiceName: "code",
   },
   sessionHostname: (hash: string) => `${hash}-oc.no-panic.org`,
+  sessionPortHostname: (hash: string, port: number) => `${port}-${hash}-oc.no-panic.org`,
 }))
 
 // Mock state for assertions
@@ -48,19 +52,31 @@ const cfTunnelIngress: { hostname?: string; service: string }[] = [
 ]
 const k8sRequests: { method: string; path: string; body?: unknown }[] = []
 
+// Per-session port store (simulates router portStore for operator fetch tests)
+const routerPortStore: Map<string, number[]> = new Map()
+
 function resetState() {
   cfDnsRecords.clear()
   while (cfTunnelIngress.length > 1) {
     cfTunnelIngress.pop()
   }
   k8sRequests.length = 0
+  routerPortStore.clear()
 }
 
-// Mock fetch for Cloudflare API
+// Mock fetch for Cloudflare API + router ports API
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockFetch = vi.fn<any, any>(async (url: any, options?: any) => {
+const mockFetch = vi.fn(async (url: any, options?: any) => {
   const urlStr = typeof url === "string" ? url : url.toString()
   const body = options?.body ? JSON.parse(options.body) : undefined
+
+  // Router ports API: GET /api/sessions/:hash/ports
+  const portsMatch = urlStr.match(/\/api\/sessions\/([a-f0-9]{12})\/ports$/)
+  if (portsMatch && (!options?.method || options.method === "GET")) {
+    const hash = portsMatch[1]
+    const ports = routerPortStore.get(hash) ?? []
+    return new Response(JSON.stringify({ ports }))
+  }
 
   if (urlStr.match(/\/zones\/zone123$/) && options?.method === "GET") {
     return new Response(JSON.stringify({ success: true, result: { account: { id: "account123" } } }))
@@ -153,6 +169,7 @@ vi.mock("node:fs", () => ({
 
 import * as cloudflare from "../src/cloudflare.js"
 import * as ingressroute from "../src/ingressroute.js"
+import { fetchSessionPorts } from "../src/index.js"
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -452,5 +469,37 @@ describe("Edge cases", () => {
     expect(cfTunnelIngress.some((r) => r.hostname === HOSTNAME)).toBe(false)
     await cloudflare.deleteTunnelRoute(HOSTNAME)
     expect(cfTunnelIngress.some((r) => r.hostname === HOSTNAME)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Router-based port polling (push-from-pod architecture)
+// ---------------------------------------------------------------------------
+
+describe("fetchSessionPorts", () => {
+  it("returns ports reported by the router for a session", async () => {
+    routerPortStore.set(HASH, [5173, 8080])
+    const ports = await fetchSessionPorts(HASH)
+    expect(ports).toEqual([5173, 8080])
+  })
+
+  it("returns empty array when no ports reported", async () => {
+    const ports = await fetchSessionPorts(HASH)
+    expect(ports).toEqual([])
+  })
+
+  it("sends x-admin-secret header in request", async () => {
+    routerPortStore.set(HASH, [3001])
+    await fetchSessionPorts(HASH)
+    const call = mockFetch.mock.calls.find((c: any[]) => String(c[0]).includes(`/api/sessions/${HASH}/ports`))
+    expect(call).toBeDefined()
+    expect(call![1]?.headers?.["x-admin-secret"]).toBe("test-admin-secret")
+  })
+
+  it("calls the correct router endpoint URL", async () => {
+    await fetchSessionPorts(HASH)
+    const call = mockFetch.mock.calls.find((c: any[]) => String(c[0]).includes(`/api/sessions/${HASH}/ports`))
+    expect(call).toBeDefined()
+    expect(String(call![0])).toContain(`/api/sessions/${HASH}/ports`)
   })
 })

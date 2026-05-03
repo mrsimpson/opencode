@@ -53,8 +53,14 @@ const messageStoreMocks = {
   addMessage: mock((_hash: string, _msg: object) => {}),
   delete: mock((_hash: string) => {}),
 }
+const portStoreMocks = {
+  set: mock((_hash: string, _ports: Set<number>) => {}),
+  get: mock((_hash: string) => [] as number[]),
+  delete: mock((_hash: string) => {}),
+}
 mock.module("./pod-secret-store.js", () => ({ podSecretStore: podSecretMocks }))
 mock.module("./message-store.js", () => ({ messageStore: messageStoreMocks }))
+mock.module("./port-store.js", () => ({ portStore: portStoreMocks }))
 
 const { handleApi } = await import("./api.js")
 
@@ -62,11 +68,11 @@ const { handleApi } = await import("./api.js")
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fakeReq(method: string, url: string, body?: object): http.IncomingMessage {
+function fakeReq(method: string, url: string, body?: object, extraHeaders?: Record<string, string>): http.IncomingMessage {
   const r = new Readable() as any
   r.method = method
   r.url = url
-  r.headers = { "x-forwarded-proto": "https" }
+  r.headers = { "x-forwarded-proto": "https", ...extraHeaders }
   if (body) {
     r.push(JSON.stringify(body))
     r.push(null)
@@ -460,20 +466,6 @@ describe("POST /api/sessions/:hash/resume passes githubToken to resumeSession", 
     expect(res.statusCode).toBe(200)
     expect(mocks.resumeSession).toHaveBeenCalledTimes(1)
     expect((mocks.resumeSession as any).mock.calls[0][2]).toBeUndefined()
-  })
-})
-
-describe("GET /api/ports returns listening ports", () => {
-  it("returns ports >3000 from /proc/net/tcp", async () => {
-    const req = fakeReq("GET", "/api/ports")
-    const res = fakeRes()
-
-    await handleApi(req as any, res as any, EMAIL)
-
-    expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body as string)
-    expect(body).toHaveProperty("ports")
-    expect(Array.isArray(body.ports)).toBe(true)
   })
 })
 
@@ -1608,5 +1600,138 @@ describe("GET /api/sessions/stream snapshotInFlight serialization", () => {
 
     const writes = res._chunks.filter((c: string) => c.includes("event: sessions"))
     expect(writes.length).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions/:hash/ports — pod pushes listening dev-server ports
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions/:hash/ports", () => {
+  beforeEach(() => {
+    portStoreMocks.set.mockReset()
+    portStoreMocks.set.mockImplementation(() => {})
+    podSecretMocks.verify.mockReset()
+    podSecretMocks.verify.mockImplementation(() => true)
+  })
+
+  it("returns 200 and stores valid ports", async () => {
+    const req = fakeReq("POST", "/api/sessions/abc123456789/ports", { ports: [5173, 8080] }, { "x-pod-secret": "good-secret" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ ok: true })
+    expect(portStoreMocks.set).toHaveBeenCalledTimes(1)
+    const [hash, portSet] = portStoreMocks.set.mock.calls[0] as [string, Set<number>]
+    expect(hash).toBe("abc123456789")
+    expect(portSet.has(5173)).toBe(true)
+    expect(portSet.has(8080)).toBe(true)
+  })
+
+  it("returns 401 when x-pod-secret is missing", async () => {
+    podSecretMocks.verify.mockImplementation(() => false)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/ports", { ports: [5173] })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it("returns 401 when pod secret is wrong", async () => {
+    podSecretMocks.verify.mockImplementation(() => false)
+    const req = fakeReq("POST", "/api/sessions/abc123456789/ports", { ports: [5173] }, { "x-pod-secret": "wrong" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it("returns 400 on invalid JSON body", async () => {
+    const r = new Readable() as any
+    r.method = "POST"
+    r.url = "/api/sessions/abc123456789/ports"
+    r.headers = { "x-pod-secret": "good-secret" }
+    r.push("not-json")
+    r.push(null)
+    const res = fakeRes()
+
+    const handled = await handleApi(r as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+
+  it("returns 400 when ports field is not an array", async () => {
+    const req = fakeReq("POST", "/api/sessions/abc123456789/ports", { ports: "5173" } as any, { "x-pod-secret": "good-secret" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+  })
+
+  it("filters out ports <= 3000, == 4096, and > 65535", async () => {
+    const req = fakeReq(
+      "POST",
+      "/api/sessions/abc123456789/ports",
+      { ports: [1000, 3000, 3001, 4096, 5173, 65535, 65536] },
+      { "x-pod-secret": "good-secret" },
+    )
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(portStoreMocks.set).toHaveBeenCalledTimes(1)
+    const portSet = portStoreMocks.set.mock.calls[0][1] as Set<number>
+    expect(portSet.has(1000)).toBe(false)
+    expect(portSet.has(3000)).toBe(false)
+    expect(portSet.has(3001)).toBe(true)
+    expect(portSet.has(4096)).toBe(false)
+    expect(portSet.has(5173)).toBe(true)
+    expect(portSet.has(65535)).toBe(true)
+    expect(portSet.has(65536)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/:hash/ports — operator polls for reported ports
+// ---------------------------------------------------------------------------
+
+describe("GET /api/sessions/:hash/ports", () => {
+  beforeEach(() => {
+    portStoreMocks.get.mockReset()
+    portStoreMocks.get.mockImplementation(() => [5173, 8080])
+  })
+
+  it("returns 200 with ports array from portStore", async () => {
+    const req = fakeReq("GET", "/api/sessions/abc123456789/ports")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, "admin@localhost")
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ ports: [5173, 8080] })
+    expect(portStoreMocks.get).toHaveBeenCalledWith("abc123456789")
+  })
+
+  it("returns empty array when no ports stored", async () => {
+    portStoreMocks.get.mockImplementation(() => [])
+    const req = fakeReq("GET", "/api/sessions/abc123456789/ports")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, "admin@localhost")
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ ports: [] })
   })
 })
