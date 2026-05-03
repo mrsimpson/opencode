@@ -53,7 +53,7 @@ async function provisionPortRoute(hash: string, port: number): Promise<void> {
  * we poll GET /api/sessions/:hash/ports with the admin secret.
  */
 export async function fetchSessionPorts(hash: string): Promise<number[]> {
-  const res = await fetch(`${config.routerServiceUrl}/api/sessions/${hash}/ports`, {
+  const res = await fetch(`${config.routerAdminUrl}/api/sessions/${hash}/ports`, {
     headers: { "x-admin-secret": config.routerAdminSecret },
   })
   if (!res.ok) {
