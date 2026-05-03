@@ -23,8 +23,14 @@ export const config = {
   domain: required("DOMAIN"),
   /** Suffix appended to the hash, e.g. "-oc" → <hash>-oc.<domain> */
   routeSuffix: process.env.ROUTE_SUFFIX ?? "",
-  /** In-cluster router service URL all session traffic is forwarded to */
+  /** In-cluster router service URL all session traffic is forwarded to (via Traefik) */
   routerServiceUrl: required("ROUTER_SERVICE_URL"),
+  /**
+   * Direct in-cluster URL to the router service for admin API calls (bypasses Traefik/oauth2).
+   * Defaults to ROUTER_SERVICE_URL if not set, but should point directly to the router ClusterIP
+   * (e.g. http://code.code.svc.cluster.local:3000) so oauth2 middleware is not applied.
+   */
+  routerAdminUrl: process.env.ROUTER_ADMIN_URL ?? required("ROUTER_SERVICE_URL"),
   /** Admin secret for authenticating operator calls to the router API */
   routerAdminSecret: required("ROUTER_ADMIN_SECRET"),
   /** Port for the health check HTTP server */
