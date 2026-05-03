@@ -111,7 +111,7 @@ const role = new k8s.rbac.v1.Role(
       {
         apiGroups: [""],
         resources: ["persistentvolumeclaims"],
-        verbs: ["get", "list", "create", "delete"],
+        verbs: ["get", "list", "watch", "create", "delete"],
       },
       {
         apiGroups: [""],
