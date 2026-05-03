@@ -25,6 +25,8 @@ export const config = {
   routeSuffix: process.env.ROUTE_SUFFIX ?? "",
   /** In-cluster router service URL all session traffic is forwarded to */
   routerServiceUrl: required("ROUTER_SERVICE_URL"),
+  /** Admin secret for authenticating operator calls to the router API */
+  routerAdminSecret: required("ROUTER_ADMIN_SECRET"),
   /** Port for the health check HTTP server */
   healthPort: Number(process.env.HEALTH_PORT ?? 8080),
   /**

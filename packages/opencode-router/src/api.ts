@@ -1,5 +1,4 @@
 import type http from "node:http"
-import * as fs from "node:fs"
 import { config } from "./config.js"
 import {
   type SessionKey,
@@ -19,6 +18,7 @@ import {
 } from "./pod-manager.js"
 import { podSecretStore } from "./pod-secret-store.js"
 import { messageStore } from "./message-store.js"
+import { portStore } from "./port-store.js"
 import { sessionsChangedBroadcaster, progressBroadcaster } from "./stream-broadcaster.js"
 import { ProgressPushEventSchema, type StoredMessage } from "./progress-types.js"
 
@@ -38,40 +38,6 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 /**
- * Read listening ports from /proc/net/tcp and filter for ports >3000.
- * Used by the Cloudflare operator to discover user-started dev servers.
- */
-async function getListeningPorts(): Promise<number[]> {
-  const MIN_PORT = 3000
-  try {
-    const content = await fs.promises.readFile("/proc/net/tcp", "utf-8")
-    const ports = new Set<number>()
-
-    for (const line of content.split("\n").slice(1)) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-
-      // /proc/net/tcp format: sl local_address rem_address st ...
-      // local_address is hex:IP (e.g., "00000000:1BB0" = 0.0.0.0:7104)
-      const parts = trimmed.split(/\s+/)
-      const localAddr = parts[1] ?? ""
-      const hexPort = localAddr.split(":")[1]
-      if (!hexPort) continue
-
-      const port = parseInt(hexPort, 16)
-      // Filter: port >3000 and valid (1024-65535)
-      if (port > MIN_PORT && port > 1024 && port <= 65535) {
-        ports.add(port)
-      }
-    }
-
-    return Array.from(ports).sort((a, b) => a - b)
-  } catch {
-    return []
-  }
-}
-
-/**
  * Handle API routes. Returns true if the route was handled.
  *
  * Routes:
@@ -86,13 +52,6 @@ export async function handleApi(
   githubToken?: string,
 ): Promise<boolean> {
   const url = req.url ?? "/"
-
-  // GET /api/ports — return listening ports >3000 from /proc/net/tcp
-  if (url === "/api/ports" && req.method === "GET") {
-    const ports = await getListeningPorts()
-    json(res, 200, { ports })
-    return true
-  }
 
   // GET /api/sessions/stream — SSE, emits full sessions snapshot when any session changes
   if (url === "/api/sessions/stream" && req.method === "GET") {
@@ -665,6 +624,44 @@ export async function handleApi(
       })
     }
     json(res, 200, { ok: true })
+    return true
+  }
+
+  // POST /api/sessions/:hash/ports — pod pushes list of listening dev-server ports
+  const portsPushMatch = url.match(/^\/api\/sessions\/([a-f0-9]{12})\/ports$/)
+  if (portsPushMatch && req.method === "POST") {
+    const hash = portsPushMatch[1]
+    const podSecret = req.headers["x-pod-secret"]
+    if (typeof podSecret !== "string" || !podSecretStore.verify(hash, podSecret)) {
+      json(res, 401, { error: "Unauthorized" })
+      return true
+    }
+    const raw = await readBody(req)
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(raw)
+    } catch {
+      json(res, 400, { error: "Invalid JSON" })
+      return true
+    }
+    if (!parsedJson || typeof parsedJson !== "object" || !Array.isArray((parsedJson as { ports?: unknown }).ports)) {
+      json(res, 400, { error: "ports array required" })
+      return true
+    }
+    const rawPorts = (parsedJson as { ports: unknown[] }).ports
+    const validPorts = new Set(
+      rawPorts.filter((p): p is number => typeof p === "number" && Number.isInteger(p) && p > 3000 && p !== 4096 && p <= 65535),
+    )
+    portStore.set(hash, validPorts)
+    json(res, 200, { ok: true })
+    return true
+  }
+
+  // GET /api/sessions/:hash/ports — operator polls for reported dev-server ports (admin-secret gated in index.ts)
+  const portsGetMatch = url.match(/^\/api\/sessions\/([a-f0-9]{12})\/ports$/)
+  if (portsGetMatch && req.method === "GET") {
+    const hash = portsGetMatch[1]
+    json(res, 200, { ports: portStore.get(hash) })
     return true
   }
 
