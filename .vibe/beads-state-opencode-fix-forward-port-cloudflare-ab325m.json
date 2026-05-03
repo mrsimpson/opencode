@@ -1,0 +1,29 @@
+{
+  "conversationId": "opencode-fix-forward-port-cloudflare-ab325m",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-9",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-9.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-9.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-9.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-9.4"
+    }
+  ],
+  "createdAt": "2026-05-03T10:59:55.535Z",
+  "updatedAt": "2026-05-03T10:59:55.535Z"
+}
