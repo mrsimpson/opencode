@@ -138,7 +138,11 @@ const server = http.createServer(async (req, res) => {
         return
       }
       updateLastActivity(hash)
-      proxy.web(req, res, { target })
+      // changeOrigin rewrites the Host header to the pod IP/port so that dev
+      // servers (Vite, Next.js, …) accept the request. Without it the original
+      // public hostname (e.g. 5173-<hash>-oc.no-panic.org) is forwarded and
+      // Vite 5's host-check returns 403. IP addresses always bypass the check.
+      proxy.web(req, res, { target, changeOrigin: true })
       return
     }
 
@@ -197,7 +201,7 @@ server.on("upgrade", async (req, socket, head) => {
         return
       }
       updateLastActivity(hash)
-      proxy.ws(req, socket, head, { target })
+      proxy.ws(req, socket, head, { target, changeOrigin: true })
       return
     }
 

@@ -536,13 +536,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `fi`,
     // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
     `rm -f /home/opencode/.gitconfig.lock`,
-    // --- dev-server patch: ensure NODE_OPTIONS is set in shell profile ───────────────────────
-    // This injects the patch into all interactive shells (terminals) in addition to the pod env.
-    // Also handles resumed pods that predate the NODE_OPTIONS pod env var.
-    `if [ -f /etc/opencode-devserver-patch.mjs ]; then`,
-    `  grep -q 'opencode-devserver-patch' /home/opencode/.profile 2>/dev/null || \\`,
-    `    printf '\\nexport NODE_OPTIONS="--import /etc/opencode-devserver-patch.mjs"\\n' >> /home/opencode/.profile`,
-    `fi`,
     // --- git credentials (from per-session Secret mounted as GITHUB_TOKEN) ---
     `if [ -n "$GITHUB_TOKEN" ]; then`,
     `  git config --global credential.helper store`,
@@ -649,9 +642,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
             { name: "OPENCODE_POD_SECRET", value: podSecret },
             { name: "OPENCODE_SESSION_HASH", value: hash },
-            // Force dev servers (Vite, etc.) to bind 0.0.0.0 and disable host-check security.
-            // /etc/opencode-devserver-patch.mjs is baked into the image.
-            { name: "NODE_OPTIONS", value: "--import /etc/opencode-devserver-patch.mjs" },
             ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
           ],
           envFrom: [

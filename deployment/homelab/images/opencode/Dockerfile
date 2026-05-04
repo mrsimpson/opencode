@@ -13,6 +13,11 @@ FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 #   bun              — fast typescript toolchain
 
 RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
+    # Remove the IPv6 localhost entry from /etc/hosts so that 'localhost'
+    # resolves to 127.0.0.1 (IPv4) only. Without this, Alpine's musl libc
+    # resolves 'localhost' to ::1 first, causing Node.js dev servers to bind
+    # IPv6-only and become unreachable via the pod's IPv4 address.
+    sed -i '/^::1[[:space:]].*localhost/d' /etc/hosts && \
     # gh CLI — resolve latest version tag, fetch and extract just the binary
     GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
       | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/') && \
@@ -35,12 +40,6 @@ COPY packages/opencode-router-plugin/src/index.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/plugin.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/port-watcher.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/types.ts /etc/opencode-plugin/
-
-# Bake the dev-server patch that:
-#  1. Forces net.Server to bind 0.0.0.0 (Vite/Node.js defaults to ::1 on Alpine)
-#  2. Patches Vite's host-check (allowedHosts) to allow all hosts
-# Injected automatically via NODE_OPTIONS so no user action needed.
-COPY deployment/homelab/images/opencode/dev-wrappers/patch-devserver.mjs /etc/opencode-devserver-patch.mjs
 
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
