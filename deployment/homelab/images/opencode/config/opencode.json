@@ -79,21 +79,7 @@
   },
   "provider": {
     "openrouter": {
-      "models": {
-        "anthropic/claude-sonnet-4.6": {},
-        "anthropic/claude-sonnet-4.5": {},
-        "anthropic/claude-3.7-sonnet": {},
-        "anthropic/claude-haiku-4.5": {},
-        "openai/gpt-4.1": {},
-        "openai/o4-mini": {},
-        "google/gemini-2.5-pro": {},
-        "google/gemini-2.5-flash": {},
-        "deepseek/deepseek-r1-0528": {},
-        "deepseek/deepseek-v3.2": {},
-        "qwen/qwen3-coder": {},
-        "mistralai/devstral-medium": {},
-        "moonshotai/kimi-k2": {}
-      }
+      "models": {}
     },
     "openrouter-free": {
       "npm": "@ai-sdk/openai-compatible",
@@ -104,15 +90,7 @@
         "name": "openrouter-free",
         "baseURL": "https://openrouter.ai/api/v1"
       },
-      "models": {
-        "qwen/qwen3-coder:free": {},
-        "google/gemma-4-31b-it:free": {},
-        "google/gemma-3-27b-it:free": {},
-        "meta-llama/llama-3.3-70b-instruct:free": {},
-        "openai/gpt-oss-120b:free": {},
-        "minimax/minimax-m2.5:free": {},
-        "nvidia/nemotron-3-super-120b-a12b:free": {}
-      }
+      "models": {}
     }
   }
 }
