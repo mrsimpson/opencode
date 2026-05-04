@@ -1,6 +1,6 @@
 import http from "node:http"
 import * as k8s from "@kubernetes/client-node"
-import { config, sessionHostname, sessionPortHostname } from "./config.js"
+import { config, sessionHostname, sessionPortHostname, DEV_PORT_ALLOWLIST } from "./config.js"
 import { createDnsRecord, createTunnelRoute, deleteDnsRecord, deleteTunnelRoute, getTunnelCname } from "./cloudflare.js"
 import { createIngressRoutes, deleteIngressRoutes } from "./ingressroute.js"
 
@@ -38,12 +38,17 @@ const provisionedPorts = new Map<string, Set<number>>()
 const podPollers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /**
- * Create Traefik IngressRoutes for a single dev-server port on a session.
- * No per-port Cloudflare DNS/tunnel entries — the wildcard covers *.domain.
+ * Create Cloudflare DNS + tunnel route + Traefik IngressRoutes for a single
+ * dev-server port on a session. Only called for ports in DEV_PORT_ALLOWLIST.
  */
 async function provisionPortRoute(hash: string, port: number): Promise<void> {
   const portHostname = sessionPortHostname(hash, port)
-  await createIngressRoutes(portHostname)
+  const tunnelCname = await getTunnelCname()
+  await Promise.all([
+    createDnsRecord(portHostname, tunnelCname),
+    createTunnelRoute(portHostname),
+    createIngressRoutes(portHostname),
+  ])
   console.log(`Provisioned ${portHostname} (port ${port})`)
 }
 
@@ -81,7 +86,7 @@ function startPodPoller(podName: string, hash: string): void {
       }
 
       const already = provisionedPorts.get(hash) ?? new Set<number>()
-      const newPorts = ports.filter((p) => !already.has(p))
+      const newPorts = ports.filter((p) => DEV_PORT_ALLOWLIST.has(p) && !already.has(p))
 
       for (const port of newPorts) {
         try {
@@ -189,14 +194,18 @@ async function onPodDeleted(pod: k8s.V1Pod): Promise<void> {
     await Promise.all([deleteTunnelRoute(hostname), deleteIngressRoutes(hostname)])
     console.log(`Removed routing for ${hostname}`)
 
-    // Remove per-port IngressRoutes (no Cloudflare DNS/tunnel per port — wildcard covers it)
+    // Remove per-port DNS + tunnel + IngressRoutes
     for (const port of provisioned) {
       const portHostname = sessionPortHostname(hash, port)
       try {
-        await deleteIngressRoutes(portHostname)
-        console.log(`Removed IngressRoutes for ${portHostname} (port ${port})`)
+        await Promise.all([
+          deleteDnsRecord(portHostname),
+          deleteTunnelRoute(portHostname),
+          deleteIngressRoutes(portHostname),
+        ])
+        console.log(`Removed routing for ${portHostname} (port ${port})`)
       } catch (err) {
-        console.error(`Failed to remove IngressRoutes for ${portHostname}:`, err)
+        console.error(`Failed to remove routing for ${portHostname}:`, err)
       }
     }
 
@@ -344,6 +353,7 @@ console.log(`  IngressRoute ns   : ${config.ingressRouteNamespace}`)
 console.log(`  OAuth2 middleware  : ${config.oauth2ChainMiddleware}`)
 console.log(`  Router svc name   : ${config.routerServiceName}`)
 console.log(`  Port poll interval: ${PORT_POLL_INTERVAL_MS}ms`)
+console.log(`  Dev port allowlist: [${[...DEV_PORT_ALLOWLIST].sort((a, b) => a - b).join(", ")}]`)
 
 void startWatch()
 void startPvcWatch()

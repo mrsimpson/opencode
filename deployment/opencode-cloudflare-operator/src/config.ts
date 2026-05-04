@@ -66,3 +66,15 @@ export function sessionHostname(hash: string): string {
 export function sessionPortHostname(hash: string, port: number): string {
   return `${port}-${hash}${config.routeSuffix}.${config.domain}`
 }
+
+/**
+ * Allowlist of ports that are automatically exposed as public subdomains.
+ * Can be overridden via DEV_PORT_ALLOWLIST env var (comma-separated).
+ * Covers: Vite (5173/5174), CRA/Next (3000/3001), common HTTP dev (8000/8080/8888), Django (8000), Astro (4321).
+ */
+export const DEV_PORT_ALLOWLIST: ReadonlySet<number> = new Set(
+  (process.env.DEV_PORT_ALLOWLIST ?? "3000,3001,4321,5173,5174,8000,8080,8888")
+    .split(",")
+    .map((p) => Number(p.trim()))
+    .filter((p) => p > 0 && p <= 65535),
+)
