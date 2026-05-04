@@ -506,10 +506,12 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `fi`,
     // --- ensure router plugin is always in the plugin list (idempotent, runs every start) ---
     // This covers resumed pods whose opencode.json was written before the plugin was added.
+    // Reference by local path so opencode does not try to fetch it from npm.
     `if command -v jq >/dev/null 2>&1 && [ -f /home/opencode/.config/opencode/opencode.json ]; then`,
     `  cfg=/home/opencode/.config/opencode/opencode.json`,
-    `  if ! jq -e '.plugin | if . then (. | map(. == "@opencode-ai/opencode-router-plugin") | any) else false end' "$cfg" >/dev/null 2>&1; then`,
-    `    tmp=$(jq '.plugin = ((.plugin // []) + ["@opencode-ai/opencode-router-plugin"])' "$cfg")`,
+    `  plugin_path='./node_modules/@opencode-ai/opencode-router-plugin'`,
+    `  if ! jq -e --arg p "$plugin_path" '.plugin | if . then (. | map(. == $p) | any) else false end' "$cfg" >/dev/null 2>&1; then`,
+    `    tmp=$(jq --arg p "$plugin_path" '.plugin = ((.plugin // []) + [$p])' "$cfg")`,
     `    echo "$tmp" > "$cfg"`,
     `  fi`,
     `fi`,

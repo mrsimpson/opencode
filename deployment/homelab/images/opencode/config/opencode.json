@@ -1,21 +1,36 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@ex-machina/opencode-anthropic-auth@1.8.0", "@codemcp/workflows-opencode@6.17.0", "@opencode-ai/opencode-router-plugin"],
+  "plugin": [
+    "@ex-machina/opencode-anthropic-auth@1.8.0",
+    "@codemcp/workflows-opencode@6.17.0",
+    "./node_modules/@opencode-ai/opencode-router-plugin"
+  ],
   "model": "opencode/big-pickle",
   "default_agent": "workflow",
   "mcp": {
     "knowledge": {
       "type": "local",
-      "command": ["npx", "-y", "@codemcp/knowledge-server"]
+      "command": [
+        "npx",
+        "-y",
+        "@codemcp/knowledge-server"
+      ]
     },
     "agentskills": {
       "type": "local",
-      "command": ["npx", "-y", "@codemcp/skills-server"]
+      "command": [
+        "npx",
+        "-y",
+        "@codemcp/skills-server"
+      ]
     },
     "architecture_workflows": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "command": [
+        "npx",
+        "@codemcp/workflows-server@latest"
+      ],
       "environment": {
         "VIBE_WORKFLOW_DOMAINS": "architecture"
       }
@@ -23,7 +38,10 @@
     "office_workflows": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "command": [
+        "npx",
+        "@codemcp/workflows-server@latest"
+      ],
       "environment": {
         "VIBE_WORKFLOW_DOMAINS": "office"
       }
@@ -31,7 +49,10 @@
     "skilled_workflows": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "@codemcp/workflows-server@latest"],
+      "command": [
+        "npx",
+        "@codemcp/workflows-server@latest"
+      ],
       "environment": {
         "VIBE_WORKFLOW_DOMAINS": "skilled"
       }
@@ -39,7 +60,10 @@
     "vibe_workflows": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "@codemcp/workflows-server@latest"]
+      "command": [
+        "npx",
+        "@codemcp/workflows-server@latest"
+      ]
     }
   },
   "permission": {
@@ -59,7 +83,9 @@
     },
     "openrouter-free": {
       "npm": "@ai-sdk/openai-compatible",
-      "env": ["OPENROUTER_FREE_API_KEY"],
+      "env": [
+        "OPENROUTER_FREE_API_KEY"
+      ],
       "options": {
         "name": "openrouter-free",
         "baseURL": "https://openrouter.ai/api/v1"
