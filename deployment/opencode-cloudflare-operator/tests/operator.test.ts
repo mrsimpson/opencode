@@ -43,6 +43,7 @@ vi.mock("../src/config.js", () => ({
   },
   sessionHostname: (hash: string) => `${hash}-oc.no-panic.org`,
   sessionPortHostname: (hash: string, port: number) => `${port}-${hash}-oc.no-panic.org`,
+  DEV_PORT_ALLOWLIST: new Set([3000, 3001, 4321, 5173, 5174, 8000, 8080, 8888]),
 }))
 
 // Mock state for assertions
