@@ -509,7 +509,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     // Reference by local path so opencode does not try to fetch it from npm.
     `if command -v jq >/dev/null 2>&1 && [ -f /home/opencode/.config/opencode/opencode.json ]; then`,
     `  cfg=/home/opencode/.config/opencode/opencode.json`,
-    `  plugin_path='./node_modules/@opencode-ai/opencode-router-plugin'`,
+    `  plugin_path='/etc/opencode-plugin/index.ts'`,
     `  if ! jq -e --arg p "$plugin_path" '.plugin | if . then (. | map(. == $p) | any) else false end' "$cfg" >/dev/null 2>&1; then`,
     `    tmp=$(jq --arg p "$plugin_path" '.plugin = ((.plugin // []) + [$p])' "$cfg")`,
     `    echo "$tmp" > "$cfg"`,

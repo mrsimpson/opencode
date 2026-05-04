@@ -27,6 +27,11 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
     curl -fsSL https://bun.sh/install | bash && \
     mv /root/.bun/bin/bun /usr/local/bin/bun
 
+# Bake the router plugin TypeScript source so opencode can load it directly
+# without any npm install step. Referenced as /etc/opencode-plugin/index.ts
+# in opencode.json (opencode/bun resolve TS natively).
+COPY packages/opencode-router-plugin/src/ /etc/opencode-plugin/
+
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
 # this directory on first pod start (idempotent — skipped on restart).
