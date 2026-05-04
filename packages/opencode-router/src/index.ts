@@ -3,7 +3,7 @@ import httpProxy from "http-proxy"
 import { handleApi } from "./api.js"
 import { config } from "./config.js"
 import * as devProxy from "./dev-proxy.js"
-import { deleteIdlePods, getPodIP, updateLastActivity } from "./pod-manager.js"
+import { deleteIdlePods, getPodIP, updateLastActivity, restorePodSecrets } from "./pod-manager.js"
 import { serveStatic } from "./static.js"
 
 /**
@@ -230,4 +230,6 @@ process.on("SIGINT", shutdown)
 
 server.listen(config.port, () => {
   console.log(`opencode-router listening on :${config.port} | domain: ${config.routerDomain}`)
+  // Restore pod secrets from annotations so running pods can still push after a router restart
+  restorePodSecrets().catch((err) => console.error("Failed to restore pod secrets:", err))
 })

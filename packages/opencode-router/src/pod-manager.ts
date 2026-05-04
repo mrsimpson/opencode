@@ -81,10 +81,32 @@ const ANNOTATION_BRANCH = "opencode.ai/branch"
 const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
 const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
 const ANNOTATION_CREATED_AT = "opencode.ai/created-at"
+const ANNOTATION_POD_SECRET = "opencode.ai/pod-secret"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
 const THROTTLE_MS = 60_000
+
+/**
+ * On router startup: re-populate podSecretStore from pod annotations so that
+ * already-running pods can still push port events after a router restart.
+ */
+export async function restorePodSecrets(): Promise<void> {
+  const pods = await k8sApi.listNamespacedPod({
+    namespace: config.namespace,
+    labelSelector: `${LABEL_MANAGED_BY}=${MANAGED_BY_VALUE}`,
+  })
+  let restored = 0
+  for (const pod of pods.items) {
+    const hash = pod.metadata?.labels?.[LABEL_SESSION_HASH]
+    const secret = pod.metadata?.annotations?.[ANNOTATION_POD_SECRET]
+    if (hash && secret) {
+      podSecretStore.restore(hash, secret)
+      restored++
+    }
+  }
+  if (restored > 0) console.log(`Restored pod secrets for ${restored} running pod(s)`)
+}
 
 export interface SessionKey {
   email: string
@@ -575,6 +597,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
         [ANNOTATION_REPO_URL]: repoUrl,
         [ANNOTATION_BRANCH]: branch,
         [ANNOTATION_SOURCE_BRANCH]: sourceBranch,
+        [ANNOTATION_POD_SECRET]: podSecret,
       },
     },
     spec: {
