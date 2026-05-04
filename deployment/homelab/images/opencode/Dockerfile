@@ -30,7 +30,11 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
 # Bake the router plugin TypeScript source so opencode can load it directly
 # without any npm install step. Referenced as /etc/opencode-plugin/index.ts
 # in opencode.json (opencode/bun resolve TS natively).
-COPY packages/opencode-router-plugin/src/ /etc/opencode-plugin/
+# Exclude test files — only runtime source needed.
+COPY packages/opencode-router-plugin/src/index.ts /etc/opencode-plugin/
+COPY packages/opencode-router-plugin/src/plugin.ts /etc/opencode-plugin/
+COPY packages/opencode-router-plugin/src/port-watcher.ts /etc/opencode-plugin/
+COPY packages/opencode-router-plugin/src/types.ts /etc/opencode-plugin/
 
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
