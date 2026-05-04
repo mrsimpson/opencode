@@ -443,6 +443,8 @@ export const app = homelab.createExposedWebApp(
       ...(defaultGitRepo ? [{ name: "DEFAULT_GIT_REPO", value: defaultGitRepo }] : []),
       // Admin secret for CI endpoints (e.g. /api/admin/pull-image)
       { name: "ADMIN_SECRET", value: adminSecretValue },
+      // Direct ClusterIP URL passed to session pods so the plugin can push port events back
+      { name: "OPENCODE_ROUTER_URL", value: pulumi.interpolate`http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80` },
     ],
     probes: {
       readinessProbe: {
