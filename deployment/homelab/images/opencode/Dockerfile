@@ -36,6 +36,12 @@ COPY packages/opencode-router-plugin/src/plugin.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/port-watcher.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/types.ts /etc/opencode-plugin/
 
+# Bake the dev-server patch that:
+#  1. Forces net.Server to bind 0.0.0.0 (Vite/Node.js defaults to ::1 on Alpine)
+#  2. Patches Vite's host-check (allowedHosts) to allow all hosts
+# Injected automatically via NODE_OPTIONS so no user action needed.
+COPY deployment/homelab/images/opencode/dev-wrappers/patch-devserver.mjs /etc/opencode-devserver-patch.mjs
+
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
 # this directory on first pod start (idempotent — skipped on restart).
