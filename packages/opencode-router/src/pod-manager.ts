@@ -506,14 +506,11 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `fi`,
     // --- ensure router plugin is always in the plugin list (idempotent, runs every start) ---
     // This covers resumed pods whose opencode.json was written before the plugin was added.
-    // Reference by local path so opencode does not try to fetch it from npm.
+    // Reference by TS source path so opencode loads it directly via bun (no npm needed).
     `if command -v jq >/dev/null 2>&1 && [ -f /home/opencode/.config/opencode/opencode.json ]; then`,
     `  cfg=/home/opencode/.config/opencode/opencode.json`,
-    `  plugin_path='/etc/opencode-plugin/index.ts'`,
-    `  if ! jq -e --arg p "$plugin_path" '.plugin | if . then (. | map(. == $p) | any) else false end' "$cfg" >/dev/null 2>&1; then`,
-    `    tmp=$(jq --arg p "$plugin_path" '.plugin = ((.plugin // []) + [$p])' "$cfg")`,
-    `    echo "$tmp" > "$cfg"`,
-    `  fi`,
+    `  jq_filter='.plugin = ((.plugin // []) | map(select(. != "@opencode-ai/opencode-router-plugin")) | if any(. == "/etc/opencode-plugin/index.ts") then . else . + ["/etc/opencode-plugin/index.ts"] end)'`,
+    `  tmp=$(jq "$jq_filter" "$cfg") && echo "$tmp" > "$cfg"`,
     `fi`,
     // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
     `rm -f /home/opencode/.gitconfig.lock`,

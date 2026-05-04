@@ -35,7 +35,7 @@ COPY packages/opencode-router-plugin/src/ /etc/opencode-plugin/
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
 # this directory on first pod start (idempotent — skipped on restart).
-COPY images/opencode/config/ /etc/opencode-defaults/
+COPY deployment/homelab/images/opencode/config/ /etc/opencode-defaults/
 
 # Pre-install MCP servers globally so `npx -y` resolves them from cache, never the registry.
 # Keep this list in sync with the `mcp` commands in config/opencode.json.
@@ -49,7 +49,7 @@ RUN npm install -g \
 # base-permissions.yaml provides defaults; agent files add overrides.
 # Output: permissions.json — merged config per agent.
 # js-yaml must be installed (above) before this runs.
-COPY script/merge-permissions.js /tmp/merge-permissions.js
+COPY deployment/homelab/script/merge-permissions.js /tmp/merge-permissions.js
 RUN NODE_PATH=$(npm root -g) node /tmp/merge-permissions.js /etc/opencode-defaults && rm /tmp/merge-permissions.js
 
 # Install the musl-compiled librust_pty.so so bun-pty works on Alpine.
@@ -57,7 +57,7 @@ RUN NODE_PATH=$(npm root -g) node /tmp/merge-permissions.js /etc/opencode-defaul
 # compiled from bun-pty v0.4.8 Rust source inside an Alpine container (musl).
 # To rebuild: see Decision 3 in .vibe/development-plan-fix-terminal-webui.md
 RUN mkdir -p /usr/local/lib/bun-pty
-COPY images/opencode/librust_pty_musl_amd64.so /usr/local/lib/bun-pty/librust_pty.so
+COPY deployment/homelab/images/opencode/librust_pty_musl_amd64.so /usr/local/lib/bun-pty/librust_pty.so
 
 # Set BUN_PTY_LIB so bun-pty resolves the musl-compatible library at runtime
 ENV BUN_PTY_LIB=/usr/local/lib/bun-pty/librust_pty.so
