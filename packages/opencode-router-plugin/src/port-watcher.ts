@@ -2,9 +2,12 @@ const POLL_INTERVAL_MS = 5_000
 const MIN_PORT = 3000
 const OPENCODE_PORT = 4096
 const PROC_NET_TCP = "/proc/net/tcp"
+const PROC_NET_TCP6 = "/proc/net/tcp6"
 
 /**
- * Parse /proc/net/tcp and return qualifying listening port numbers.
+ * Parse /proc/net/tcp or /proc/net/tcp6 and return qualifying listening port numbers.
+ * Both files use "address:PORT" in the local_address column — the port is always the
+ * last colon-separated segment (IPv4: "XXXXXXXX:PPPP", IPv6: "XXXX...XXXX:PPPP").
  * Filters: port > MIN_PORT (3000), != OPENCODE_PORT (4096), <= 65535.
  */
 export function parseProcNetTcp(content: string): number[] {
@@ -12,9 +15,8 @@ export function parseProcNetTcp(content: string): number[] {
   for (const line of content.split("\n").slice(1)) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    // Format: sl local_address rem_address st ...
-    // local_address is "XXXXXXXX:XXXX" (little-endian IP:port hex)
-    const hexPort = trimmed.split(/\s+/)[1]?.split(":")[1]
+    // local_address is the second whitespace-separated field; port is after the last ":"
+    const hexPort = trimmed.split(/\s+/)[1]?.split(":").at(-1)
     if (!hexPort) continue
     const port = parseInt(hexPort, 16)
     if (port > MIN_PORT && port !== OPENCODE_PORT && port <= 65535) {
@@ -26,7 +28,7 @@ export function parseProcNetTcp(content: string): number[] {
 
 /**
  * Start a background loop that:
- * 1. Reads /proc/net/tcp every POLL_INTERVAL_MS
+ * 1. Reads /proc/net/tcp and /proc/net/tcp6 every POLL_INTERVAL_MS
  * 2. Compares against last pushed port set
  * 3. POSTs new set to router when it changes
  *
@@ -55,8 +57,11 @@ export function startPortWatcher(): () => void {
   const poll = async () => {
     if (stopped) return
     try {
-      const content = await Bun.file(PROC_NET_TCP).text()
-      const ports = parseProcNetTcp(content)
+      const [tcp4, tcp6] = await Promise.all([
+        Bun.file(PROC_NET_TCP).text(),
+        Bun.file(PROC_NET_TCP6).text().catch(() => ""),
+      ])
+      const ports = [...new Set([...parseProcNetTcp(tcp4), ...parseProcNetTcp(tcp6)])].sort((a, b) => a - b)
       const key = ports.join(",")
       if (key !== lastPushed) {
         try {
