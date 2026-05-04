@@ -504,6 +504,15 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `    [ -f "$s" ] && sh "$s" || true`,
     `  done`,
     `fi`,
+    // --- ensure router plugin is always in the plugin list (idempotent, runs every start) ---
+    // This covers resumed pods whose opencode.json was written before the plugin was added.
+    `if command -v jq >/dev/null 2>&1 && [ -f /home/opencode/.config/opencode/opencode.json ]; then`,
+    `  cfg=/home/opencode/.config/opencode/opencode.json`,
+    `  if ! jq -e '.plugin | if . then (. | map(. == "@opencode-ai/opencode-router-plugin") | any) else false end' "$cfg" >/dev/null 2>&1; then`,
+    `    tmp=$(jq '.plugin = ((.plugin // []) + ["@opencode-ai/opencode-router-plugin"])' "$cfg")`,
+    `    echo "$tmp" > "$cfg"`,
+    `  fi`,
+    `fi`,
     // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
     `rm -f /home/opencode/.gitconfig.lock`,
     // --- git credentials (from per-session Secret mounted as GITHUB_TOKEN) ---
