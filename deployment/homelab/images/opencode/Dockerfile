@@ -17,7 +17,10 @@ RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
     # resolves to 127.0.0.1 (IPv4) only. Without this, Alpine's musl libc
     # resolves 'localhost' to ::1 first, causing Node.js dev servers to bind
     # IPv6-only and become unreachable via the pod's IPv4 address.
-    sed -i '/^::1[[:space:]].*localhost/d' /etc/hosts && \
+    # Note: /etc/hosts is a bind-mount in Docker so sed -i (which renames the
+    # file) fails; redirect into the existing file descriptor instead.
+    grep -v '^::1[[:space:]].*localhost' /etc/hosts > /tmp/hosts.new && \
+    cat /tmp/hosts.new > /etc/hosts && \
     # gh CLI — resolve latest version tag, fetch and extract just the binary
     GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
       | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/') && \
