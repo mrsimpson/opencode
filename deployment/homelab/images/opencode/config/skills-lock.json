@@ -35,6 +35,11 @@
       "source": "./.ade/skills/testing",
       "sourceType": "local",
       "computedHash": "1b4b23675060b11b7e74350c4903d673d2bcfcbe2105406dbf878d4322b2e55c"
+    },
+    "dev-server": {
+      "source": "./.ade/skills/dev-server",
+      "sourceType": "local",
+      "computedHash": "c43595cddf3f58fa67d6e0c153e2efee2d80f544058be715a012dc6b72a1d2ab"
     }
   }
 }
