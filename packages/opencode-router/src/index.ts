@@ -89,9 +89,10 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // ── Pod port push: POST /api/sessions/:hash/ports (x-pod-secret, no email) ─
-  if (/^\/api\/sessions\/[a-f0-9]{12}\/ports$/.test(url) && req.method === "POST") {
-    // Pod-secret auth is enforced inside handleApi — no email needed here
+  // ── Pod pushes: POST /api/sessions/:hash/progress and /ports (x-pod-secret, no email) ─
+  // Both endpoints are called by the in-pod plugin with x-pod-secret — they never
+  // have an oauth2 email header.  Auth is enforced inside handleApi via podSecretStore.
+  if (/^\/api\/sessions\/[a-f0-9]{12}\/(progress|ports)$/.test(url) && req.method === "POST") {
     const handled = await handleApi(req, res, "pod@localhost", undefined)
     if (handled) return
   }
