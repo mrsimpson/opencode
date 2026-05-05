@@ -137,6 +137,7 @@ const {
   _setActivityFetch,
   _setBootstrapFetch,
   _setEmitSessionsChanged,
+  _clearBootstrappedSessions,
 } = await import("./pod-manager.ts")
 _setApiClient(fakeK8sApi as any)
 
@@ -922,6 +923,141 @@ describe("getSessionInfo includes title from messageStore", () => {
     messageStoreMock.get.mockImplementation(() => undefined)
     const info = await (getSessionInfo as any)("abc123456789")
     expect(info?.title).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildSessionInfo — session URL resolution (resume vs. bootstrap regression)
+//
+// Regression: commit 13287223b swapped the if/else if order so that a resumed
+// pod with an initialMessage annotation would always bootstrap a new session
+// instead of linking to the existing one on the PVC.
+//
+// Fixed order (restored): activity.sessionId wins → link to existing session.
+//                         Only bootstrap when no sessions exist yet (fresh pod).
+// ---------------------------------------------------------------------------
+
+describe("buildSessionInfo — resume vs bootstrap URL resolution", () => {
+  function makePVCWithInitialMessage(
+    sessionHash: string,
+    email: string,
+    repoUrl: string,
+    branch: string,
+    initialMessage: string,
+  ) {
+    return {
+      metadata: {
+        name: `opencode-pvc-${sessionHash}`,
+        namespace: "opencode",
+        labels: {
+          "opencode.ai/session-hash": sessionHash,
+          "app.kubernetes.io/managed-by": "opencode-router",
+        },
+        annotations: {
+          "opencode.ai/user-email": email,
+          "opencode.ai/repo-url": repoUrl,
+          "opencode.ai/branch": branch,
+          "opencode.ai/source-branch": "main",
+          "opencode.ai/last-activity": new Date().toISOString(),
+          "opencode.ai/created-at": new Date().toISOString(),
+          "opencode.ai/initial-message": initialMessage,
+        },
+      },
+      spec: {},
+      status: { phase: "Bound" },
+    }
+  }
+
+  function mockActivityWithSession(sessionId: string) {
+    _setActivityFetch(
+      async () => new Response(JSON.stringify([{ id: sessionId, time: { updated: Date.now() } }]), { status: 200 }),
+    )
+  }
+
+  function mockActivityNoSession() {
+    _setActivityFetch(async () => new Response("[]", { status: 200 }))
+  }
+
+  let bootstrapCalls: { url: string; init?: RequestInit }[]
+
+  // Save the original readNamespacedPod so we can restore it if prepullImage tests mutated it
+  const originalReadNamespacedPod = fakeK8sApi.readNamespacedPod
+
+  beforeEach(() => {
+    bootstrapCalls = []
+    // Clear the module-level bootstrappedSessions Map to prevent cross-test pollution
+    _clearBootstrappedSessions()
+    // Restore readNamespacedPod in case prepullImage tests replaced it with a stub
+    fakeK8sApi.readNamespacedPod = originalReadNamespacedPod
+    _setBootstrapFetch(async (url, init) => {
+      bootstrapCalls.push({ url, init })
+      // Simulate successful POST /session → return a new session id
+      if (url.endsWith("/session")) {
+        return new Response(JSON.stringify({ id: "new-session-xyz" }), { status: 200 })
+      }
+      // Simulate successful POST /session/:id/prompt_async
+      return new Response("{}", { status: 200 })
+    })
+  })
+
+  it("REGRESSION: resumed pod with initialMessage links to existing session, does NOT bootstrap", async () => {
+    // This is the exact failing scenario from the bug:
+    //   - PVC has opencode.ai/initial-message annotation (set at session creation time)
+    //   - Pod is running and already has sessions in SQLite (resumed from PVC)
+    //   - Expected: link to existing session
+    //   - Broken behaviour: bootstrap a new session (discarding old work)
+    const existingSessionId = "existing-session-abc"
+    fakePVCs = [makePVCWithInitialMessage(SESSION_HASH, EMAIL, REPO, BRANCH, "Build me an app")]
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    mockActivityWithSession(existingSessionId)
+
+    const result = await getSessionInfo(SESSION_HASH)
+
+    // Must link to the existing session — not null, not a bootstrapped session
+    expect(result?.url).toContain(existingSessionId)
+    expect(result?.url).not.toContain("new-session-xyz")
+    // Must NOT have called the bootstrap endpoint at all
+    expect(bootstrapCalls).toHaveLength(0)
+  })
+
+  it("fresh pod with initialMessage bootstraps a new session", async () => {
+    // Fresh pod: no sessions in SQLite yet, but initialMessage annotation is present.
+    // Expected: bootstrap a new session and return its deep-link URL.
+    fakePVCs = [makePVCWithInitialMessage(SESSION_HASH, EMAIL, REPO, BRANCH, "Build me an app")]
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    mockActivityNoSession()
+
+    const result = await getSessionInfo(SESSION_HASH)
+
+    // Must have called POST /session to bootstrap
+    expect(bootstrapCalls.some((c) => c.url.endsWith("/session"))).toBe(true)
+    // URL must point to the bootstrapped session
+    expect(result?.url).toContain("new-session-xyz")
+  })
+
+  it("resumed pod without initialMessage links to existing session", async () => {
+    // No initialMessage on PVC, but pod has an existing session (normal resume).
+    const existingSessionId = "existing-session-def"
+    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    mockActivityWithSession(existingSessionId)
+
+    const result = await getSessionInfo(SESSION_HASH)
+
+    expect(result?.url).toContain(existingSessionId)
+    expect(bootstrapCalls).toHaveLength(0)
+  })
+
+  it("fresh pod without initialMessage returns null url (waiting for user to create session)", async () => {
+    // No initialMessage, no existing sessions — url stays null.
+    fakePVCs = [makePVC(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    fakePods = [makeRunningPod(SESSION_HASH, EMAIL, REPO, BRANCH)]
+    mockActivityNoSession()
+
+    const result = await getSessionInfo(SESSION_HASH)
+
+    expect(result?.url).toBeNull()
+    expect(bootstrapCalls).toHaveLength(0)
   })
 })
 
