@@ -120,8 +120,8 @@ build-operator:
 		$(DEPLOY_DIR)/opencode-cloudflare-operator
 	@echo "✓ Built $(OPERATOR_FULL)"
 
-# Opencode: custom image baking default config — build context is homelab/ (parent of images/opencode/)
-# so that script/ and images/opencode/ are both available to COPY instructions.
+# Opencode: build context is monorepo root so COPY can reference both
+# packages/ (router-plugin sources) and deployment/homelab/ paths.
 build-opencode:
 	@echo "→ Building $(OPENCODE_FULL) ..."
 	docker buildx build \
@@ -130,7 +130,7 @@ build-opencode:
 		--tag $(OPENCODE_FULL) \
 		--tag $(OPENCODE_IMAGE):latest \
 		--load \
-		$(PULUMI_DIR)
+		$(MONOREPO_ROOT)
 	@echo "✓ Built $(OPENCODE_FULL)"
 
 build: build-router build-operator build-opencode
@@ -177,7 +177,7 @@ push-opencode: _ghcr-login
 		--tag $(OPENCODE_FULL) \
 		--tag $(OPENCODE_IMAGE):latest \
 		--push \
-		$(PULUMI_DIR)/images/opencode
+		$(MONOREPO_ROOT)
 	@echo "✓ Pushed $(OPENCODE_FULL)"
 
 push: push-router push-operator push-opencode

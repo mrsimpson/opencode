@@ -14,6 +14,9 @@ Both model lists are generated dynamically at `pulumi up` time by fetching the O
 
 ## Key Decisions
 
+- **`dev-server` agent skill added**: New skill at `.agentskills/skills/dev-server/SKILL.md` (and mirrored to `.ade/skills/dev-server/`) teaches the agent how to start dev servers detached (`nohup … > /tmp/dev-server.log 2>&1 &`), which ports are auto-exposed (3000, 3001, 4321, 5173, 5174, 8000, 8080, 8888), and how to construct the port-forwarding URL (`https://<port>-${OPENCODE_SESSION_HASH}-oc.<domain>`). The `OPENCODE_SESSION_HASH` env var is injected into every pod. The base domain is NOT injected as an env var and must be inferred from the session URL or asked from the user. Also registered in `skills-lock.json` and `config.lock.yaml`. Verified: `experimental_install --yes` installs the skill and `@codemcp/skills-server` lists it as `dev-server` in `use_skill` tool.
+- **Makefile `build-opencode` / `push-opencode` context fixed**: Both targets were using `$(PULUMI_DIR)` (homelab/) as Docker build context but the Dockerfile COPYs `packages/` and `deployment/homelab/` paths that are relative to the monorepo root. Fixed to use `$(MONOREPO_ROOT)` as context (same as `build-router`). Build confirmed working.
+
 - **Two separate OpenRouter providers, two separate API keys**:
   - `openrouter-free` — custom `@ai-sdk/openai-compatible` provider pointing at `https://openrouter.ai/api/v1`, using `OPENROUTER_FREE_API_KEY` (zero balance). Contains all free models (price=0).
   - `openrouter` — native built-in provider, using `OPENROUTER_API_KEY` (paid balance). Contains a curated list of high-quality coding models in the $0.10–$5/M token range.
