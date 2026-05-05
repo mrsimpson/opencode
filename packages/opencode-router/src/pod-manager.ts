@@ -642,11 +642,13 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
             { name: "OPENCODE_POD_SECRET", value: podSecret },
             { name: "OPENCODE_SESSION_HASH", value: hash },
-            // Kubernetes injects '::1 localhost' into /etc/hosts; musl libc returns ::1 first
-            // so Node.js dev servers bind IPv6-only. This flag tells Node's dns.lookup() to
-            // prefer IPv4 results, making 'localhost' resolve to 127.0.0.1 first.
-            // Stable documented flag since Node 16.4 — no monkey-patching needed.
-            { name: "NODE_OPTIONS", value: "--dns-result-order=ipv4first" },
+            // Kubernetes injects "::1 localhost" into /etc/hosts so musl/Alpine
+            // resolves localhost to ::1 first — dev servers bind IPv6 loopback
+            // and are unreachable from other pods.  This CJS patch overrides
+            // net.Server.prototype.listen to always bind 0.0.0.0 instead of
+            // any loopback address.  --require works for both CJS and ESM entry
+            // points (loaded before the module graph is evaluated).
+            { name: "NODE_OPTIONS", value: "--require /etc/bind-all-interfaces.cjs" },
             ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
           ],
           envFrom: [

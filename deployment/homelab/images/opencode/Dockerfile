@@ -36,6 +36,12 @@ COPY packages/opencode-router-plugin/src/plugin.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/port-watcher.ts /etc/opencode-plugin/
 COPY packages/opencode-router-plugin/src/types.ts /etc/opencode-plugin/
 
+# Patch that makes all Node.js servers bind to 0.0.0.0 instead of loopback.
+# Kubernetes injects "::1 localhost" into /etc/hosts; on Alpine (musl) this
+# causes dev servers (Vite, Next.js, …) to bind IPv6-only and become
+# unreachable from other pods. Loaded via NODE_OPTIONS=--require.
+COPY deployment/homelab/images/opencode/bind-all-interfaces.cjs /etc/bind-all-interfaces.cjs
+
 # Bake default config into a read-only system path.
 # The config-init init container seeds /home/opencode/.config/opencode/ from
 # this directory on first pod start (idempotent — skipped on restart).
