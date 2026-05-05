@@ -26,10 +26,10 @@ logical_config:
         - "@codemcp/knowledge-server"
       env: {}
     - ref: agentskills
-      command: npx
+      command: sh
       args:
-        - -y
-        - "@codemcp/skills-server"
+        - -c
+        - npx -y @codemcp/skills-server "$HOME/.config/opencode"
       env: {}
   instructions:
     - >-

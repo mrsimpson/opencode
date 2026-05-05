@@ -522,10 +522,20 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `      echo "Warning: jq not found, using baked config only" >&2`,
     `    fi`,
     `  fi`,
-    `  for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
-    `    [ -f "$s" ] && sh "$s" || true`,
-    `  done`,
     `fi`,
+    // --- always sync skill assets from image defaults (idempotent, runs every start) ---
+    // Covers pod restarts after image updates that added new skills. New skill dirs are
+    // copied in; existing ones are left untouched because cp -r won't overwrite files
+    // that already exist unless -f is passed. We also sync skills-lock.json and the
+    // .ade/ source tree so experimental_install picks up new entries.
+    `cp -r /etc/opencode-defaults/.agentskills/. /home/opencode/.config/opencode/.agentskills/ 2>/dev/null || true`,
+    `cp -r /etc/opencode-defaults/.ade/. /home/opencode/.config/opencode/.ade/ 2>/dev/null || true`,
+    `cp /etc/opencode-defaults/skills-lock.json /home/opencode/.config/opencode/skills-lock.json 2>/dev/null || true`,
+    // Re-run init-scripts every start (they must be idempotent). setup-skills.sh runs
+    // experimental_install which is a no-op for already-registered skills and adds new ones.
+    `for s in /etc/opencode-defaults/init-scripts/*.sh; do`,
+    `  [ -f "$s" ] && sh "$s" || true`,
+    `done`,
     // --- ensure router plugin is always in the plugin list (idempotent, runs every start) ---
     // This covers resumed pods whose opencode.json was written before the plugin was added.
     // Reference by TS source path so opencode loads it directly via bun (no npm needed).

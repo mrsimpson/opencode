@@ -19,9 +19,9 @@
     "agentskills": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
-        "@codemcp/skills-server"
+        "sh",
+        "-c",
+        "npx -y @codemcp/skills-server \"$HOME/.config/opencode\""
       ]
     },
     "architecture_workflows": {
