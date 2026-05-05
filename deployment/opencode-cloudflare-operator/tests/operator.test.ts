@@ -135,6 +135,7 @@ vi.mock("@kubernetes/client-node", () => {
   MockKubeConfig.prototype.loadFromDefault = vi.fn()
   MockKubeConfig.prototype.loadFromCluster = vi.fn()
   MockKubeConfig.prototype.makeApiClient = vi.fn().mockReturnValue({
+    // CustomObjectsApi methods
     createNamespacedCustomObject: vi.fn().mockImplementation(async (opts: any) => {
       k8sRequests.push({ method: "POST", path: `/${opts.namespace}/${opts.plural}`, body: opts.body })
       return { body: {} }
@@ -143,12 +144,17 @@ vi.mock("@kubernetes/client-node", () => {
       k8sRequests.push({ method: "DELETE", path: `/${opts.namespace}/${opts.plural}/${opts.name}` })
       return { body: {} }
     }),
+    listNamespacedCustomObject: vi.fn().mockResolvedValue({ items: [] }),
+    // CoreV1Api methods (used by reconcileOnStartup)
+    listNamespacedPod: vi.fn().mockResolvedValue({ items: [] }),
+    listNamespacedPersistentVolumeClaim: vi.fn().mockResolvedValue({ items: [] }),
   })
 
   return {
     KubeConfig: MockKubeConfig,
     Watch: function MockWatch() {},
     CustomObjectsApi: {},
+    CoreV1Api: {},
   }
 })
 
