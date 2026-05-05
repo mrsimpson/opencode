@@ -72,6 +72,12 @@ COPY deployment/homelab/images/opencode/librust_pty_musl_amd64.so /usr/local/lib
 # Set BUN_PTY_LIB so bun-pty resolves the musl-compatible library at runtime
 ENV BUN_PTY_LIB=/usr/local/lib/bun-pty/librust_pty.so
 
+# Load the bind-all-interfaces patch for every Node.js process in this image.
+# The file is guaranteed present (COPYed above), so --require will always resolve.
+# This avoids putting the path in the pod spec where it would break pods running
+# older image versions that predate the COPY.
+ENV NODE_OPTIONS=--require=/etc/bind-all-interfaces.cjs
+
 # Non-root user matching the opencode-router pod security context (UID 1000).
 RUN addgroup -S opencode && \
     adduser  -S -u 1000 -G opencode -h /home/opencode -s /bin/sh opencode && \

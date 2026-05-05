@@ -64,6 +64,30 @@ jobs:
             -t ${{ env.IMAGE_NAME }}:latest \
             . 
 
+      - name: Test — node server binds 0.0.0.0 with bind-all-interfaces patch
+        run: |
+          # Run a one-shot node server inside the just-built image.
+          # The image bakes NODE_OPTIONS=--require=/etc/bind-all-interfaces.cjs,
+          # so listen(5173, 'localhost') must bind 0.0.0.0, not 127.0.0.1/::1.
+          RESULT=$(docker run --rm \
+            --user opencode \
+            --entrypoint node \
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }} \
+            -e "
+              const net = require('net');
+              const s = net.createServer();
+              s.listen(5173, 'localhost', () => {
+                process.stdout.write(s.address().address + '\n');
+                s.close();
+              });
+            ")
+          echo "Server bound to: $RESULT"
+          if [ "$RESULT" != "0.0.0.0" ]; then
+            echo "FAIL: expected 0.0.0.0, got '$RESULT'"
+            exit 1
+          fi
+          echo "PASS: server binds 0.0.0.0"
+
       - name: Push
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}

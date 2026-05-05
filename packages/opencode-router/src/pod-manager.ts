@@ -639,16 +639,12 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
           },
           ports: [{ containerPort: config.opencodePort }],
            env: [
+            // NODE_OPTIONS=--require=/etc/bind-all-interfaces.cjs is baked into the
+            // container image via ENV in the Dockerfile — not set here to avoid
+            // breaking pods running older images where the file doesn't exist.
             { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
             { name: "OPENCODE_POD_SECRET", value: podSecret },
             { name: "OPENCODE_SESSION_HASH", value: hash },
-            // Kubernetes injects "::1 localhost" into /etc/hosts so musl/Alpine
-            // resolves localhost to ::1 first — dev servers bind IPv6 loopback
-            // and are unreachable from other pods.  This CJS patch overrides
-            // net.Server.prototype.listen to always bind 0.0.0.0 instead of
-            // any loopback address.  --require works for both CJS and ESM entry
-            // points (loaded before the module graph is evaluated).
-            { name: "NODE_OPTIONS", value: "--require /etc/bind-all-interfaces.cjs" },
             ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
           ],
           envFrom: [
