@@ -35,6 +35,7 @@ vi.mock("../src/config.js", () => ({
     domain: "no-panic.org",
     routeSuffix: "-oc",
     routerServiceUrl: "http://traefik-controller.traefik-system.svc.cluster.local:80",
+    routerAdminUrl: "http://code.code.svc.cluster.local:80",
     routerAdminSecret: "test-admin-secret",
     healthPort: 8080,
     ingressRouteNamespace: "code",
