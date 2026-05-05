@@ -108,6 +108,22 @@ export async function createIngressRoutes(hostname: string): Promise<void> {
 }
 
 /**
+ * List all IngressRoute names managed by this operator.
+ * Returns an array of resource names (e.g. "opencode-session-5173-abc123-oc-app").
+ */
+export async function listManagedIngressRoutes(): Promise<string[]> {
+  const ns = config.ingressRouteNamespace
+  const result = (await customObjectsApi.listNamespacedCustomObject({
+    group: TRAEFIK_GROUP,
+    version: TRAEFIK_VERSION,
+    namespace: ns,
+    plural: INGRESSROUTE_PLURAL,
+    labelSelector: "app.kubernetes.io/managed-by=opencode-cloudflare-operator",
+  })) as { items: { metadata: { name: string } }[] }
+  return result.items.map((r) => r.metadata.name)
+}
+
+/**
  * Delete the two IngressRoute resources for a session hostname.
  * Idempotent — no-op if either resource is already gone.
  */

@@ -132,6 +132,15 @@ interface IngressRule {
 }
 
 /**
+ * Return all named hostnames currently in the tunnel ingress config.
+ * The catch-all rule (no hostname) is excluded.
+ */
+export async function getTunnelRouteHostnames(): Promise<string[]> {
+  const current = await getTunnelConfig();
+  return (current.ingress ?? []).filter((r) => r.hostname).map((r) => r.hostname as string);
+}
+
+/**
  * Add a tunnel ingress rule for the given hostname → router service.
  * Idempotent — skips if already present.
  * Keeps the catch-all rule (no hostname) at the end.
