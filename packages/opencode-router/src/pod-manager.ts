@@ -51,6 +51,11 @@ export function _setBootstrapFetch(fn: FetchFn) {
   bootstrapFetchImpl = fn
 }
 
+/** For testing only: clear the in-flight/completed bootstrap cache. */
+export function _clearBootstrappedSessions() {
+  bootstrappedSessions.clear()
+}
+
 /** Emit a sessions-changed signal — injectable for testing. */
 let emitSessionsChanged: () => void = () => _sessionsChangedBroadcaster.emit()
 /** For testing only: replace the sessionsChanged emit function. */
@@ -190,8 +195,12 @@ async function buildSessionInfo(
       if (activity.ms > new Date(annotationActivity).getTime()) {
         lastActivity = new Date(activity.ms).toISOString()
       }
-      if (initialMessage) {
-        // Sessions with an initialMessage must always link to the bootstrapped session.
+      if (activity.sessionId) {
+        // Existing sessions on the pod — link to the most recently active one.
+        // This is the resume case: the PVC has sessions in SQLite from a prior run.
+        sessionUrl = deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
+      } else if (initialMessage) {
+        // Fresh pod (no sessions yet) with an initialMessage — bootstrap a new session.
         // All concurrent callers await the same Promise — only one POST /session is ever sent.
         // Returns null while bootstrap is in-flight or if it has permanently failed.
         let base = `http://${pod.status.podIP}:${config.opencodePort}`
@@ -203,9 +212,6 @@ async function buildSessionInfo(
         sessionUrl = bootstrappedId
           ? deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, bootstrappedId)
           : null
-      } else if (activity.sessionId) {
-        // No initialMessage: link to the most recently active session on the pod.
-        sessionUrl = deepLinkUrl(`${proto}://${hash}${config.routeSuffix}.${config.routerDomain}`, activity.sessionId)
       }
       // else: running pod with no sessions yet and no initialMessage → url stays null
       // (caller should keep waiting; this resolves once the user creates a session manually)
@@ -648,7 +654,7 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             failureThreshold: 20,
           },
           ports: [{ containerPort: config.opencodePort }],
-           env: [
+          env: [
             // NODE_OPTIONS=--require=/etc/bind-all-interfaces.cjs is baked into the
             // container image via ENV in the Dockerfile — not set here to avoid
             // breaking pods running older images where the file doesn't exist.
