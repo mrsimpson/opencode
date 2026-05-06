@@ -55,7 +55,8 @@
     "proceed_to_phase": "deny",
     "conduct_review": "deny",
     "reset_development": "deny",
-    "setup_project_docs": "deny"
+    "setup_project_docs": "deny",
+    "skill": "deny"
   },
   "provider": {
     "openrouter": {
