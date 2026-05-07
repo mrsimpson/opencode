@@ -87,21 +87,32 @@ Users want to connect a local OpenCode client to a session running in the router
 - Added copy buttons for URL and password
 - Shows command format: `opencode attach --url <url> --password <password>`
 
-## Phase_4\_\_Testing [PENDING]
+## Phase_4\_\_Testing [COMPLETED]
 
-### 4.1 - Unit tests needed
+### 4.1 - Unit tests added
 
-**Files**:
+**Files modified**:
 
-- `packages/opencode-router/src/pod-manager.test.ts` - Test password generation
-- `packages/opencode-router/src/api.test.ts` - Test attach-info endpoint
+- `packages/opencode-router/src/pod-manager.test.ts` - Added tests for:
+  - `generateAttachPassword()` returns 32-char hex string, unique per call
+  - `getAttachUrl()` builds correct URL with attachRoutePrefix and hash
+  - `getOrCreateAttachPassword()` reads from PVC annotation, creates + patches PVC when missing, throws NotFound when PVC absent
+  - `ensurePVC()` stores attach password annotation on newly created PVCs, does NOT overwrite existing PVCs
+  - `buildSessionInfo()` (via `listUserSessions`) includes `attachUrl` and `attachPassword` for session owner, non-owners don't see the session at all
 
-Tests needed:
+- `packages/opencode-router/src/api.test.ts` - Added tests for:
+  - `GET /api/sessions/:hash/attach-info` returns 200 with `attachUrl` and `attachPassword` for session owner
+  - Returns 403 for non-owner
+  - Returns 404 when session not found
 
-- Password generation and storage in PVC annotation
-- Attach subdomain extraction (`getAttachSessionHash`)
-- API endpoints return correct attach info
-- Password validation logic
+- `packages/opencode-router/src/hostname.test.ts` - Added tests for:
+  - `getAttachSessionHash()` extracts hash from attach subdomain (`attach-<hash>-oc.<domain>`)
+  - Returns null for regular session subdomains, non-session hostnames, invalid hashes, and unmatched prefixes
+  - Handles port in Host header
+
+- `packages/opencode-router/src/config.test.ts` - Added tests for:
+  - `attachPort` defaults to 4096
+  - `attachRoutePrefix` defaults to "attach-"
 
 ## Technical Decisions
 
@@ -119,6 +130,10 @@ Tests needed:
 4. `packages/opencode-router/src/api.ts` - Attach info API, session info enrichment ✓
 5. `packages/opencode-router-app/src/api.ts` - Update Session interface ✓
 6. `packages/opencode-router-app/src/session-item.tsx` - Display attach info in UI ✓
+7. `packages/opencode-router/src/hostname.test.ts` - Attach subdomain extraction tests ✓
+8. `packages/opencode-router/src/pod-manager.test.ts` - Password, URL, PVC annotation tests ✓
+9. `packages/opencode-router/src/api.test.ts` - Attach-info API endpoint tests ✓
+10. `packages/opencode-router/src/config.test.ts` - Attach config defaults tests ✓
 
 ## Implementation Summary
 
@@ -145,7 +160,7 @@ The attach functionality allows a local OpenCode client to connect to a router-m
 
 ## Next Steps
 
-1. Add unit tests for new functionality
+1. ~~Add unit tests for new functionality~~ ✅
 2. Test the full flow end-to-end in a Kubernetes environment
 3. Document the attach feature for users
 4. Consider adding password rotation in future (not in initial implementation)

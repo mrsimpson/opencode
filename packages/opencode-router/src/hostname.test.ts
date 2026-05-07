@@ -91,3 +91,54 @@ describe("getSessionInfo extracts hash and port from hostname", () => {
     expect(result.port).toBe(8080)
   })
 })
+
+// ---------------------------------------------------------------------------
+// getAttachSessionHash — extract session hash from attach subdomain
+// ---------------------------------------------------------------------------
+
+describe("getAttachSessionHash extracts hash from attach subdomain", () => {
+  const { config } = require("./config.js")
+
+  function getAttachSessionHash(host: string): string | null {
+    const hostname = host.split(":")[0]
+    const routerHostname = config.routerDomain.split(":")[0]
+    const suffix = `${config.routeSuffix}.${routerHostname}`
+    const prefix = config.attachRoutePrefix
+
+    if (!hostname.endsWith(suffix) || !hostname.startsWith(prefix)) return null
+
+    const hashPart = hostname.slice(prefix.length, hostname.length - suffix.length)
+    if (/^[a-f0-9]{12}$/.test(hashPart)) return hashPart
+    return null
+  }
+
+  it("extracts hash from attach subdomain", () => {
+    const result = getAttachSessionHash("attach-abc123def456-oc.no-panic.org")
+    expect(result).toBe("abc123def456")
+  })
+
+  it("returns null for regular (non-attach) session subdomain", () => {
+    const result = getAttachSessionHash("abc123def456-oc.no-panic.org")
+    expect(result).toBeNull()
+  })
+
+  it("returns null for non-session hostname", () => {
+    const result = getAttachSessionHash("www.no-panic.org")
+    expect(result).toBeNull()
+  })
+
+  it("returns null for invalid hash on attach subdomain", () => {
+    const result = getAttachSessionHash("attach-tooshort-oc.no-panic.org")
+    expect(result).toBeNull()
+  })
+
+  it("handles port in Host header", () => {
+    const result = getAttachSessionHash("attach-abc123def456-oc.no-panic.org:443")
+    expect(result).toBe("abc123def456")
+  })
+
+  it("returns null when prefix does not match", () => {
+    const result = getAttachSessionHash("other-abc123def456-oc.no-panic.org")
+    expect(result).toBeNull()
+  })
+})
