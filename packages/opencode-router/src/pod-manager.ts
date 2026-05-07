@@ -87,6 +87,7 @@ const ANNOTATION_SOURCE_BRANCH = "opencode.ai/source-branch"
 const ANNOTATION_INITIAL_MESSAGE = "opencode.ai/initial-message"
 const ANNOTATION_CREATED_AT = "opencode.ai/created-at"
 const ANNOTATION_POD_SECRET = "opencode.ai/pod-secret"
+const ANNOTATION_ATTACH_PASSWORD = "opencode.ai/attach-password"
 
 /** In-memory throttle for annotation updates: hash → last update epoch ms */
 const activityThrottle = new Map<string, number>()
@@ -150,6 +151,10 @@ export interface SessionInfo {
   idleTimeoutMinutes: number
   description?: string
   title?: string
+  /** Attach URL for local client connections (e.g., https://attach-<hash>.<domain>) */
+  attachUrl?: string
+  /** Password for attach authentication (only included for session owner) */
+  attachPassword?: string
 }
 
 /**
@@ -219,6 +224,13 @@ async function buildSessionInfo(
     // else: pod unreachable → url stays null
   }
 
+  // Build attach URL
+  const attachUrl = getAttachUrl(hash)
+
+  // Include attach password only for session owner (email match)
+  const pvcEmail = ann[ANNOTATION_USER_EMAIL] ?? ""
+  const attachPassword = pvcEmail === email ? ann[ANNOTATION_ATTACH_PASSWORD] : undefined
+
   return {
     hash,
     email,
@@ -232,6 +244,8 @@ async function buildSessionInfo(
     idleTimeoutMinutes: config.idleTimeoutMinutes,
     description: initialMessage,
     title: messageStore.get(hash)?.title,
+    attachUrl,
+    attachPassword,
   }
 }
 
@@ -240,7 +254,10 @@ async function buildSessionInfo(
  * Reusable for both the polling GET endpoint and the SSE events endpoint.
  * Returns null if the session's PVC is not found.
  */
-export async function getSessionInfo(hash: string): Promise<SessionInfo | null> {
+export async function getSessionInfo(
+  hash: string,
+  req?: import("node:http").IncomingMessage,
+): Promise<SessionInfo | null> {
   let pvc: k8s.V1PersistentVolumeClaim
   try {
     pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name: pvcName(hash), namespace: config.namespace })
@@ -258,7 +275,7 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
   }
 
   const email = pvc.metadata?.annotations?.[ANNOTATION_USER_EMAIL] ?? ""
-  return buildSessionInfo(hash, pvc, pod, email)
+  return buildSessionInfo(hash, pvc, pod, email, req)
 }
 
 /**
@@ -317,6 +334,58 @@ export async function getSessionProgress(hash: string): Promise<{ stage: string;
 export function getSessionHash(email: string, repoUrl: string, branch: string): string {
   const key = `${email.toLowerCase().trim()}:${repoUrl.trim()}:${branch.trim()}`
   return crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)
+}
+
+/**
+ * Generate a random 32-character hex password for attach authentication.
+ */
+export function generateAttachPassword(): string {
+  return crypto.randomBytes(16).toString("hex")
+}
+
+/**
+ * Get or create the attach password for a session.
+ * Reads from PVC annotation, creates a new one if not present.
+ */
+export async function getOrCreateAttachPassword(hash: string): Promise<string> {
+  const name = pvcName(hash)
+  let pvc: k8s.V1PersistentVolumeClaim
+  try {
+    pvc = await k8sApi.readNamespacedPersistentVolumeClaim({ name, namespace: config.namespace })
+  } catch (err) {
+    if (isNotFound(err)) throw new Error("NotFound")
+    throw err
+  }
+
+  const existingPassword = pvc.metadata?.annotations?.[ANNOTATION_ATTACH_PASSWORD]
+  if (existingPassword) return existingPassword
+
+  // Generate new password and store in annotation
+  const password = generateAttachPassword()
+  try {
+    await k8sApi.patchNamespacedPersistentVolumeClaim({
+      name,
+      namespace: config.namespace,
+      body: {
+        metadata: {
+          annotations: { [ANNOTATION_ATTACH_PASSWORD]: password },
+        },
+      },
+    })
+  } catch (err) {
+    console.error(`Failed to store attach password for ${name}:`, err)
+    // Return password anyway — caller can still use it for this request
+  }
+  return password
+}
+
+/**
+ * Build the attach URL for a session.
+ * Format: https://<attachRoutePrefix><hash><routeSuffix>.<routerDomain>
+ */
+export function getAttachUrl(hash: string): string {
+  const proto = config.routerProto ?? "https"
+  return `${proto}://${config.attachRoutePrefix}${hash}${config.routeSuffix}.${config.routerDomain}`
 }
 
 function podName(hash: string): string {
@@ -426,6 +495,9 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
     if (!isNotFound(err)) throw err
   }
 
+  // Generate attach password for new sessions
+  const attachPassword = generateAttachPassword()
+
   const pvc: k8s.V1PersistentVolumeClaim = {
     metadata: {
       name,
@@ -437,6 +509,7 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
         [ANNOTATION_BRANCH]: session.branch,
         [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
         [ANNOTATION_CREATED_AT]: new Date().toISOString(),
+        [ANNOTATION_ATTACH_PASSWORD]: attachPassword,
         ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
       },
     },
@@ -654,15 +727,6 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
             failureThreshold: 20,
           },
           ports: [{ containerPort: config.opencodePort }],
-          env: [
-            // NODE_OPTIONS=--require=/etc/bind-all-interfaces.cjs is baked into the
-            // container image via ENV in the Dockerfile — not set here to avoid
-            // breaking pods running older images where the file doesn't exist.
-            { name: "PLAYWRIGHT_MCP_CDP_ENDPOINT", value: "http://localhost:9222" },
-            { name: "OPENCODE_POD_SECRET", value: podSecret },
-            { name: "OPENCODE_SESSION_HASH", value: hash },
-            ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
-          ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),

@@ -3,7 +3,13 @@ import httpProxy from "http-proxy"
 import { handleApi } from "./api.js"
 import { config } from "./config.js"
 import * as devProxy from "./dev-proxy.js"
-import { deleteIdlePods, getPodIP, updateLastActivity, restorePodSecrets } from "./pod-manager.js"
+import {
+  deleteIdlePods,
+  getPodIP,
+  updateLastActivity,
+  restorePodSecrets,
+  getOrCreateAttachPassword,
+} from "./pod-manager.js"
 import { serveStatic } from "./static.js"
 
 /**
@@ -43,6 +49,49 @@ function getSessionInfo(host: string): { hash: string | null; port: number | nul
   }
 
   return { hash: null, port: null }
+}
+
+/**
+ * Extract attach session hash from the Host header.
+ * Returns the hash if the request is on an attach subdomain, or null otherwise.
+ *
+ * Attach hostname format: <attachRoutePrefix><hash><routeSuffix>.<routerDomain>
+ * e.g. with attachRoutePrefix="attach-", routeSuffix="-oc", routerDomain="no-panic.org":
+ *   attach-abc123def456-oc.no-panic.org → "abc123def456"
+ */
+function getAttachSessionHash(host: string): string | null {
+  const hostname = host.split(":")[0]
+  const routerHostname = config.routerDomain.split(":")[0]
+  const suffix = `${config.routeSuffix}.${routerHostname}`
+  const prefix = config.attachRoutePrefix
+
+  // Check if hostname ends with suffix and starts with prefix
+  if (!hostname.endsWith(suffix) || !hostname.startsWith(prefix)) return null
+
+  const hashPart = hostname.slice(prefix.length, hostname.length - suffix.length)
+  if (/^[a-f0-9]{12}$/.test(hashPart)) return hashPart
+  return null
+}
+
+/**
+ * Validate attach password from request.
+ * Checks query parameter ?password= or header X-Attach-Password.
+ * Compares against the stored password in PVC annotation.
+ */
+async function validateAttachPassword(hash: string, req: http.IncomingMessage): Promise<boolean> {
+  // Get password from query param or header
+  const url = new URL(req.url ?? "/", `http://${req.headers.host}`)
+  const providedPassword = url.searchParams.get("password") ?? req.headers["x-attach-password"]
+
+  if (!providedPassword || typeof providedPassword !== "string") return false
+
+  // Get stored password from PVC annotation
+  try {
+    const storedPassword = await getOrCreateAttachPassword(hash)
+    return storedPassword === providedPassword
+  } catch {
+    return false
+  }
 }
 
 function getEmail(req: http.IncomingMessage): string | null {
@@ -109,6 +158,38 @@ const server = http.createServer(async (req, res) => {
     if (handled) return
   }
 
+  // ── Attach subdomain: password-based auth bypass ────────────────────────
+  const host = req.headers.host ?? ""
+  const attachHash = getAttachSessionHash(host)
+  if (attachHash) {
+    // Validate attach password
+    const passwordValid = await validateAttachPassword(attachHash, req)
+    if (!passwordValid) {
+      res
+        .writeHead(401, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "Invalid or missing attach password" }))
+      return
+    }
+
+    // Proxy to session pod (use opencodePort, not attachPort - same server, different auth)
+    let target: string | null = null
+    if (devProxy.enabled) {
+      target = await devProxy.target(attachHash)
+    } else {
+      const ip = await getPodIP(attachHash)
+      if (ip) target = `http://${ip}:${config.opencodePort}`
+    }
+    if (!target) {
+      res
+        .writeHead(503, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "session not ready", hash: attachHash }))
+      return
+    }
+    updateLastActivity(attachHash)
+    proxy.web(req, res, { target, changeOrigin: true })
+    return
+  }
+
   const email = getEmail(req)
   if (!email) {
     res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")
@@ -116,7 +197,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const host = req.headers.host ?? ""
     const { hash, port } = getSessionInfo(host)
 
     if (hash) {
@@ -149,7 +229,6 @@ const server = http.createServer(async (req, res) => {
 
     // ── Root domain: opencode-router.domain ───────────────────────────────
     // Router's own API
-    const url = req.url ?? "/"
     if (url.startsWith("/api/")) {
       const handled = await handleApi(req, res, email, getGithubToken(req))
       if (handled) return
@@ -174,6 +253,33 @@ server.on("upgrade", async (req, socket, head) => {
   const url = req.url ?? "/"
   if (url.startsWith("/api/admin/")) {
     socket.destroy()
+    return
+  }
+
+  // ── Attach subdomain: password-based auth for WebSocket ───────────
+  const attachHashWs = getAttachSessionHash(req.headers.host ?? "")
+  if (attachHashWs) {
+    // Validate attach password
+    const passwordValid = await validateAttachPassword(attachHashWs, req)
+    if (!passwordValid) {
+      socket.destroy()
+      return
+    }
+
+    // Proxy WebSocket to session pod (use opencodePort, not attachPort - same server, different auth)
+    let target: string | null = null
+    if (devProxy.enabled) {
+      target = await devProxy.target(attachHashWs)
+    } else {
+      const ip = await getPodIP(attachHashWs)
+      if (ip) target = `http://${ip}:${config.opencodePort}`
+    }
+    if (!target) {
+      socket.destroy()
+      return
+    }
+    updateLastActivity(attachHashWs)
+    proxy.ws(req, socket, head, { target, changeOrigin: true })
     return
   }
 
