@@ -11,9 +11,10 @@ export const config = {
   chromiumImage: process.env.CHROMIUM_IMAGE ?? "chromedp/headless-shell:latest",
   opencodePort: 4096,
   /**
-   * Port for attach sessions (local client connecting to router session).
-   * This is the port OpenCode listens on for attach connections.
-   * Default: 4096 (same as opencodePort for simplicity).
+   * Port for the attach server (local client connecting to router session).
+   * This server is NOT behind oauth2-proxy and handles attach subdomain requests
+   * with password-based auth instead of OAuth.
+   * Default: 4096 (different from main port 3000).
    */
   attachPort: Number(process.env.ATTACH_PORT ?? 4096),
   /**

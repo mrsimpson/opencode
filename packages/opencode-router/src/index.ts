@@ -158,38 +158,7 @@ const server = http.createServer(async (req, res) => {
     if (handled) return
   }
 
-  // ── Attach subdomain: password-based auth bypass ────────────────────────
   const host = req.headers.host ?? ""
-  const attachHash = getAttachSessionHash(host)
-  if (attachHash) {
-    // Validate attach password
-    const passwordValid = await validateAttachPassword(attachHash, req)
-    if (!passwordValid) {
-      res
-        .writeHead(401, { "Content-Type": "application/json" })
-        .end(JSON.stringify({ error: "Invalid or missing attach password" }))
-      return
-    }
-
-    // Proxy to session pod (use opencodePort, not attachPort - same server, different auth)
-    let target: string | null = null
-    if (devProxy.enabled) {
-      target = await devProxy.target(attachHash)
-    } else {
-      const ip = await getPodIP(attachHash)
-      if (ip) target = `http://${ip}:${config.opencodePort}`
-    }
-    if (!target) {
-      res
-        .writeHead(503, { "Content-Type": "application/json" })
-        .end(JSON.stringify({ error: "session not ready", hash: attachHash }))
-      return
-    }
-    updateLastActivity(attachHash)
-    proxy.web(req, res, { target, changeOrigin: true })
-    return
-  }
-
   const email = getEmail(req)
   if (!email) {
     res.writeHead(401, { "Content-Type": "text/plain" }).end("Missing user identity")
@@ -256,33 +225,6 @@ server.on("upgrade", async (req, socket, head) => {
     return
   }
 
-  // ── Attach subdomain: password-based auth for WebSocket ───────────
-  const attachHashWs = getAttachSessionHash(req.headers.host ?? "")
-  if (attachHashWs) {
-    // Validate attach password
-    const passwordValid = await validateAttachPassword(attachHashWs, req)
-    if (!passwordValid) {
-      socket.destroy()
-      return
-    }
-
-    // Proxy WebSocket to session pod (use opencodePort, not attachPort - same server, different auth)
-    let target: string | null = null
-    if (devProxy.enabled) {
-      target = await devProxy.target(attachHashWs)
-    } else {
-      const ip = await getPodIP(attachHashWs)
-      if (ip) target = `http://${ip}:${config.opencodePort}`
-    }
-    if (!target) {
-      socket.destroy()
-      return
-    }
-    updateLastActivity(attachHashWs)
-    proxy.ws(req, socket, head, { target, changeOrigin: true })
-    return
-  }
-
   const email = getEmail(req)
   if (!email) {
     socket.destroy()
@@ -325,6 +267,70 @@ server.on("upgrade", async (req, socket, head) => {
   }
 })
 
+// ── Attach server: listens on attachPort, NOT behind oauth2-proxy ─────────
+// This port handles attach subdomain requests with password-based auth
+// instead of OAuth, so local clients can connect directly.
+const attachServer = http.createServer(async (req, res) => {
+  const host = req.headers.host ?? ""
+  const attachHash = getAttachSessionHash(host)
+  if (attachHash) {
+    const passwordValid = await validateAttachPassword(attachHash, req)
+    if (!passwordValid) {
+      res
+        .writeHead(401, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "Invalid or missing attach password" }))
+      return
+    }
+
+    let target: string | null = null
+    if (devProxy.enabled) {
+      target = await devProxy.target(attachHash)
+    } else {
+      const ip = await getPodIP(attachHash)
+      if (ip) target = `http://${ip}:${config.opencodePort}`
+    }
+    if (!target) {
+      res
+        .writeHead(503, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "session not ready", hash: attachHash }))
+      return
+    }
+    updateLastActivity(attachHash)
+    proxy.web(req, res, { target, changeOrigin: true })
+    return
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Not found" }))
+})
+
+attachServer.on("upgrade", async (req, socket, head) => {
+  const attachHash = getAttachSessionHash(req.headers.host ?? "")
+  if (attachHash) {
+    const passwordValid = await validateAttachPassword(attachHash, req)
+    if (!passwordValid) {
+      socket.destroy()
+      return
+    }
+
+    let target: string | null = null
+    if (devProxy.enabled) {
+      target = await devProxy.target(attachHash)
+    } else {
+      const ip = await getPodIP(attachHash)
+      if (ip) target = `http://${ip}:${config.opencodePort}`
+    }
+    if (!target) {
+      socket.destroy()
+      return
+    }
+    updateLastActivity(attachHash)
+    proxy.ws(req, socket, head, { target, changeOrigin: true })
+    return
+  }
+
+  socket.destroy()
+})
+
 // Background: clean up idle pods every 60 seconds
 const cleanupInterval = setInterval(deleteIdlePods, 60_000)
 
@@ -332,8 +338,9 @@ function shutdown() {
   console.log("Shutting down...")
   clearInterval(cleanupInterval)
   devProxy.cleanup()
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(1), 10_000)
+  server.close()
+  attachServer.close()
+  setTimeout(() => process.exit(0), 5_000)
 }
 
 process.on("SIGTERM", shutdown)
@@ -344,3 +351,15 @@ server.listen(config.port, () => {
   // Restore pod secrets from annotations so running pods can still push after a router restart
   restorePodSecrets().catch((err) => console.error("Failed to restore pod secrets:", err))
 })
+
+// Start attach server on the configured attach port (default 4096)
+// This port should NOT be behind oauth2-proxy
+if (config.attachPort !== config.port) {
+  attachServer.listen(config.attachPort, () => {
+    console.log(`opencode-router attach server listening on :${config.attachPort}`)
+  })
+} else {
+  console.warn(
+    `Attach port (${config.attachPort}) is same as main port (${config.port}). Attach server not started separately.`,
+  )
+}

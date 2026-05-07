@@ -54,11 +54,13 @@ Users want to connect a local OpenCode client to a session running in the router
 
 ### 2.1 - Attach port configuration ✓
 
-**Decision**: Using the same OpenCode server port (4096) for attach connections.
+**Implementation**: Separate HTTP server on `config.attachPort` (default 4096).
 
-- The attach functionality uses password-based auth instead of OAuth
-- No need for a separate port - the router handles auth bypass and proxies to the same port
-- Removed separate port exposure from pod spec
+- A dedicated `attachServer` listens on a **different port** than the main API server
+- The main server (port 3000) is behind oauth2-proxy; the attach server (port 4096) is NOT
+- The attach server only handles `attach-<hash>` subdomain requests with password auth
+- Returns 404 for any non-attach request on this port
+- Proxies to the same pod port (opencodePort) via the same http-proxy instance
 
 ### 2.2 - Configure OpenCode server for attach [NOT REQUIRED]
 
