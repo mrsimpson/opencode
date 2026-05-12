@@ -18,3 +18,11 @@ export function buildSessionKey(
   if (!br) return { valid: false, error: errors.sourceBranchRequired }
   return { valid: true, repoUrl: url, sourceBranch: br }
 }
+
+export function buildNewProjectKey(
+  promptText: string,
+): { valid: true; promptText: string } | { valid: false; error: string } {
+  const text = promptText.trim()
+  if (!text) return { valid: false, error: "Describe your task to continue" }
+  return { valid: true, promptText: text }
+}

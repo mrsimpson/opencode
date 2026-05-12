@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { buildSessionKey, type ValidationErrors } from "./setup-form-utils"
+import { buildNewProjectKey, buildSessionKey, type ValidationErrors } from "./setup-form-utils"
 
 const errors: ValidationErrors = {
   repoUrlRequired: "Repository URL is required",
@@ -42,5 +42,35 @@ describe("buildSessionKey", () => {
     const result = buildSessionKey("https://github.com/org/repo.git", "", errors)
     expect(result.valid).toBe(false)
     if (!result.valid) expect(result.error).toContain("required")
+  })
+})
+
+describe("buildNewProjectKey", () => {
+  it("returns valid with promptText for non-empty prompt", () => {
+    const result = buildNewProjectKey("Build me a new app")
+    expect(result.valid).toBe(true)
+    if (result.valid) {
+      expect(result.promptText).toBe("Build me a new app")
+    }
+  })
+
+  it("trims whitespace from prompt text", () => {
+    const result = buildNewProjectKey("  Build me a new app  ")
+    expect(result.valid).toBe(true)
+    if (result.valid) {
+      expect(result.promptText).toBe("Build me a new app")
+    }
+  })
+
+  it("returns error when prompt text is empty", () => {
+    const result = buildNewProjectKey("")
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain("Describe")
+  })
+
+  it("returns error when prompt text is only whitespace", () => {
+    const result = buildNewProjectKey("   ")
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.error).toContain("Describe")
   })
 })

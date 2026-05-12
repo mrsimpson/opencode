@@ -1342,3 +1342,147 @@ describe("emitSessionsChanged injection", () => {
     expect(emitCalls).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Blank disc / new project flow tests (repoUrl absent → git init)
+// ---------------------------------------------------------------------------
+
+describe("getSessionHash — new project (no repoUrl)", () => {
+  it("returns a random 12-char hex string when repoUrl is absent", () => {
+    const hash1 = getSessionHash(EMAIL)
+    const hash2 = getSessionHash(EMAIL)
+    // Two calls must return different hashes (random)
+    expect(hash1).not.toBe(hash2)
+    expect(hash1).toMatch(/^[a-f0-9]{12}$/)
+    expect(hash2).toMatch(/^[a-f0-9]{12}$/)
+  })
+
+  it("uses deterministic hash when repoUrl is present (backward compat)", () => {
+    const hash1 = getSessionHash(EMAIL, REPO, BRANCH)
+    const hash2 = getSessionHash(EMAIL, REPO, BRANCH)
+    expect(hash1).toBe(hash2)
+  })
+})
+
+describe("ensurePVC — new project (no repoUrl)", () => {
+  beforeEach(() => {
+    fakePVCs = []
+    fakePods = []
+  })
+
+  it("creates PVC without repo annotations when repoUrl is absent", async () => {
+    const { ensurePVC } = await import("./pod-manager.js")
+    const session = { email: EMAIL, initialMessage: "Build a new app" }
+
+    await (ensurePVC as any)(session)
+
+    expect(fakePVCs).toHaveLength(1)
+    const pvc = fakePVCs[0] as any
+    const ann = pvc.metadata?.annotations ?? {}
+    expect(ann["opencode.ai/user-email"]).toBe(EMAIL)
+    expect(ann["opencode.ai/repo-url"]).toBeUndefined()
+    expect(ann["opencode.ai/branch"]).toBeUndefined()
+    expect(ann["opencode.ai/source-branch"]).toBeUndefined()
+    expect(ann["opencode.ai/initial-message"]).toBe("Build a new app")
+  })
+})
+
+describe("ensurePod — new project (no repoUrl)", () => {
+  beforeEach(() => {
+    fakePods = []
+    fakePVCs = []
+    createPodCalls = []
+    createSecretCalls = []
+  })
+
+  it("init script contains git init instead of git clone when repoUrl is absent", async () => {
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    await (ensurePod as any)(session)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    // Must NOT have git clone commands
+    expect(script).not.toContain("git clone")
+    // Must have git init
+    expect(script).toContain("git init /workspace")
+    expect(script).toContain("git commit -m")
+  })
+
+  it("pod annotations do not include repo annotations when repoUrl is absent", async () => {
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    await (ensurePod as any)(session)
+
+    const pod = (createPodCalls[0] as any).body
+    const ann = pod.metadata?.annotations ?? {}
+    expect(ann["opencode.ai/repo-url"]).toBeUndefined()
+    expect(ann["opencode.ai/branch"]).toBeUndefined()
+    expect(ann["opencode.ai/source-branch"]).toBeUndefined()
+    // Must still have core annotations
+    expect(ann["opencode.ai/user-email"]).toBe(EMAIL)
+    expect(ann["opencode.ai/pod-secret"]).toBeDefined()
+  })
+
+  it("still creates github token Secret when provided, even without repoUrl", async () => {
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    await (ensurePod as any)(session, "gho_new_project_token")
+
+    expect(createSecretCalls).toHaveLength(1)
+    const secret = (createSecretCalls[0] as any).body
+    expect(secret.stringData?.GITHUB_TOKEN).toBe("gho_new_project_token")
+  })
+
+  it("init script still contains git credential helper setup when token provided without repoUrl", async () => {
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    await (ensurePod as any)(session, "gho_new_project_token")
+
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    expect(script).toContain("credential.helper store")
+    expect(script).toContain(".git-credentials")
+  })
+})
+
+describe("resumeSession — blank-aware", () => {
+  beforeEach(() => {
+    fakePods = []
+    createPodCalls = []
+    ;(_setEmitSessionsChanged as any)(() => {})
+  })
+
+  it("reconstructs SessionKey without repo fields when PVC lacks repo annotations", async () => {
+    // PVC has email + initial-message but no repo annotations
+    fakePVCs = [
+      {
+        metadata: {
+          name: "opencode-pvc-abc123newproj",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123newproj", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": EMAIL,
+            "opencode.ai/initial-message": "My new project",
+            "opencode.ai/created-at": new Date().toISOString(),
+          },
+        },
+      },
+    ]
+
+    await (resumeSession as any)("abc123newproj", EMAIL)
+
+    // Pod must be created (ensurePod was called)
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    // Since no repoUrl in SessionKey, should use git init path
+    expect(script).toContain("git init /workspace")
+    expect(script).not.toContain("git clone")
+  })
+})

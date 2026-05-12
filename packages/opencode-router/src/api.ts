@@ -136,37 +136,47 @@ export async function handleApi(
       return true
     }
 
-    if (!repoUrl) {
-      json(res, 400, { error: "repoUrl is required" })
-      return true
-    }
-    if (!branch) {
-      json(res, 400, { error: "branch is required" })
-      return true
-    }
-    if (!sourceBranch) {
-      json(res, 400, { error: "sourceBranch is required" })
+    if (repoUrl) {
+      // Git flow: validate branch and sourceBranch, verify remote branch exists
+      if (!branch) {
+        json(res, 400, { error: "branch is required" })
+        return true
+      }
+      if (!sourceBranch) {
+        json(res, 400, { error: "sourceBranch is required" })
+        return true
+      }
+
+      // Verify the source branch actually exists on the remote BEFORE creating PVC/pod.
+      // Otherwise the pod's init container crashloops on `git checkout -B <sourceBranch> origin/<sourceBranch>`.
+      try {
+        const exists = await remoteBranchExists(repoUrl, sourceBranch)
+        if (!exists) {
+          json(res, 400, { error: `Branch "${sourceBranch}" not found on ${repoUrl}` })
+          return true
+        }
+      } catch (err) {
+        if (err instanceof RemoteRefsUnreachableError) {
+          json(res, 502, { error: err.message })
+          return true
+        }
+        throw err
+      }
+
+      const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
+      const hash = getSessionHash(email, repoUrl, branch)
+
+      await ensurePVC(session)
+      await ensurePod(session, githubToken)
+      sessionsChangedBroadcaster.emit()
+
+      json(res, 201, { hash, url: null, state: "creating" })
       return true
     }
 
-    // Verify the source branch actually exists on the remote BEFORE creating PVC/pod.
-    // Otherwise the pod's init container crashloops on `git checkout -B <sourceBranch> origin/<sourceBranch>`.
-    try {
-      const exists = await remoteBranchExists(repoUrl, sourceBranch)
-      if (!exists) {
-        json(res, 400, { error: `Branch "${sourceBranch}" not found on ${repoUrl}` })
-        return true
-      }
-    } catch (err) {
-      if (err instanceof RemoteRefsUnreachableError) {
-        json(res, 502, { error: err.message })
-        return true
-      }
-      throw err
-    }
-
-    const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
-    const hash = getSessionHash(email, repoUrl, branch)
+    // New project (blank disc) flow: no git validation needed
+    const session: SessionKey = { email, initialMessage: initialMessage || undefined }
+    const hash = getSessionHash(email)
 
     await ensurePVC(session)
     await ensurePod(session, githubToken)

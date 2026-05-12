@@ -507,6 +507,90 @@ describe("POST /api/sessions with initialMessage", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// New project flow (blank disc) — POST /api/sessions without repoUrl
+// ---------------------------------------------------------------------------
+
+describe("POST /api/sessions — new project (no repoUrl)", () => {
+  beforeEach(() => {
+    mocks.ensurePVC.mockReset()
+    mocks.ensurePVC.mockImplementation(() => Promise.resolve())
+    mocks.ensurePod.mockReset()
+    mocks.ensurePod.mockImplementation(() => Promise.resolve("newproj1234567"))
+    mocks.remoteBranchExists.mockReset()
+    mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
+    mocks.getSessionHash.mockReset()
+    mocks.getSessionHash.mockImplementation(() => "newproj1234567")
+  })
+
+  it("returns 201 when repoUrl is absent (new project flow)", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      initialMessage: "Build me a new app",
+    })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body.hash).toBe("newproj1234567")
+    expect(body.state).toBe("creating")
+  })
+
+  it("does NOT call remoteBranchExists when repoUrl is absent", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      initialMessage: "Build me a new app",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    // remoteBranchExists should never be called for new project
+    expect(mocks.remoteBranchExists).not.toHaveBeenCalled()
+  })
+
+  it("passes undefined githubToken to ensurePod when token absent", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      initialMessage: "Build me a new app",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL)
+
+    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
+    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+  })
+
+  it("passes githubToken to ensurePod for new projects when token present", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      initialMessage: "Build me a new app",
+    })
+    const res = fakeRes()
+
+    await handleApi(req as any, res as any, EMAIL, "gho_new_project_token")
+
+    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
+    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_new_project_token")
+  })
+
+  it("still validates branch when repoUrl is present (backward compat)", async () => {
+    const req = fakeReq("POST", "/api/sessions", {
+      repoUrl: "https://github.com/x/y",
+      // branch intentionally omitted
+      sourceBranch: "main",
+    })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toContain("branch is required")
+  })
+})
+
 describe("POST /api/sessions without initialMessage", () => {
   beforeEach(() => {
     mocks.ensurePVC.mockReset()

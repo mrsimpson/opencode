@@ -4,13 +4,13 @@ import { subscribeSessionEvents } from "./api"
 import { useT } from "./i18n"
 
 /** Ordered startup stages — each maps to an i18n label key. */
-const STAGES = ["initializing", "configuring", "cloning", "starting", "readying"] as const
+const STAGES = ["initializing", "configuring", "preparing", "starting", "readying"] as const
 type Stage = (typeof STAGES)[number]
 
 const STAGE_LABEL_KEY: Record<Stage, string> = {
   initializing: "loading.stage.initializing",
   configuring: "loading.stage.configuring",
-  cloning: "loading.stage.cloning",
+  preparing: "loading.stage.preparing",
   starting: "loading.stage.starting",
   readying: "loading.stage.readying",
 }
