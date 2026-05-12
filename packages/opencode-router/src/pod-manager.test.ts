@@ -319,8 +319,9 @@ describe("listUserSessions", () => {
     createPodCalls = []
 
     const { ensurePod } = await import("./pod-manager.js")
+    const calmsHash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, calmsHash)
 
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
@@ -523,15 +524,17 @@ describe("ensurePod with githubToken", () => {
     fakePVCs = []
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
     await (ensurePod as any)(
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      hash,
       "gho_test_token",
     )
 
     expect(createSecretCalls).toHaveLength(1)
     const secret = (createSecretCalls[0] as any).body
-    expect(secret.metadata.name).toBe(`opencode-github-${computeHash(EMAIL, REPO, "calm-snails-dream")}`)
+    expect(secret.metadata.name).toBe(`opencode-github-${hash}`)
     expect(secret.stringData?.GITHUB_TOKEN).toBe("gho_test_token")
   })
 
@@ -542,6 +545,7 @@ describe("ensurePod with githubToken", () => {
 
     await (ensurePod as any)(
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      hash,
       "gho_test_token",
     )
 
@@ -557,9 +561,11 @@ describe("ensurePod with githubToken", () => {
   it("init script contains git credential helper setup", async () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
     await (ensurePod as any)(
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
+      hash,
       "gho_test_token",
     )
 
@@ -573,8 +579,9 @@ describe("ensurePod with githubToken", () => {
   it("does NOT create a Secret when githubToken is absent", async () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, hash)
 
     expect(createSecretCalls).toHaveLength(0)
   })
@@ -584,7 +591,7 @@ describe("ensurePod with githubToken", () => {
     const { ensurePod } = await import("./pod-manager.js")
     const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }, hash)
 
     const pod = (createPodCalls[0] as any).body
     const mainEnvFrom: any[] = pod.spec.containers[0].envFrom ?? []
@@ -803,11 +810,11 @@ describe("ensurePod injects OPENCODE_POD_SECRET", () => {
       branch: "test-branch",
       sourceBranch: "main",
     }
+    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
     const { ensurePod } = await import("./pod-manager.js")
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(session, hash)
     expect(podSecretStoreMock.generate).toHaveBeenCalledTimes(1)
     // The hash passed to generate must match getSessionHash output
-    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
     expect((podSecretStoreMock.generate as any).mock.calls[0][0]).toBe(hash)
   })
 
@@ -819,8 +826,9 @@ describe("ensurePod injects OPENCODE_POD_SECRET", () => {
       branch: "test-branch",
       sourceBranch: "main",
     }
+    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
     const { ensurePod } = await import("./pod-manager.js")
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(session, hash)
     const podBody = (createPodCalls[0] as any)?.body
     const envVars = podBody?.spec?.containers?.[0]?.env ?? []
     const secretEnv = envVars.find((e: any) => e.name === "OPENCODE_POD_SECRET")
@@ -998,12 +1006,14 @@ describe("ensurePVC — attach password annotation", () => {
 
   it("stores attach password annotation on new PVC", async () => {
     const { ensurePVC } = await import("./pod-manager.js")
-    await ensurePVC({
+    const session = {
       email: "test@example.com",
       repoUrl: "https://github.com/x/y",
       branch: "test-branch",
       sourceBranch: "main",
-    })
+    }
+    const hash = computeHash(session.email, session.repoUrl, session.branch)
+    await ensurePVC(session, hash)
     expect(fakePVCs).toHaveLength(1)
     const annotations = (fakePVCs[0] as any).metadata?.annotations ?? {}
     expect(annotations["opencode.ai/attach-password"]).toMatch(/^[a-f0-9]{32}$/)
@@ -1031,7 +1041,7 @@ describe("ensurePVC — attach password annotation", () => {
       },
     ]
     const { ensurePVC } = await import("./pod-manager.js")
-    await ensurePVC(session)
+    await ensurePVC(session, hash)
     // PVC count should still be 1 (not re-created)
     expect(fakePVCs).toHaveLength(1)
     const annotations = (fakePVCs[0] as any).metadata?.annotations ?? {}
@@ -1371,10 +1381,11 @@ describe("ensurePVC — new project (no repoUrl)", () => {
   })
 
   it("creates PVC without repo annotations when repoUrl is absent", async () => {
-    const { ensurePVC } = await import("./pod-manager.js")
+    const { ensurePVC, getSessionHash } = await import("./pod-manager.js")
     const session = { email: EMAIL, initialMessage: "Build a new app" }
+    const hash = getSessionHash(EMAIL) // random for new projects
 
-    await (ensurePVC as any)(session)
+    await (ensurePVC as any)(session, hash)
 
     expect(fakePVCs).toHaveLength(1)
     const pvc = fakePVCs[0] as any
@@ -1396,26 +1407,31 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("init script contains git init instead of git clone when repoUrl is absent", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = getSessionHash(EMAIL)
 
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(session, hash)
 
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
     // Must NOT have git clone commands
     expect(script).not.toContain("git clone")
-    // Must have git init
+    // Must have git init wrapped in idempotency guard
+    expect(script).toContain("if [ ! -d /workspace/.git ]")
     expect(script).toContain("git init /workspace")
-    expect(script).toContain("git commit -m")
+    // Commit must use --allow-empty and inline git identity (email from session)
+    expect(script).toContain("--allow-empty")
+    expect(script).toContain(`user.email="${EMAIL}"`)
   })
 
   it("pod annotations do not include repo annotations when repoUrl is absent", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = getSessionHash(EMAIL)
 
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(session, hash)
 
     const pod = (createPodCalls[0] as any).body
     const ann = pod.metadata?.annotations ?? {}
@@ -1428,10 +1444,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("still creates github token Secret when provided, even without repoUrl", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = getSessionHash(EMAIL)
 
-    await (ensurePod as any)(session, "gho_new_project_token")
+    await (ensurePod as any)(session, hash, "gho_new_project_token")
 
     expect(createSecretCalls).toHaveLength(1)
     const secret = (createSecretCalls[0] as any).body
@@ -1439,15 +1456,70 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("init script still contains git credential helper setup when token provided without repoUrl", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = getSessionHash(EMAIL)
 
-    await (ensurePod as any)(session, "gho_new_project_token")
+    await (ensurePod as any)(session, hash, "gho_new_project_token")
 
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
     expect(script).toContain("credential.helper store")
     expect(script).toContain(".git-credentials")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// REGRESSION: new-project sessions — PVC and pod must use the same hash
+//
+// Bug: getSessionHash() for new projects uses crypto.randomUUID() and is called
+// independently by ensurePVC() and ensurePod(), producing different hashes each time.
+// The pod is then scheduled referencing a PVC name that doesn't exist.
+//
+// Fix: caller pre-computes the hash once and passes it as an explicit parameter to
+// both ensurePVC(session, hash) and ensurePod(session, hash, ...) — the hash is
+// never re-derived inside those functions.
+// ---------------------------------------------------------------------------
+
+describe("new-project session: ensurePVC and ensurePod use the same hash", () => {
+  beforeEach(() => {
+    fakePVCs = []
+    fakePods = []
+    createPodCalls = []
+  })
+
+  it("PVC name and pod PVC claim name match when hash is passed explicitly", async () => {
+    const { ensurePVC, ensurePod, getSessionHash } = await import("./pod-manager.js")
+
+    // Simulate what api.ts does: compute hash once, pass explicitly to both functions
+    const hash = getSessionHash(EMAIL) // random UUID-based hash
+    const session = { email: EMAIL, initialMessage: "Build me a todo app" }
+
+    await (ensurePVC as any)(session, hash)
+    await (ensurePod as any)(session, hash)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+
+    // PVC created under this hash
+    expect(fakePVCs).toHaveLength(1)
+    const createdPvcName: string = (fakePVCs[0] as any).metadata?.name
+    expect(createdPvcName).toBe(`opencode-pvc-${hash}`)
+
+    // Pod's PVC claim name must match the PVC that was created
+    const claimName: string = pod.spec.volumes.find((v: any) => v.name === "user-data")?.persistentVolumeClaim?.claimName
+    expect(claimName).toBe(`opencode-pvc-${hash}`)
+
+    // Both must be identical — this is the regression guard
+    expect(claimName).toBe(createdPvcName)
+  })
+
+  it("without explicit hash, sequential getSessionHash calls produce different hashes (demonstrates the bug)", () => {
+    // This test documents the root cause: getSessionHash() with no repoUrl uses randomUUID()
+    // so two calls return different values. The fix is to pre-compute once and pass explicitly.
+    const hash1 = getSessionHash(EMAIL)
+    const hash2 = getSessionHash(EMAIL)
+    expect(hash1).not.toBe(hash2)
   })
 })
 
@@ -1484,5 +1556,71 @@ describe("resumeSession — blank-aware", () => {
     // Since no repoUrl in SessionKey, should use git init path
     expect(script).toContain("git init /workspace")
     expect(script).not.toContain("git clone")
+  })
+
+  it("REGRESSION: resumeSession uses the original hash, not a newly generated one", async () => {
+    // Bug: without session.hash, ensurePod called getSessionHash(email) for new-project sessions
+    // which used crypto.randomUUID() — generating a different hash than the PVC on every resume.
+    // The pod would be created under a new hash referencing a PVC that didn't exist at that name.
+    const originalHash = "abc123newproj"
+    fakePVCs = [
+      {
+        metadata: {
+          name: `opencode-pvc-${originalHash}`,
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": originalHash, "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": EMAIL,
+            "opencode.ai/initial-message": "My new project",
+          },
+        },
+      },
+    ]
+
+    await (resumeSession as any)(originalHash, EMAIL)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+
+    // Pod name must use the original hash — not a new random one
+    expect(pod.metadata.name).toBe(`opencode-session-${originalHash}`)
+
+    // Pod's PVC claim must reference the original PVC name
+    const claimName: string = pod.spec.volumes.find((v: any) => v.name === "user-data")?.persistentVolumeClaim?.claimName
+    expect(claimName).toBe(`opencode-pvc-${originalHash}`)
+  })
+
+  it("init script writes git identity into repo local config AFTER git phase (not before)", async () => {
+    // Bug: the local-config write was inside the GITHUB_TOKEN block which runs BEFORE git init.
+    // On first start /workspace/.git does not exist yet, so the write was silently skipped.
+    // Fix: the local-config write now runs unconditionally AFTER the git phase, guarded only
+    // by $GH_NAME being set (i.e. token was present and gh api succeeded) and /workspace/.git existing.
+    fakePVCs = [
+      {
+        metadata: {
+          name: "opencode-pvc-abc123newproj",
+          namespace: "opencode",
+          labels: { "opencode.ai/session-hash": "abc123newproj", "app.kubernetes.io/managed-by": "opencode-router" },
+          annotations: {
+            "opencode.ai/user-email": EMAIL,
+          },
+        },
+      },
+    ]
+
+    await (resumeSession as any)("abc123newproj", EMAIL, "gho_token")
+
+    expect(createPodCalls).toHaveLength(1)
+    const script: string = (createPodCalls[0] as any).body.spec.initContainers[0].args[0]
+
+    // Must write identity into repo local config (not just global)
+    expect(script).toContain("git -C /workspace config user.name")
+    expect(script).toContain("git -C /workspace config user.email")
+
+    // The local-config write must come AFTER the git phase (i.e. after "git init /workspace"
+    // or after the git clone block), not inside the GITHUB_TOKEN block before git runs.
+    const localConfigIdx = script.indexOf("git -C /workspace config user.name")
+    const gitPhaseIdx = script.indexOf("if [ ! -d /workspace/.git ]")
+    expect(localConfigIdx).toBeGreaterThan(gitPhaseIdx)
   })
 })

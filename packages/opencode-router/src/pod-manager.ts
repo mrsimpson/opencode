@@ -488,9 +488,12 @@ async function ensureGithubTokenSecret(hash: string, token: string): Promise<voi
 
 /**
  * Create PVC for a session if it doesn't exist. Idempotent.
+ *
+ * @param hash - Pre-computed session hash from getSessionHash(). Passed explicitly so
+ *   ensurePVC and ensurePod always use the same value — critical for new-project sessions
+ *   where getSessionHash() is non-deterministic (crypto.randomUUID()).
  */
-export async function ensurePVC(session: SessionKey): Promise<void> {
-  const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+export async function ensurePVC(session: SessionKey, hash: string): Promise<void> {
   const name = pvcName(hash)
 
   try {
@@ -563,11 +566,13 @@ export async function getPodState(hash: string): Promise<PodState> {
  * - Clones repoUrl into /workspace if not already cloned
  * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
  *
+ * @param hash - Pre-computed session hash from getSessionHash(). Passed explicitly so
+ *   ensurePVC and ensurePod always use the same value — critical for new-project sessions
+ *   where getSessionHash() is non-deterministic (crypto.randomUUID()).
  * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
  */
-export async function ensurePod(session: SessionKey, githubToken?: string, image?: string): Promise<string> {
+export async function ensurePod(session: SessionKey, hash: string, githubToken?: string, image?: string): Promise<string> {
   const containerImage = image ?? config.opencodeImage
-  const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
   const existingPods = await k8sApi.listNamespacedPod({
@@ -634,7 +639,10 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `fi`,
     // --- stale lock cleanup (guards against ENOSPC or crash mid-write leaving a stale lock) ---
     `rm -f /home/opencode/.gitconfig.lock`,
-    // --- git credentials (from per-session Secret mounted as GITHUB_TOKEN) ---
+    // --- git credentials & identity (from per-session Secret mounted as GITHUB_TOKEN) ---
+    // Fetch GitHub identity and write it to global gitconfig (persisted on PVC at ~/.gitconfig).
+    // GH_NAME / GH_ID / GH_LOGIN are exported so the git phase below can use them for the
+    // repo-local config write that happens AFTER the repo is guaranteed to exist.
     `if [ -n "$GITHUB_TOKEN" ]; then`,
     `  git config --global credential.helper store`,
     `  printf 'https://oauth2:%s@github.com\\n' "$GITHUB_TOKEN" > /home/opencode/.git-credentials`,
@@ -661,7 +669,22 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
           `  $GIT checkout -b "${branch}"`,
           `fi`,
         ]
-      : [`git init /workspace`, `cd /workspace`, `git add -A`, `git commit -m "Initial commit" --allow-empty`]),
+      : [
+          // New project (blank disc): initialise git repo on first start only.
+          // Idempotency guard: skip entirely on pod restarts — the repo already exists.
+          `if [ ! -d /workspace/.git ]; then`,
+          `  git init /workspace`,
+          `  git -C /workspace -c user.email="${email}" -c user.name="${email}" commit --allow-empty -m "Initial commit"`,
+          `fi`,
+        ]),
+    // Write GitHub identity into the repo's local git config so opencode always sees it,
+    // regardless of how the main container resolves HOME or the global gitconfig path.
+    // This runs AFTER the git phase so /workspace/.git is guaranteed to exist (first start
+    // or restart). Uses GH_NAME/GH_ID/GH_LOGIN set above; falls back silently if token absent.
+    `if [ -n "$GH_NAME" ] && [ -d /workspace/.git ]; then`,
+    `  git -C /workspace config user.name "$GH_NAME"`,
+    `  git -C /workspace config user.email "\${GH_ID}+\${GH_LOGIN}@users.noreply.github.com"`,
+    `fi`,
   ].join("\n")
 
   const secCtx: k8s.V1SecurityContext = {
@@ -837,8 +860,8 @@ export async function prepullImage(image: string, timeoutMs = 300_000): Promise<
 
   try {
     // Create PVC and pod with the new image
-    await ensurePVC(testSession)
-    await ensurePod(testSession, undefined, image)
+    await ensurePVC(testSession, hash)
+    await ensurePod(testSession, hash, undefined, image)
 
     // Poll until pod is running or timeout
     const deadline = Date.now() + timeoutMs
@@ -1111,7 +1134,10 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  await ensurePod(session, githubToken)
+  // Pass hash explicitly so ensurePod never re-derives it. For new-project sessions (no
+  // repoUrl) getSessionHash() is non-deterministic — without an explicit hash the pod would
+  // be created under a different hash than the PVC, causing a "PVC not found" error.
+  await ensurePod(session, hash, githubToken)
   emitSessionsChanged()
 }
 

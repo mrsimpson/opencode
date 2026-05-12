@@ -431,7 +431,8 @@ describe("POST /api/sessions passes githubToken to ensurePod", () => {
 
     expect(res.statusCode).toBe(201)
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_test_token")
+    // Signature: ensurePod(session, hash, githubToken?) — token is now at index 2
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBe("gho_test_token")
   })
 
   it("passes undefined to ensurePod when githubToken is absent", async () => {
@@ -446,7 +447,8 @@ describe("POST /api/sessions passes githubToken to ensurePod", () => {
 
     expect(res.statusCode).toBe(201)
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+    // Signature: ensurePod(session, hash, githubToken?) — token is now at index 2
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBeUndefined()
   })
 })
 
@@ -559,7 +561,8 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
     await handleApi(req as any, res as any, EMAIL)
 
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+    // Signature: ensurePod(session, hash, githubToken?) — token is now at index 2
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBeUndefined()
   })
 
   it("passes githubToken to ensurePod for new projects when token present", async () => {
@@ -571,7 +574,8 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
     await handleApi(req as any, res as any, EMAIL, "gho_new_project_token")
 
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_new_project_token")
+    // Signature: ensurePod(session, hash, githubToken?) — token is now at index 2
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBe("gho_new_project_token")
   })
 
   it("still validates branch when repoUrl is present (backward compat)", async () => {

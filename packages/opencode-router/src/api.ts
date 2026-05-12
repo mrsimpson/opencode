@@ -166,20 +166,23 @@ export async function handleApi(
       const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
       const hash = getSessionHash(email, repoUrl, branch)
 
-      await ensurePVC(session)
-      await ensurePod(session, githubToken)
+      await ensurePVC(session, hash)
+      await ensurePod(session, hash, githubToken)
       sessionsChangedBroadcaster.emit()
 
       json(res, 201, { hash, url: null, state: "creating" })
       return true
     }
 
-    // New project (blank disc) flow: no git validation needed
-    const session: SessionKey = { email, initialMessage: initialMessage || undefined }
+    // New project (blank disc) flow: no git validation needed.
+    // getSessionHash() for new projects uses crypto.randomUUID() — a different random value on each
+    // call. We compute it once and pass it explicitly to both ensurePVC and ensurePod so they
+    // always operate on the same hash (PVC claim name must match the PVC that was just created).
     const hash = getSessionHash(email)
+    const session: SessionKey = { email, initialMessage: initialMessage || undefined }
 
-    await ensurePVC(session)
-    await ensurePod(session, githubToken)
+    await ensurePVC(session, hash)
+    await ensurePod(session, hash, githubToken)
     sessionsChangedBroadcaster.emit()
 
     json(res, 201, { hash, url: null, state: "creating" })

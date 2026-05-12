@@ -3,11 +3,12 @@ import { z } from "zod"
 export const SessionSchema = z.object({
   hash: z.string(),
   email: z.string(),
-  repoUrl: z.string(),
-  /** Session branch — auto-generated unique name (e.g. "calm-snails-dream") */
-  branch: z.string(),
-  /** Source branch the session was created from (e.g. "main") */
-  sourceBranch: z.string(),
+  /** Empty string for new-project sessions (no git repo). */
+  repoUrl: z.string().optional().default(""),
+  /** Session branch — auto-generated unique name (e.g. "calm-snails-dream"). Empty for new-project sessions. */
+  branch: z.string().optional().default(""),
+  /** Source branch the session was created from (e.g. "main"). Empty for new-project sessions. */
+  sourceBranch: z.string().optional().default(""),
   state: z.enum(["creating", "running", "stopped"]),
   /**
    * Deep link URL to the opencode session, e.g.
