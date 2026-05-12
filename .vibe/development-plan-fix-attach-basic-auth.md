@@ -16,6 +16,10 @@ Fix `opencode attach` failing with 401 Unauthorized when connecting to a router-
 - **Password extraction**: Split on first colon only (`indexOf(":")`) to support passwords that contain colons
 - **Tests location**: Added to `packages/opencode-router/src/hostname.test.ts` — re-implements the password extraction logic inline (same pattern used by existing `getSessionInfo`/`getAttachSessionHash` tests in that file)
 - **Pre-existing failures**: `pod-manager.test.ts` has 1 pre-existing failing test (`ensurePod injects OPENCODE_POD_SECRET`) and `api.test.ts` has 1 pre-existing test error — both confirmed to exist before this change
+- **Pre-existing TypeScript errors**: `bun typecheck` reports 2 pre-existing errors in `src/index.ts` (wsHandler typed as `http.RequestListener` instead of upgrade handler type) and `src/pod-manager.ts` — confirmed pre-existing, not introduced by this change
+- **UI session details location**: `packages/opencode-router-app/src/session-item.tsx` lines 212–284 — "Attach to session" panel with attach URL and password input fields (read-only with copy buttons); shown only when both `session.attachUrl` and `session.attachPassword` are present
+- **Development placeholder comments**: Two `// Could add a toast notification here` comments remain in `session-item.tsx` copy button handlers — minor cleanup, not blocking
+- **No debug artifacts introduced**: All console.log statements in `index.ts` are operational (startup, shutdown, debug-header logging gated by `config.debugHeaders` env var)
 
 ## Notes
 
@@ -28,7 +32,7 @@ Fix `opencode attach` failing with 401 Unauthorized when connecting to a router-
 
 ### Tasks
 
-- [ ] _Tasks will be added as they are identified_
+_(all complete)_
 
 ### Completed
 
@@ -54,13 +58,16 @@ _(all complete)_
 
 ### Tasks
 
-- [ ] Commit changes
-- [ ] Push branch
-- [ ] Create PR targeting `dev`
+- [ ] Push branch and create PR targeting `dev`
 
 ### Completed
 
-_None yet_
+- [x] Verified working tree is clean — all changes committed (commits: `02633db01`, `022122536` on top of origin/dev)
+- [x] Confirmed no debug artifacts introduced by this change
+- [x] Confirmed all 23 hostname.test.ts tests pass
+- [x] Confirmed TypeScript errors are pre-existing (not introduced)
+- [x] Located UI attach/password fields: `packages/opencode-router-app/src/session-item.tsx` lines 212–284
+- [x] Reviewed `.vibe/docs/requirements.md` and `design.md` — still template placeholders, no project-specific content to update
 
 ---
 

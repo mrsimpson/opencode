@@ -8,6 +8,8 @@ export const dict = {
   "session.idle.stoppingSoon": "stoppt gleich",
 
   "session.action.cancel": "Abbrechen",
+  "session.action.attach": "Anhängen",
+  "session.action.attachCopied": "In die Zwischenablage kopiert",
   "session.action.terminate": "Beenden",
   "session.action.terminating": "Wird beendet…",
   "session.terminate.title": "Sitzung beenden?",

@@ -76,6 +76,25 @@ export function SessionItem(props: Props) {
 
   // Live message thread from /progress/stream — opened when panel is expanded
   const [messages, setMessages] = createSignal<StoredMessage[]>([])
+  const [attachCopied, setAttachCopied] = createSignal(false)
+
+  const attachCommand = () => {
+    const url = props.session.attachUrl
+    const password = props.session.attachPassword
+    if (!url || !password) return null
+    const sessionId = props.session.url?.split("/session/")[1] ?? null
+    return sessionId
+      ? `opencode attach ${url} --password ${password} -s ${sessionId}`
+      : `opencode attach ${url} --password ${password}`
+  }
+
+  const copyAttachCommand = () => {
+    const cmd = attachCommand()
+    if (!cmd) return
+    navigator.clipboard.writeText(cmd)
+    setAttachCopied(true)
+    setTimeout(() => setAttachCopied(false), 2000)
+  }
 
   createEffect(() => {
     if (!props.expanded) {
@@ -208,99 +227,45 @@ export function SessionItem(props: Props) {
                 Created {created()} · {idle().label}
               </p>
 
-              {/* Attach info for session owner */}
-              <Show when={props.session.attachUrl && props.session.attachPassword}>
-                <div
-                  class="flex flex-col gap-2"
-                  style={{ "border-top": "1px solid var(--border-base)", "padding-top": "8px" }}
+              {/* Action buttons */}
+              <div class="flex gap-2">
+                <Show when={attachCommand()}>
+                  <button
+                    class="text-13-medium rounded-lg flex-1"
+                    style={{
+                      background: "none",
+                      border: "1px solid var(--border-base)",
+                      cursor: "pointer",
+                      color: attachCopied() ? "var(--text-success-base, #22c55e)" : "var(--text-base)",
+                      "min-height": "44px",
+                      padding: "10px 16px",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyAttachCommand()
+                    }}
+                  >
+                    {attachCopied() ? t("session.action.attachCopied") : t("session.action.attach")}
+                  </button>
+                </Show>
+                <button
+                  class="text-13-medium rounded-lg flex-1"
+                  style={{
+                    background: "none",
+                    border: "1px solid var(--border-base)",
+                    cursor: "pointer",
+                    color: "var(--text-danger-base, #ef4444)",
+                    "min-height": "44px",
+                    padding: "10px 16px",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    props.onTerminate?.()
+                  }}
                 >
-                  <p class="text-11-medium" style={{ color: "var(--text-base)" }}>
-                    Attach to session
-                  </p>
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readonly
-                        value={props.session.attachUrl}
-                        class="flex-1 text-11-regular px-2 py-1 rounded"
-                        style={{
-                          background: "var(--background-base)",
-                          border: "1px solid var(--border-base)",
-                          "font-family": "monospace",
-                        }}
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                      />
-                      <button
-                        class="text-11-regular px-2 py-1 rounded"
-                        style={{
-                          background: "var(--background-surface)",
-                          border: "1px solid var(--border-base)",
-                          cursor: "pointer",
-                          color: "var(--text-base)",
-                        }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(props.session.attachUrl!)
-                          // Could add a toast notification here
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readonly
-                        value={props.session.attachPassword}
-                        class="flex-1 text-11-regular px-2 py-1 rounded"
-                        style={{
-                          background: "var(--background-base)",
-                          border: "1px solid var(--border-base)",
-                          "font-family": "monospace",
-                        }}
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                      />
-                      <button
-                        class="text-11-regular px-2 py-1 rounded"
-                        style={{
-                          background: "var(--background-surface)",
-                          border: "1px solid var(--border-base)",
-                          cursor: "pointer",
-                          color: "var(--text-base)",
-                        }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(props.session.attachPassword!)
-                          // Could add a toast notification here
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
-                      Command: opencode attach --url {props.session.attachUrl} --password {"{password}"}
-                    </p>
-                  </div>
-                </div>
-              </Show>
-
-              {/* Large terminate button */}
-              <button
-                class="text-13-medium rounded-lg w-full"
-                style={{
-                  background: "none",
-                  border: "1px solid var(--border-base)",
-                  cursor: "pointer",
-                  color: "var(--text-danger-base, #ef4444)",
-                  "min-height": "44px",
-                  padding: "10px 16px",
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  props.onTerminate?.()
-                }}
-              >
-                {t("session.action.terminate")}
-              </button>
+                  {t("session.action.terminate")}
+                </button>
+              </div>
             </div>
           </div>
         </div>
