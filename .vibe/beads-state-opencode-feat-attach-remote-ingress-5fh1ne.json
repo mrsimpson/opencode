@@ -1,0 +1,29 @@
+{
+  "conversationId": "opencode-feat-attach-remote-ingress-5fh1ne",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-10",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-10.1"
+    },
+    {
+      "phaseId": "plan",
+      "phaseName": "Plan",
+      "taskId": "opencode-10.2"
+    },
+    {
+      "phaseId": "code",
+      "phaseName": "Code",
+      "taskId": "opencode-10.3"
+    },
+    {
+      "phaseId": "commit",
+      "phaseName": "Commit",
+      "taskId": "opencode-10.4"
+    }
+  ],
+  "createdAt": "2026-05-12T19:04:59.492Z",
+  "updatedAt": "2026-05-12T19:04:59.492Z"
+}

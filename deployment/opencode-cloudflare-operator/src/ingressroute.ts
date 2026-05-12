@@ -40,6 +40,9 @@ function appRouteName(hash: string): string {
 function signinRouteName(hash: string): string {
   return `opencode-session-${hash}-signin`
 }
+function attachRouteName(hash: string): string {
+  return `opencode-session-${hash}-attach`
+}
 
 /**
  * Create the two IngressRoute resources for a session hostname:
@@ -105,6 +108,50 @@ export async function createIngressRoutes(hostname: string): Promise<void> {
   ])
 
   console.log(`Created IngressRoutes for ${hostname}`)
+}
+
+/**
+ * Create a single IngressRoute for the attach hostname.
+ * No oauth2 middleware — the router enforces password-based auth on port 4096 itself.
+ * Points to the router Service on the attach port (default 4096).
+ *
+ * Idempotent — skips creation if the route already exists (HTTP 409).
+ */
+export async function createAttachIngressRoute(hostname: string): Promise<void> {
+  const ns = config.ingressRouteNamespace
+  const firstLabel = hostname.split(".")[0]
+
+  const spec: IngressRouteSpec = {
+    entryPoints: ["web"],
+    routes: [
+      {
+        match: `Host(\`${hostname}\`)`,
+        kind: "Rule",
+        services: [
+          {
+            name: config.attachServiceName,
+            namespace: ns,
+            port: config.attachServicePort,
+          },
+        ],
+      },
+    ],
+  }
+
+  await createOrSkip(attachRouteName(firstLabel), ns, spec)
+  console.log(`Created attach IngressRoute for ${hostname}`)
+}
+
+/**
+ * Delete the attach IngressRoute for a session.
+ * Idempotent — no-op if the resource is already gone.
+ */
+export async function deleteAttachIngressRoute(hostname: string): Promise<void> {
+  const ns = config.ingressRouteNamespace
+  const firstLabel = hostname.split(".")[0]
+
+  await deleteOrSkip(attachRouteName(firstLabel), ns)
+  console.log(`Deleted attach IngressRoute for ${hostname}`)
 }
 
 /**

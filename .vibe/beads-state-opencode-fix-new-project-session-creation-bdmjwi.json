@@ -1,0 +1,34 @@
+{
+  "conversationId": "opencode-fix-new-project-session-creation-bdmjwi",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-10",
+  "phaseTasks": [
+    {
+      "phaseId": "reproduce",
+      "phaseName": "Reproduce",
+      "taskId": "opencode-10.1"
+    },
+    {
+      "phaseId": "analyze",
+      "phaseName": "Analyze",
+      "taskId": "opencode-10.2"
+    },
+    {
+      "phaseId": "fix",
+      "phaseName": "Fix",
+      "taskId": "opencode-10.3"
+    },
+    {
+      "phaseId": "verify",
+      "phaseName": "Verify",
+      "taskId": "opencode-10.4"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-10.5"
+    }
+  ],
+  "createdAt": "2026-05-12T14:58:34.947Z",
+  "updatedAt": "2026-05-12T14:58:34.947Z"
+}
