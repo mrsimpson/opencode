@@ -31,7 +31,10 @@ export function SessionList(props: Props) {
         </div>
         <For each={props.sessions}>
           {(session, i) => (
-            <div style={{ "border-top": i() > 0 ? "1px solid var(--border-base)" : "none" }}>
+            <div
+              data-session-hash={session.hash}
+              style={{ "border-top": i() > 0 ? "1px solid var(--border-base)" : "none" }}
+            >
               <SessionItem
                 session={session}
                 onClick={() => {

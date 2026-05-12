@@ -132,22 +132,26 @@ test.describe("create session — new project (no repoUrl)", () => {
     await expect(page.getByPlaceholder("https://github.com/org/repo.git")).not.toBeVisible()
     await expect(page.getByPlaceholder("main")).not.toBeVisible()
 
-    // Prompt textarea should be visible and submit disabled (prompt empty)
-    await expect(page.getByPlaceholder("Describe a task or ask a question")).toBeVisible()
-    await expect(page.getByRole("button", { name: /start session/i })).toBeDisabled()
+    // Prompt textarea should be visible
+    await expect(page.getByRole("textbox")).toBeVisible()
+
+    // With empty prompt, the submit button is replaced by an error message (not a disabled button)
+    await expect(page.getByRole("button", { name: /start session/i })).not.toBeVisible()
   })
 
-  test("send button enables once prompt is filled", async ({ page }) => {
+  test("send button appears once prompt is filled", async ({ page }) => {
     await goHome(page)
     await page.getByRole("button", { name: "New Project" }).click()
 
-    await page.getByPlaceholder("Describe a task or ask a question").fill("Build me a new app")
+    await page.getByRole("textbox").fill("Build me a new app")
 
+    // Once the prompt is filled the error message disappears and the submit button appears
+    await expect(page.getByRole("button", { name: /start session/i })).toBeVisible()
     await expect(page.getByRole("button", { name: /start session/i })).toBeEnabled()
   })
 
   test(
-    "creates new-project session, shows loading screen, redirects to session URL",
+    "creates new-project session, shows loading screen, redirects to session URL, then terminates it",
     async ({ page }) => {
       await goHome(page)
 
@@ -155,21 +159,56 @@ test.describe("create session — new project (no repoUrl)", () => {
       await page.getByRole("button", { name: "New Project" }).click()
 
       // Fill prompt only — no repoUrl, no sourceBranch
-      await page.getByPlaceholder("Describe a task or ask a question").fill("Build me a new app")
+      await page.getByRole("textbox").fill("Build me a new app")
 
       // Submit
       await page.getByRole("button", { name: /start session/i }).click()
 
-      // Loading screen must appear — confirms the frontend got a hash back from the router
+      // Loading screen must appear — confirms the frontend received a hash from the router
       await expect(page.getByText("Starting your OpenCode session...")).toBeVisible({ timeout: 10_000 })
 
       // Wait for the pod to start and auto-redirect to the session subdomain.
-      // This is the key assertion: if PVC and pod used different hashes the pod
-      // would crashloop and the redirect would never happen.
-      await page.waitForURL(/\.localhost:3002\/$/, { timeout: 120_000 })
+      // This is the key regression assertion: if PVC and pod used different hashes the pod
+      // would crashloop, the SSE "complete" event would never fire, and the redirect would
+      // never happen — causing this test to time out.
+      //
+      // The redirect navigates to http://<hash>.localhost:3002/ which is a different origin;
+      // waitForURL must cover both the loading-screen origin and the session subdomain origin.
+      await page.waitForURL((url) => url.hostname.match(/^[a-f0-9]{12}$/) !== null, {
+        timeout: 120_000,
+      })
 
-      // Confirm we landed on a valid session subdomain URL
-      expect(page.url()).toMatch(/^http:\/\/[a-f0-9]{12}\.localhost:3002\/$/)
+      // Confirm we landed on a valid session subdomain URL and capture the hash for teardown
+      const sessionUrl = page.url()
+      expect(sessionUrl).toMatch(/^http:\/\/[a-f0-9]{12}\.localhost:3002\//)
+      const sessionHash = new URL(sessionUrl).hostname.split(".")[0]
+
+      // ── Teardown: terminate the session we just created ──────────────────────
+      // Navigate back to the router home to access the session list
+      await page.goto("http://localhost:3002/")
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+
+      // Find the session row by its hash (the `…` button is the expand trigger)
+      // The session row contains the initial message as its title/description
+      const sessionRow = page.locator(`[data-session-hash="${sessionHash}"]`).first()
+      const rowExists = (await sessionRow.count()) > 0
+
+      if (rowExists) {
+        // Expand the detail panel via the `…` button
+        await sessionRow.getByRole("button", { name: "Session details" }).click()
+        // Click Terminate in the expanded panel
+        await sessionRow.getByRole("button", { name: /terminate/i }).click()
+        // Confirm in the dialog
+        await page.getByRole("button", { name: /terminate/i }).last().click()
+        // Session row should disappear
+        await expect(sessionRow).not.toBeVisible({ timeout: 10_000 })
+      } else {
+        // Fallback: terminate via the API directly so we don't leave orphaned pods
+        await page.evaluate(
+          (hash) => fetch(`/api/sessions/${hash}`, { method: "DELETE" }),
+          sessionHash,
+        )
+      }
     },
   )
 })
