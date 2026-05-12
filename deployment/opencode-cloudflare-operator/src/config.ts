@@ -52,11 +52,34 @@ export const config = {
    * to the correct pod based on the hash in the hostname.
    */
   routerServiceName: process.env.ROUTER_SERVICE_NAME ?? "opencode-router",
+  /**
+   * Prefix used for attach subdomains (must match ATTACH_ROUTE_PREFIX in opencode-router).
+   * e.g. "attach-" → attach-<hash>-oc.<domain>
+   */
+  attachRoutePrefix: process.env.ATTACH_ROUTE_PREFIX ?? "attach-",
+  /**
+   * The Kubernetes Service port that maps to the router's attach port (4096).
+   * The IngressRoute for attach sessions must target this port.
+   */
+  attachServicePort: Number(process.env.ATTACH_SERVICE_PORT ?? 4096),
+  /**
+   * Name of the Kubernetes Service that exposes the router's attach port.
+   * Defaults to "<routerServiceName>-attach" so IngressRoutes can reference it.
+   */
+  attachServiceName: process.env.ATTACH_SERVICE_NAME ?? `${process.env.ROUTER_SERVICE_NAME ?? "opencode-router"}-attach`,
 }
 
 /** Compute the public hostname for a given session hash */
 export function sessionHostname(hash: string): string {
   return `${hash}${config.routeSuffix}.${config.domain}`
+}
+
+/**
+ * Compute the public attach hostname for a session hash.
+ * e.g., hash="abc123def456" → "attach-abc123def456-oc.no-panic.org"
+ */
+export function sessionAttachHostname(hash: string): string {
+  return `${config.attachRoutePrefix}${hash}${config.routeSuffix}.${config.domain}`
 }
 
 /**

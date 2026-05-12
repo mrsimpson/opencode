@@ -41,9 +41,13 @@ vi.mock("../src/config.js", () => ({
     ingressRouteNamespace: "code",
     oauth2ChainMiddleware: "code-oauth2-chain",
     routerServiceName: "code",
+    attachRoutePrefix: "attach-",
+    attachServicePort: 4096,
+    attachServiceName: "code-attach",
   },
   sessionHostname: (hash: string) => `${hash}-oc.no-panic.org`,
   sessionPortHostname: (hash: string, port: number) => `${port}-${hash}-oc.no-panic.org`,
+  sessionAttachHostname: (hash: string) => `attach-${hash}-oc.no-panic.org`,
   DEV_PORT_ALLOWLIST: new Set([3000, 3001, 4321, 5173, 5174, 8000, 8080, 8888]),
 }))
 
@@ -185,6 +189,7 @@ import { fetchSessionPorts } from "../src/index.js"
 
 const HASH = "191adb184b2b"
 const HOSTNAME = `${HASH}-oc.no-panic.org`
+const ATTACH_HOSTNAME = `attach-${HASH}-oc.no-panic.org`
 
 const mockConfig = {
   oauth2ChainMiddleware: "code-oauth2-chain",
@@ -477,6 +482,72 @@ describe("Edge cases", () => {
     expect(cfTunnelIngress.some((r) => r.hostname === HOSTNAME)).toBe(false)
     await cloudflare.deleteTunnelRoute(HOSTNAME)
     expect(cfTunnelIngress.some((r) => r.hostname === HOSTNAME)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Attach IngressRoute tests
+// ---------------------------------------------------------------------------
+
+describe("Attach IngressRoute (ingressroute.ts)", () => {
+  describe("createAttachIngressRoute", () => {
+    it("creates a single attach IngressRoute (no signin route)", async () => {
+      await ingressroute.createAttachIngressRoute(ATTACH_HOSTNAME)
+      const attachRequest = k8sRequests.find(
+        (r) => r.method === "POST" && (r.body as any)?.metadata?.name?.includes("-attach"),
+      )
+      expect(attachRequest).toBeDefined()
+      // Only one IngressRoute (no signin), so only one POST
+      const posts = k8sRequests.filter((r) => r.method === "POST" && r.path.includes("ingressroutes"))
+      expect(posts.length).toBe(1)
+    })
+
+    it("sets correct host match in attach IngressRoute spec", async () => {
+      await ingressroute.createAttachIngressRoute(ATTACH_HOSTNAME)
+      const req = k8sRequests.find(
+        (r) => r.method === "POST" && (r.body as any)?.metadata?.name?.includes("-attach"),
+      )
+      expect(req?.body).toMatchObject({
+        spec: { routes: [{ match: expect.stringContaining(ATTACH_HOSTNAME) }] },
+      })
+    })
+
+    it("does NOT add oauth2 chain middleware to attach route", async () => {
+      await ingressroute.createAttachIngressRoute(ATTACH_HOSTNAME)
+      const req = k8sRequests.find(
+        (r) => r.method === "POST" && (r.body as any)?.metadata?.name?.includes("-attach"),
+      )
+      expect(req?.body).toMatchObject({
+        spec: { routes: [{ middlewares: undefined }] },
+      })
+    })
+
+    it("targets the attach Service on the attach port", async () => {
+      await ingressroute.createAttachIngressRoute(ATTACH_HOSTNAME)
+      const req = k8sRequests.find(
+        (r) => r.method === "POST" && (r.body as any)?.metadata?.name?.includes("-attach"),
+      )
+      expect(req?.body).toMatchObject({
+        spec: {
+          routes: [
+            {
+              services: [{ name: "code-attach", port: 4096 }],
+            },
+          ],
+        },
+      })
+    })
+  })
+
+  describe("deleteAttachIngressRoute", () => {
+    it("deletes the attach IngressRoute", async () => {
+      await ingressroute.deleteAttachIngressRoute(ATTACH_HOSTNAME)
+      const del = k8sRequests.find((r) => r.method === "DELETE" && r.path.includes("-attach"))
+      expect(del).toBeDefined()
+      // Only one DELETE (no signin to clean up)
+      const deletes = k8sRequests.filter((r) => r.method === "DELETE" && r.path.includes("ingressroutes"))
+      expect(deletes.length).toBe(1)
+    })
   })
 })
 

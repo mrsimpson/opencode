@@ -11,6 +11,8 @@ const APP_NAME = "code"
 const NAMESPACE = APP_NAME
 const ROUTER_PORT = 3000
 const OPENCODE_PORT = 4096
+const ATTACH_PORT = 4096
+const ATTACH_ROUTE_PREFIX = "attach-"
 /** Suffix appended to hash for session hostnames: <hash>-oc.<domain> */
 const ROUTE_SUFFIX = "-oc"
 /**
@@ -364,6 +366,9 @@ const operatorSidecar = [
       { name: "INGRESSROUTE_NAMESPACE", value: NAMESPACE },
       { name: "OAUTH2_CHAIN_MIDDLEWARE", value: `${APP_NAME}-oauth2-chain` },
       { name: "ROUTER_SERVICE_NAME", value: APP_NAME },
+      { name: "ATTACH_ROUTE_PREFIX", value: ATTACH_ROUTE_PREFIX },
+      { name: "ATTACH_SERVICE_PORT", value: String(ATTACH_PORT) },
+      { name: "ATTACH_SERVICE_NAME", value: `${APP_NAME}-attach` },
       {
         name: "CF_API_TOKEN",
         valueFrom: {
@@ -479,6 +484,36 @@ export const app = homelab.createExposedWebApp(
 // ---------------------------------------------------------------------------
 // Stack outputs
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 9. Attach Service — exposes the router's attach port (4096) as a named
+//    Service port so Traefik IngressRoutes can target it without oauth2.
+//    ExposedWebApp only creates a Service on the main port (3000), so we
+//    patch the existing Service by adding a second named port here.
+// ---------------------------------------------------------------------------
+
+const attachService = new k8s.core.v1.Service(
+  `${APP_NAME}-attach`,
+  {
+    metadata: {
+      name: `${APP_NAME}-attach`,
+      namespace: NAMESPACE,
+      labels: { app: APP_NAME },
+    },
+    spec: {
+      selector: { app: APP_NAME },
+      ports: [
+        {
+          name: "attach",
+          port: ATTACH_PORT,
+          targetPort: ATTACH_PORT,
+          protocol: "TCP",
+        },
+      ],
+    },
+  },
+  { dependsOn: [app] },
+)
 
 export const url = pulumi.interpolate`https://${appDomain}`
 export const namespace = app.namespace.metadata.name

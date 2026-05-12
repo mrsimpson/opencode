@@ -1,8 +1,8 @@
 import http from "node:http"
 import * as k8s from "@kubernetes/client-node"
-import { config, sessionHostname, sessionPortHostname } from "./config.js"
+import { config, sessionHostname, sessionPortHostname, sessionAttachHostname } from "./config.js"
 import { createDnsRecord, createTunnelRoute, deleteDnsRecord, deleteTunnelRoute, getTunnelCname, getTunnelRouteHostnames } from "./cloudflare.js"
-import { createIngressRoutes, deleteIngressRoutes, listManagedIngressRoutes } from "./ingressroute.js"
+import { createIngressRoutes, deleteIngressRoutes, listManagedIngressRoutes, createAttachIngressRoute, deleteAttachIngressRoute } from "./ingressroute.js"
 
 /** Label selector for session PVCs (used to detect termination) */
 const PVC_LABEL_SELECTOR = "app.kubernetes.io/managed-by=opencode-router"
@@ -151,8 +151,9 @@ async function onPodAdded(pod: k8s.V1Pod): Promise<void> {
       createDnsRecord(hostname, tunnelCname),
       createTunnelRoute(hostname),
       createIngressRoutes(hostname),
+      createAttachIngressRoute(sessionAttachHostname(hash)),
     ])
-    console.log(`Provisioned ${hostname} (main port)`)
+    console.log(`Provisioned ${hostname} (main port + attach route)`)
 
     // Initialise the provisioned-ports set for this session
     provisionedPorts.set(hash, new Set<number>())
@@ -186,7 +187,11 @@ async function onPodDeleted(pod: k8s.V1Pod): Promise<void> {
     const provisioned = provisionedPorts.get(hash) ?? new Set<number>()
 
     // Remove main session route (keep DNS for resumption)
-    await Promise.all([deleteTunnelRoute(hostname), deleteIngressRoutes(hostname)])
+    await Promise.all([
+      deleteTunnelRoute(hostname),
+      deleteIngressRoutes(hostname),
+      deleteAttachIngressRoute(sessionAttachHostname(hash)),
+    ])
     console.log(`Removed routing for ${hostname}`)
 
     // Remove per-port IngressRoutes (no Cloudflare DNS/tunnel per port — wildcard covers it)
@@ -394,8 +399,9 @@ async function reconcileOnStartup(): Promise<void> {
   }
 
   for (const name of routeNames) {
-    // Strip "opencode-session-" prefix and "-app"/"-signin" suffix
-    const inner = name.replace(/^opencode-session-/, "").replace(/-(app|signin)$/, "")
+    // Strip "opencode-session-" prefix and "-app"/"-signin"/"-attach" suffix
+    const isAttachRoute = name.endsWith("-attach")
+    const inner = name.replace(/^opencode-session-/, "").replace(/-(app|signin|attach)$/, "")
     const hash = hashFromFirstLabel(inner)
     if (!hash) {
       console.log(`  Skipping unrecognised IngressRoute: ${name}`)
@@ -403,10 +409,14 @@ async function reconcileOnStartup(): Promise<void> {
     }
     if (!livePodHashes.has(hash)) {
       console.log(`  Deleting stale IngressRoute ${name} (hash ${hash} has no live pod)`)
-      // deleteIngressRoutes expects a hostname; we reconstruct it
+      // reconstruct hostname from inner label
       const hostname = `${inner}.${config.domain}`
       try {
-        await deleteIngressRoutes(hostname)
+        if (isAttachRoute) {
+          await deleteAttachIngressRoute(hostname)
+        } else {
+          await deleteIngressRoutes(hostname)
+        }
       } catch (err) {
         console.error(`  Failed to delete IngressRoute ${name}:`, err)
       }
@@ -452,6 +462,9 @@ console.log(`  Tunnel ID         : ${config.cfTunnelId}`)
 console.log(`  IngressRoute ns   : ${config.ingressRouteNamespace}`)
 console.log(`  OAuth2 middleware  : ${config.oauth2ChainMiddleware}`)
 console.log(`  Router svc name   : ${config.routerServiceName}`)
+console.log(`  Attach prefix     : ${config.attachRoutePrefix}`)
+console.log(`  Attach svc port   : ${config.attachServicePort}`)
+console.log(`  Attach svc name   : ${config.attachServiceName}`)
 console.log(`  Port poll interval: ${PORT_POLL_INTERVAL_MS}ms`)
 
 void reconcileOnStartup().then(() => {
