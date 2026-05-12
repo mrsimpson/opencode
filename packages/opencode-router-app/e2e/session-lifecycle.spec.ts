@@ -4,9 +4,11 @@ import { test, expect, type Page } from "@playwright/test"
  * End-to-end tests for the opencode-router session lifecycle:
  *   1. Sessions list — shows existing sessions with correct state badges
  *   2. New session — input bar always visible; fill repo URL, source branch, prompt → send
- *   3. Create session — submits, shows loading screen, auto-redirects to session URL
- *   4. Resume session — stopped session can be resumed via options menu → creating → running
- *   5. Terminate session — session disappears from list after termination via options menu
+ *   3. Create session (git) — submits, shows loading screen, auto-redirects to session URL
+ *   4. Create session (new project / no repoUrl) — tab switch, prompt only, loading screen,
+ *      auto-redirects to session URL — verifies the PVC/pod hash mismatch fix
+ *   5. Resume session — stopped session can be resumed via options menu → creating → running
+ *   6. Terminate session — session disappears from list after termination via options menu
  *
  * Requires:
  *   - opencode-router running at http://localhost:3002 with DEV_EMAIL=dev@local.test
@@ -111,6 +113,65 @@ test.describe("create session", () => {
     const url = page.url()
     expect(url).toMatch(/^http:\/\/[a-f0-9]{12}\.localhost:3002\/$/)
   })
+})
+
+// ---------------------------------------------------------------------------
+// New project (no repoUrl) — blank-disc session creation
+// Regression test for: PVC/pod hash mismatch when getSessionHash() uses
+// crypto.randomUUID() and is called independently for ensurePVC and ensurePod.
+// ---------------------------------------------------------------------------
+
+test.describe("create session — new project (no repoUrl)", () => {
+  test("switches to New Project tab, shows prompt-only form", async ({ page }) => {
+    await goHome(page)
+
+    // Switch to the New Project tab
+    await page.getByRole("button", { name: "New Project" }).click()
+
+    // Repo URL and source branch inputs should NOT be visible
+    await expect(page.getByPlaceholder("https://github.com/org/repo.git")).not.toBeVisible()
+    await expect(page.getByPlaceholder("main")).not.toBeVisible()
+
+    // Prompt textarea should be visible and submit disabled (prompt empty)
+    await expect(page.getByPlaceholder("Describe a task or ask a question")).toBeVisible()
+    await expect(page.getByRole("button", { name: /start session/i })).toBeDisabled()
+  })
+
+  test("send button enables once prompt is filled", async ({ page }) => {
+    await goHome(page)
+    await page.getByRole("button", { name: "New Project" }).click()
+
+    await page.getByPlaceholder("Describe a task or ask a question").fill("Build me a new app")
+
+    await expect(page.getByRole("button", { name: /start session/i })).toBeEnabled()
+  })
+
+  test(
+    "creates new-project session, shows loading screen, redirects to session URL",
+    async ({ page }) => {
+      await goHome(page)
+
+      // Switch to New Project tab
+      await page.getByRole("button", { name: "New Project" }).click()
+
+      // Fill prompt only — no repoUrl, no sourceBranch
+      await page.getByPlaceholder("Describe a task or ask a question").fill("Build me a new app")
+
+      // Submit
+      await page.getByRole("button", { name: /start session/i }).click()
+
+      // Loading screen must appear — confirms the frontend got a hash back from the router
+      await expect(page.getByText("Starting your OpenCode session...")).toBeVisible({ timeout: 10_000 })
+
+      // Wait for the pod to start and auto-redirect to the session subdomain.
+      // This is the key assertion: if PVC and pod used different hashes the pod
+      // would crashloop and the redirect would never happen.
+      await page.waitForURL(/\.localhost:3002\/$/, { timeout: 120_000 })
+
+      // Confirm we landed on a valid session subdomain URL
+      expect(page.url()).toMatch(/^http:\/\/[a-f0-9]{12}\.localhost:3002\/$/)
+    },
+  )
 })
 
 test.describe("resume session", () => {
