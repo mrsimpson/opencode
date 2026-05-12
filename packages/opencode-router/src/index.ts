@@ -74,14 +74,30 @@ function getAttachSessionHash(host: string): string | null {
 
 /**
  * Validate attach password from request.
- * Checks query parameter ?password= or header X-Attach-Password.
+ * Checks (in order):
+ *   1. HTTP Basic Auth header (used by `opencode attach --password`)
+ *   2. Query parameter ?password=
+ *   3. X-Attach-Password header
  * Compares against the stored password in PVC annotation.
  */
 async function validateAttachPassword(hash: string, req: http.IncomingMessage): Promise<boolean> {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host}`)
-  const providedPassword = url.searchParams.get("password") ?? req.headers["x-attach-password"]
+  // 1. HTTP Basic Auth (Authorization: Basic base64("opencode:<password>"))
+  const authHeader = req.headers["authorization"]
+  let providedPassword: string | undefined
+  if (typeof authHeader === "string" && authHeader.startsWith("Basic ")) {
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8")
+    const colonIdx = decoded.indexOf(":")
+    if (colonIdx !== -1) providedPassword = decoded.slice(colonIdx + 1)
+  }
 
-  if (!providedPassword || typeof providedPassword !== "string") return false
+  // 2. Query param or custom header as fallback
+  if (!providedPassword) {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`)
+    const queried = url.searchParams.get("password") ?? req.headers["x-attach-password"]
+    if (typeof queried === "string") providedPassword = queried
+  }
+
+  if (!providedPassword) return false
 
   try {
     const storedPassword = await getOrCreateAttachPassword(hash)

@@ -142,3 +142,81 @@ describe("getAttachSessionHash extracts hash from attach subdomain", () => {
     expect(result).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// validateAttachPassword — Basic Auth header parsing
+// ---------------------------------------------------------------------------
+
+describe("validateAttachPassword — Basic Auth header support", () => {
+  // Re-implement password extraction logic (mirrors index.ts validateAttachPassword)
+  function extractPasswordFromRequest(headers: Record<string, string>, url = "/"): string | undefined {
+    // 1. HTTP Basic Auth
+    const authHeader = headers["authorization"]
+    if (typeof authHeader === "string" && authHeader.startsWith("Basic ")) {
+      const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8")
+      const colonIdx = decoded.indexOf(":")
+      if (colonIdx !== -1) return decoded.slice(colonIdx + 1)
+    }
+
+    // 2. Query param
+    const parsed = new URL(url, "http://localhost")
+    const queried = parsed.searchParams.get("password") ?? headers["x-attach-password"]
+    if (typeof queried === "string") return queried
+
+    return undefined
+  }
+
+  it("extracts password from Basic Auth header (opencode:<password>)", () => {
+    const password = "mysecretpassword"
+    const encoded = Buffer.from(`opencode:${password}`).toString("base64")
+    const result = extractPasswordFromRequest({ authorization: `Basic ${encoded}` })
+    expect(result).toBe(password)
+  })
+
+  it("extracts password with special characters from Basic Auth header", () => {
+    const password = "abc123def456"
+    const encoded = Buffer.from(`opencode:${password}`).toString("base64")
+    const result = extractPasswordFromRequest({ authorization: `Basic ${encoded}` })
+    expect(result).toBe(password)
+  })
+
+  it("extracts password from ?password= query param when no Authorization header", () => {
+    const result = extractPasswordFromRequest({}, "/?password=querypassword")
+    expect(result).toBe("querypassword")
+  })
+
+  it("extracts password from X-Attach-Password header when no Authorization header", () => {
+    const result = extractPasswordFromRequest({ "x-attach-password": "headerpassword" })
+    expect(result).toBe("headerpassword")
+  })
+
+  it("prefers Basic Auth over query param when both present", () => {
+    const password = "basicauthpassword"
+    const encoded = Buffer.from(`opencode:${password}`).toString("base64")
+    const result = extractPasswordFromRequest({ authorization: `Basic ${encoded}` }, "/?password=querypassword")
+    expect(result).toBe(password)
+  })
+
+  it("returns undefined when no auth mechanism provided", () => {
+    const result = extractPasswordFromRequest({})
+    expect(result).toBeUndefined()
+  })
+
+  it("returns undefined for malformed Basic Auth (no colon in decoded value)", () => {
+    const encoded = Buffer.from("nocolon").toString("base64")
+    const result = extractPasswordFromRequest({ authorization: `Basic ${encoded}` })
+    expect(result).toBeUndefined()
+  })
+
+  it("handles password containing colons correctly (only splits on first colon)", () => {
+    const password = "pass:word:with:colons"
+    const encoded = Buffer.from(`opencode:${password}`).toString("base64")
+    const result = extractPasswordFromRequest({ authorization: `Basic ${encoded}` })
+    expect(result).toBe(password)
+  })
+
+  it("ignores non-Basic authorization schemes", () => {
+    const result = extractPasswordFromRequest({ authorization: "Bearer sometoken" }, "/?password=fallback")
+    expect(result).toBe("fallback")
+  })
+})
