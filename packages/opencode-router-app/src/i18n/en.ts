@@ -15,6 +15,9 @@ export const dict = {
   "session.terminate.title": "Terminate session?",
   "session.terminate.description": '"{{repo}}" will be permanently deleted — all uncommitted work will be lost.',
 
+  "form.tab.git": "Git Repository",
+  "form.tab.newProject": "New Project",
+
   "form.submit": "Start Session",
   "form.submitting": "Starting...",
   "form.error.sessionBranch": "Session branch could not be generated — please try again",
@@ -29,7 +32,7 @@ export const dict = {
 
   "loading.stage.initializing": "Initializing",
   "loading.stage.configuring": "Configuring environment",
-  "loading.stage.cloning": "Cloning repository",
+  "loading.stage.preparing": "Preparing repository",
   "loading.stage.starting": "Starting OpenCode server",
   "loading.stage.readying": "Finalizing session",
 

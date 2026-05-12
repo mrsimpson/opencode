@@ -116,11 +116,12 @@ export async function restorePodSecrets(): Promise<void> {
 
 export interface SessionKey {
   email: string
-  repoUrl: string
+  /** Repository URL. Absent/empty = new project (blank disc, git init instead of clone). */
+  repoUrl?: string
   /** Session branch — auto-generated unique name (e.g. "calm-snails-dream"). Forms part of the session identity hash. */
-  branch: string
+  branch?: string
   /** Source branch the user starts from (e.g. "main"). Used by git-init to set the starting point. */
-  sourceBranch: string
+  sourceBranch?: string
   initialMessage?: string
 }
 
@@ -282,7 +283,7 @@ export async function getSessionInfo(hash: string): Promise<SessionInfo | null> 
  * Stages (in order):
  *   initializing  — PVC/Pod just created, pod not yet scheduled
  *   configuring   — Init container running config-seed phase
- *   cloning       — Init container running git clone/checkout phase
+ *   preparing     — Init container running git clone or git init phase
  *   starting      — Init container complete, main container starting
  *   readying      — Pod ready, resolving deep-link URL
  */
@@ -308,7 +309,7 @@ export async function getSessionProgress(hash: string): Promise<{ stage: string;
       if (elapsedMs < 10_000) {
         return { stage: "configuring", message: "Configuring environment..." }
       }
-      return { stage: "cloning", message: "Cloning repository..." }
+      return { stage: "preparing", message: "Preparing repository..." }
     }
 
     // Init container completed, main container is starting
@@ -325,11 +326,18 @@ export async function getSessionProgress(hash: string): Promise<{ stage: string;
 }
 
 /**
- * Compute a deterministic, DNS-safe 12-char hex hash for a (email, repoUrl, branch) triple.
- * This is the stable identity for a session — used for pod name, PVC name, and URL slug.
+ * Compute a DNS-safe 12-char hex hash for a session.
+ *
+ * When `repoUrl` is present: deterministic hash of (email, repoUrl, branch) — stable identity
+ * for git-backed sessions.
+ * When `repoUrl` is absent: random hash of (email, UUID) — new project sessions are inherently unique.
  */
-export function getSessionHash(email: string, repoUrl: string, branch: string): string {
-  const key = `${email.toLowerCase().trim()}:${repoUrl.trim()}:${branch.trim()}`
+export function getSessionHash(email: string, repoUrl?: string, branch?: string): string {
+  if (!repoUrl) {
+    const key = `${email.toLowerCase().trim()}:${crypto.randomUUID()}`
+    return crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)
+  }
+  const key = `${email.toLowerCase().trim()}:${repoUrl.trim()}:${(branch ?? "").trim()}`
   return crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)
 }
 
@@ -502,9 +510,13 @@ export async function ensurePVC(session: SessionKey): Promise<void> {
       labels: sessionLabels(hash),
       annotations: {
         [ANNOTATION_USER_EMAIL]: session.email,
-        [ANNOTATION_REPO_URL]: session.repoUrl,
-        [ANNOTATION_BRANCH]: session.branch,
-        [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch,
+        ...(session.repoUrl
+          ? {
+              [ANNOTATION_REPO_URL]: session.repoUrl,
+              [ANNOTATION_BRANCH]: session.branch ?? "",
+              [ANNOTATION_SOURCE_BRANCH]: session.sourceBranch ?? "",
+            }
+          : {}),
         [ANNOTATION_CREATED_AT]: new Date().toISOString(),
         [ANNOTATION_ATTACH_PASSWORD]: attachPassword,
         ...(session.initialMessage ? { [ANNOTATION_INITIAL_MESSAGE]: session.initialMessage } : {}),
@@ -634,18 +646,22 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
     `  git config --global user.email "\${GH_ID}+\${GH_LOGIN}@users.noreply.github.com"`,
     `fi`,
     // --- git phase ---
-    `GIT="git -c safe.directory=/workspace"`,
-    `if [ ! -d /workspace/.git ]; then`,
-    `  git clone "${repoUrl}" /workspace`,
-    `fi`,
-    `cd /workspace`,
-    `$GIT fetch --all`,
-    `if $GIT rev-parse --verify "${branch}" >/dev/null 2>&1; then`,
-    `  $GIT checkout "${branch}"`,
-    `else`,
-    `  $GIT checkout -B "${sourceBranch}" "origin/${sourceBranch}"`,
-    `  $GIT checkout -b "${branch}"`,
-    `fi`,
+    ...(repoUrl
+      ? [
+          `GIT="git -c safe.directory=/workspace"`,
+          `if [ ! -d /workspace/.git ]; then`,
+          `  git clone "${repoUrl}" /workspace`,
+          `fi`,
+          `cd /workspace`,
+          `$GIT fetch --all`,
+          `if $GIT rev-parse --verify "${branch}" >/dev/null 2>&1; then`,
+          `  $GIT checkout "${branch}"`,
+          `else`,
+          `  $GIT checkout -B "${sourceBranch}" "origin/${sourceBranch}"`,
+          `  $GIT checkout -b "${branch}"`,
+          `fi`,
+        ]
+      : [`git init /workspace`, `cd /workspace`, `git add -A`, `git commit -m "Initial commit" --allow-empty`]),
   ].join("\n")
 
   const secCtx: k8s.V1SecurityContext = {
@@ -680,9 +696,13 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
       annotations: {
         [ANNOTATION_LAST_ACTIVITY]: now,
         [ANNOTATION_USER_EMAIL]: email,
-        [ANNOTATION_REPO_URL]: repoUrl,
-        [ANNOTATION_BRANCH]: branch,
-        [ANNOTATION_SOURCE_BRANCH]: sourceBranch,
+        ...(repoUrl
+          ? {
+              [ANNOTATION_REPO_URL]: repoUrl,
+              [ANNOTATION_BRANCH]: branch,
+              [ANNOTATION_SOURCE_BRANCH]: sourceBranch,
+            }
+          : {}),
         [ANNOTATION_POD_SECRET]: podSecret,
       },
     },
@@ -1081,9 +1101,13 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
 
   const session: SessionKey = {
     email: ann[ANNOTATION_USER_EMAIL] ?? email,
-    repoUrl: ann[ANNOTATION_REPO_URL] ?? "",
-    branch: ann[ANNOTATION_BRANCH] ?? "",
-    sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
+    ...(ann[ANNOTATION_REPO_URL]
+      ? {
+          repoUrl: ann[ANNOTATION_REPO_URL],
+          branch: ann[ANNOTATION_BRANCH] ?? "",
+          sourceBranch: ann[ANNOTATION_SOURCE_BRANCH] ?? "",
+        }
+      : {}),
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)

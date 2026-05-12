@@ -95,6 +95,20 @@ export async function createSession(
   return res.json()
 }
 
+export async function createNewProjectSession(initialMessage?: string): Promise<CreateSessionResponse> {
+  const res = await fetch("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...(initialMessage ? { initialMessage } : {}) }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Failed to create session: ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function getSessionState(
   hash: string,
 ): Promise<{ hash: string; state: "creating" | "running" | "stopped"; url: string | null }> {

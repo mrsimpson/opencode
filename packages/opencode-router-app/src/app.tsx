@@ -4,6 +4,7 @@ import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
 import {
   type Session,
+  createNewProjectSession,
   createSession,
   resumeSession,
   subscribeSessionsStream,
@@ -15,7 +16,7 @@ import { LoadingScreen } from "./loading-screen"
 import { SessionInputBar } from "./session-input-bar"
 import { SessionList } from "./session-list"
 import { SessionSidebar } from "./session-sidebar"
-import { buildSessionKey, GIT_URL_PATTERN } from "./setup-form-utils"
+import { buildNewProjectKey, buildSessionKey, GIT_URL_PATTERN } from "./setup-form-utils"
 import { getPhaseKindAfterUrlRestore } from "./session-utils"
 
 type AppPhase =
@@ -35,6 +36,7 @@ export function App() {
   const [repoUrl, setRepoUrl] = createSignal("")
   const [sourceBranch, setSourceBranch] = createSignal("")
   const [sessionBranch, setSessionBranch] = createSignal("")
+  const [activeTab, setActiveTab] = createSignal<"git" | "new-project">("git")
   const [promptText, setPromptText] = createSignal("")
   const [formError, setFormError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
@@ -197,6 +199,25 @@ export function App() {
   }
 
   const handleSubmit = async () => {
+    setFormError("")
+    if (!promptText().trim()) return
+
+    if (activeTab() === "new-project") {
+      setSubmitting(true)
+      try {
+        const result = await createNewProjectSession(promptText())
+        batch(() => {
+          navigate(`/session/${result.hash}`)
+          setAppPhase({ kind: "creating", hash: result.hash })
+        })
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Network error")
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
     const validated = buildSessionKey(repoUrl(), sourceBranch(), {
       repoUrlRequired: t("form.error.repoUrl.required"),
       repoUrlInvalid: t("form.error.repoUrl.invalid"),
@@ -210,8 +231,6 @@ export function App() {
       setFormError(t("form.error.sessionBranch"))
       return
     }
-    if (!promptText().trim()) return
-    setFormError("")
     setSubmitting(true)
     try {
       const result = await createSession(validated.repoUrl, sessionBranch(), validated.sourceBranch, promptText())
@@ -250,6 +269,7 @@ export function App() {
   const goHome = () => {
     navigate("/")
     setAppPhase({ kind: "ready" })
+    setActiveTab("git")
     setTimeout(() => promptRef?.focus(), 50)
   }
 
@@ -292,6 +312,8 @@ export function App() {
 
                 {/* New session form */}
                 <SessionInputBar
+                  activeTab={activeTab()}
+                  onTabChange={setActiveTab}
                   repoUrl={repoUrl()}
                   onRepoUrlChange={handleRepoUrlChange}
                   sourceBranch={sourceBranch()}

@@ -1,4 +1,4 @@
-import { Show, createSignal, onMount } from "solid-js"
+import { Match, Show, Switch, createSignal, onMount } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import { Button } from "@opencode-ai/ui/button"
 import { useT } from "./i18n"
@@ -7,6 +7,8 @@ import { Autocomplete } from "./autocomplete"
 import type { Repo } from "./api"
 
 type Props = {
+  activeTab: "git" | "new-project"
+  onTabChange: (tab: "git" | "new-project") => void
   repoUrl: string
   onRepoUrlChange: (v: string) => void
   sourceBranch: string
@@ -42,9 +44,11 @@ function findRepoByUrl(url: string): Repo | undefined {
 }
 
 function disabledReason(props: Props, t: (key: DictKey) => string): string | null {
-  if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return t("form.error.repoUrl.invalid")
-  if (!props.sourceBranch.trim()) return t("form.error.sourceBranch.required")
-  if (!props.sessionBranch.trim()) return t("form.error.sessionBranch.waiting")
+  if (props.activeTab === "git") {
+    if (!GIT_URL_PATTERN.test(props.repoUrl.trim())) return t("form.error.repoUrl.invalid")
+    if (!props.sourceBranch.trim()) return t("form.error.sourceBranch.required")
+    if (!props.sessionBranch.trim()) return t("form.error.sessionBranch.waiting")
+  }
   if (!props.promptText.trim()) return t("form.error.prompt.required")
   return null
 }
@@ -58,6 +62,17 @@ const inputStyle = {
   "font-size": "13px",
   outline: "none",
   width: "100%",
+}
+
+const tabBase: Record<string, string> = {
+  padding: "6px 16px",
+  "font-size": "13px",
+  border: "none",
+  cursor: "pointer",
+  background: "transparent",
+  color: "var(--text-dimmed-base)",
+  "border-radius": "6px",
+  transition: "all 0.15s ease",
 }
 
 export function SessionInputBar(props: Props) {
@@ -99,12 +114,18 @@ export function SessionInputBar(props: Props) {
     ensureReposLoaded()
   })
 
-  const canSubmit = () =>
-    GIT_URL_PATTERN.test(props.repoUrl.trim()) &&
-    props.sourceBranch.trim().length > 0 &&
-    props.sessionBranch.trim().length > 0 &&
-    props.promptText.trim().length > 0 &&
-    !props.submitting
+  const canSubmit = () => {
+    if (props.submitting) return false
+    if (props.activeTab === "git") {
+      return (
+        GIT_URL_PATTERN.test(props.repoUrl.trim()) &&
+        props.sourceBranch.trim().length > 0 &&
+        props.sessionBranch.trim().length > 0 &&
+        props.promptText.trim().length > 0
+      )
+    }
+    return props.promptText.trim().length > 0
+  }
 
   const errorMessage = () => props.formError || disabledReason(props, t)
 
@@ -120,23 +141,54 @@ export function SessionInputBar(props: Props) {
           props.onSubmit()
         }}
       >
-        <div class="flex gap-2 flex-wrap">
-          <Autocomplete
-            placeholder={t("app.newSession.repoUrl.placeholder")}
-            value={props.repoUrl}
-            onSelect={(v) => {
-              props.onRepoUrlChange(v)
-              loadBranchesForRepo(v)
+        {/* Segmented tab bar */}
+        <div class="flex gap-1 p-1 rounded-lg" style={{ background: "var(--background-base)" }}>
+          <button
+            type="button"
+            onClick={() => props.onTabChange("git")}
+            style={{
+              ...tabBase,
+              background: props.activeTab === "git" ? "var(--background-surface)" : "transparent",
+              color: props.activeTab === "git" ? "var(--text-base)" : "var(--text-dimmed-base)",
+              "font-weight": props.activeTab === "git" ? "500" : "400",
             }}
-            items={repoItems()}
-          />
-          <Autocomplete
-            placeholder={t("app.newSession.sourceBranch.placeholder")}
-            value={props.sourceBranch}
-            onSelect={props.onSourceBranchChange}
-            items={branchItems()}
-          />
+          >
+            {t("form.tab.git")}
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onTabChange("new-project")}
+            style={{
+              ...tabBase,
+              background: props.activeTab === "new-project" ? "var(--background-surface)" : "transparent",
+              color: props.activeTab === "new-project" ? "var(--text-base)" : "var(--text-dimmed-base)",
+              "font-weight": props.activeTab === "new-project" ? "500" : "400",
+            }}
+          >
+            {t("form.tab.newProject")}
+          </button>
         </div>
+
+        {/* Git tab fields: repo URL + branch autocompletes */}
+        <Show when={props.activeTab === "git"}>
+          <div class="flex gap-2 flex-wrap">
+            <Autocomplete
+              placeholder={t("app.newSession.repoUrl.placeholder")}
+              value={props.repoUrl}
+              onSelect={(v) => {
+                props.onRepoUrlChange(v)
+                loadBranchesForRepo(v)
+              }}
+              items={repoItems()}
+            />
+            <Autocomplete
+              placeholder={t("app.newSession.sourceBranch.placeholder")}
+              value={props.sourceBranch}
+              onSelect={props.onSourceBranchChange}
+              items={branchItems()}
+            />
+          </div>
+        </Show>
 
         <textarea
           ref={props.ref}
