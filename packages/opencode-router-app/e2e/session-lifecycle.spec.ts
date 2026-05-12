@@ -170,13 +170,14 @@ test.describe("create session — new project (no repoUrl)", () => {
       // Wait for the pod to start and auto-redirect to the session subdomain.
       // This is the key regression assertion: if PVC and pod used different hashes the pod
       // would crashloop, the SSE "complete" event would never fire, and the redirect would
-      // never happen — causing this test to time out.
+      // never happen — and the loading screen text would remain visible indefinitely.
       //
-      // The redirect navigates to http://<hash>.localhost:3002/ which is a different origin;
-      // waitForURL must cover both the loading-screen origin and the session subdomain origin.
-      await page.waitForURL((url) => url.hostname.match(/^[a-f0-9]{12}$/) !== null, {
-        timeout: 120_000,
-      })
+      // The redirect is a cross-origin navigation (window.location.replace to
+      // <hash>.localhost:3002), so we poll page.url() until the hostname changes
+      // rather than using waitForURL which can miss cross-origin transitions.
+      await expect
+        .poll(() => new URL(page.url()).hostname, { timeout: 120_000, intervals: [2000] })
+        .toMatch(/^[a-f0-9]{12}$/)
 
       // Confirm we landed on a valid session subdomain URL and capture the hash for teardown
       const sessionUrl = page.url()
