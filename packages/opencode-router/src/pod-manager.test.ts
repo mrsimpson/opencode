@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, mock } from "bun:test"
 // Set required env vars before config module is loaded
 process.env.OPENCODE_IMAGE = "test"
 process.env.ROUTER_DOMAIN = "test.local"
+process.env.OPENCODE_ROUTER_EXTERNAL_DOMAIN = "test.local"
 
 // ---------------------------------------------------------------------------
 // Store mocks — must be declared BEFORE the pod-manager module is imported
@@ -834,6 +835,23 @@ describe("ensurePod injects OPENCODE_POD_SECRET", () => {
     expect(secretEnv).toBeDefined()
     expect(secretEnv?.value).toBe("mysecret123")
   })
+
+  it("injects OPENCODE_ROUTER_EXTERNAL_DOMAIN env var when configured", async () => {
+    const session = {
+      email: "user@test.com",
+      repoUrl: "https://github.com/x/y",
+      branch: "test-branch",
+      sourceBranch: "main",
+    }
+    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+    const { ensurePod } = await import("./pod-manager.js")
+    await (ensurePod as any)(hash, session)
+    const podBody = (createPodCalls[0] as any)?.body
+    const envVars = podBody?.spec?.containers?.[0]?.env ?? []
+    const domainEnv = envVars.find((e: any) => e.name === "OPENCODE_ROUTER_EXTERNAL_DOMAIN")
+    expect(domainEnv).toBeDefined()
+    expect(domainEnv?.value).toBe("test.local")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1415,11 +1433,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
-     // Must NOT have git clone commands
-     expect(script).not.toContain("git clone")
-     // Must have git init (with safe.directory to survive pod restarts)
-     expect(script).toContain("git -c safe.directory=/workspace init /workspace")
-     expect(script).toContain("git -c safe.directory=/workspace commit -m")
+    // Must NOT have git clone commands
+    expect(script).not.toContain("git clone")
+    // Must have git init (with safe.directory to survive pod restarts)
+    expect(script).toContain("git -c safe.directory=/workspace init /workspace")
+    expect(script).toContain("git -c safe.directory=/workspace commit -m")
   })
 
   it("pod annotations do not include repo annotations when repoUrl is absent", async () => {
@@ -1534,8 +1552,8 @@ describe("resumeSession — blank-aware", () => {
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
-     // Since no repoUrl in SessionKey, should use git init path
-     expect(script).toContain("git -c safe.directory=/workspace init /workspace")
-     expect(script).not.toContain("git clone")
+    // Since no repoUrl in SessionKey, should use git init path
+    expect(script).toContain("git -c safe.directory=/workspace init /workspace")
+    expect(script).not.toContain("git clone")
   })
 })

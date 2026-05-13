@@ -43,16 +43,16 @@ tail /tmp/dev-server.log
 
 Only ports in the following allowlist are automatically exposed as public URLs:
 
-| Port | Common Use |
-|------|-----------|
-| 3000 | Next.js, Express, React (CRA) |
-| 3001 | Alternative dev port |
-| 4321 | Astro |
-| 5173 | Vite (default) |
-| 5174 | Vite (alternative) |
+| Port | Common Use                               |
+| ---- | ---------------------------------------- |
+| 3000 | Next.js, Express, React (CRA)            |
+| 3001 | Alternative dev port                     |
+| 4321 | Astro                                    |
+| 5173 | Vite (default)                           |
+| 5174 | Vite (alternative)                       |
 | 8000 | Python http.server, Django, generic HTTP |
-| 8080 | Generic HTTP, Webpack DevServer |
-| 8888 | Jupyter Notebook |
+| 8080 | Generic HTTP, Webpack DevServer          |
+| 8888 | Jupyter Notebook                         |
 
 > If your framework defaults to a different port, configure it to use one of the ports above (e.g. `vite --port 5173`, `next dev --port 3000`).
 
@@ -72,35 +72,18 @@ The session hash is available as an environment variable:
 echo $OPENCODE_SESSION_HASH
 ```
 
-### Get the domain
+### Construct the URL
 
-The domain is the base domain of the current session's URL. Your session is accessible at:
-```
-https://<session-hash>-oc.<domain>
-```
-
-To extract the domain from your current session hostname:
+Both the session hash and domain are available as environment variables:
 
 ```bash
-# The current session hostname looks like: abc123def456-oc.no-panic.org
-# Strip the "<hash>-oc." prefix to get the base domain
-CURRENT_HOST=$(hostname -f 2>/dev/null || cat /etc/hostname)
-# Or ask the user / check the URL in the browser address bar
-```
-
-Typically the domain is something like `no-panic.org` or similar. When in doubt, ask the user to confirm the base domain.
-
-### Full URL construction
-
-```bash
-PORT=5173   # replace with your actual port
-DOMAIN=no-panic.org  # replace with actual domain from session URL
-echo "https://${PORT}-${OPENCODE_SESSION_HASH}-oc.${DOMAIN}"
+# Replace PORT with your actual dev server port
+echo "https://PORT-${OPENCODE_SESSION_HASH}-oc.${OPENCODE_ROUTER_EXTERNAL_DOMAIN}"
 ```
 
 ### Example
 
-If `OPENCODE_SESSION_HASH=abc123def456` and the domain is `no-panic.org`, a Vite server on port 5173 is accessible at:
+If `OPENCODE_SESSION_HASH=abc123def456` and `OPENCODE_ROUTER_EXTERNAL_DOMAIN=no-panic.org`, a Vite server on port 5173 is accessible at:
 
 ```
 https://5173-abc123def456-oc.no-panic.org
@@ -108,12 +91,11 @@ https://5173-abc123def456-oc.no-panic.org
 
 ## Environment Variables in the Pod
 
-| Variable | Description |
-|----------|-------------|
-| `OPENCODE_SESSION_HASH` | 12-character hex hash identifying this session |
-| `OPENCODE_ROUTER_URL` | Internal cluster URL of the router (not the public domain) |
-
-> The public domain is **not** directly available as an env var in the pod. Derive it from the session URL shown in the browser, or ask the user.
+| Variable                          | Description                                                |
+| --------------------------------- | ---------------------------------------------------------- |
+| `OPENCODE_SESSION_HASH`           | 12-character hex hash identifying this session             |
+| `OPENCODE_ROUTER_URL`             | Internal cluster URL of the router (not the public domain) |
+| `OPENCODE_ROUTER_EXTERNAL_DOMAIN` | Base domain for public URLs (e.g. `no-panic.org`)          |
 
 ## Tips
 

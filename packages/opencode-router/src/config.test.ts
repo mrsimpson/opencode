@@ -33,4 +33,17 @@ describe("config defaults", () => {
     )
     expect(result.stdout.trim()).toBe("attach-")
   })
+
+  it("opencodeRouterExternalDomain defaults to undefined", () => {
+    const env = { OPENCODE_IMAGE: "test", ROUTER_DOMAIN: "test.local" }
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--eval",
+        "import('./src/config.ts').then(m => process.stdout.write(String(m.config.opencodeRouterExternalDomain)))",
+      ],
+      { env, encoding: "utf-8", cwd: resolve(import.meta.dir, "..") },
+    )
+    expect(result.stdout.trim()).toBe("undefined")
+  })
 })

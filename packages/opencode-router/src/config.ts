@@ -59,6 +59,14 @@ export const config = {
    */
   opencodeRouterUrl: process.env.OPENCODE_ROUTER_URL,
   /**
+   * The base domain at which the opencode router is publicly reachable (e.g. "no-panic.org").
+   * Injected into session pods so the dev-server skill can construct public port-forward URLs
+   * without user intervention: https://<port>-<hash>-oc.<domain>
+   * When unset, the skill falls back to asking the user.
+   * Example: OPENCODE_ROUTER_EXTERNAL_DOMAIN=no-panic.org
+   */
+  opencodeRouterExternalDomain: process.env.OPENCODE_ROUTER_EXTERNAL_DOMAIN,
+  /**
    * Dev-only: when set, the router proxies the setup UI to this Vite dev server URL
    * instead of serving static files from publicDir. Enables HMR without a redirect loop.
    * Example: DEV_VITE_URL=http://localhost:5173

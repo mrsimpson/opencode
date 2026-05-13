@@ -566,7 +566,12 @@ export async function getPodState(hash: string): Promise<PodState> {
  *
  * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
  */
-export async function ensurePod(hash: string, session: SessionKey, githubToken?: string, image?: string): Promise<string> {
+export async function ensurePod(
+  hash: string,
+  session: SessionKey,
+  githubToken?: string,
+  image?: string,
+): Promise<string> {
   const containerImage = image ?? config.opencodeImage
   const name = podName(hash)
 
@@ -661,7 +666,12 @@ export async function ensurePod(hash: string, session: SessionKey, githubToken?:
           `  $GIT checkout -b "${branch}"`,
           `fi`,
         ]
-      : [`git -c safe.directory=/workspace init /workspace`, `cd /workspace`, `git -c safe.directory=/workspace add -A`, `git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty`]),
+      : [
+          `git -c safe.directory=/workspace init /workspace`,
+          `cd /workspace`,
+          `git -c safe.directory=/workspace add -A`,
+          `git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty`,
+        ]),
   ].join("\n")
 
   const secCtx: k8s.V1SecurityContext = {
@@ -752,6 +762,9 @@ export async function ensurePod(hash: string, session: SessionKey, githubToken?:
             { name: "OPENCODE_POD_SECRET", value: podSecret },
             { name: "OPENCODE_SESSION_HASH", value: hash },
             ...(config.opencodeRouterUrl ? [{ name: "OPENCODE_ROUTER_URL", value: config.opencodeRouterUrl }] : []),
+            ...(config.opencodeRouterExternalDomain
+              ? [{ name: "OPENCODE_ROUTER_EXTERNAL_DOMAIN", value: config.opencodeRouterExternalDomain }]
+              : []),
           ],
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
