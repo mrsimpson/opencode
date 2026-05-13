@@ -1,0 +1,34 @@
+{
+  "conversationId": "opencode-fix-stable-hash-session-without-repo-250zb6",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-11",
+  "phaseTasks": [
+    {
+      "phaseId": "reproduce",
+      "phaseName": "Reproduce",
+      "taskId": "opencode-11.1"
+    },
+    {
+      "phaseId": "analyze",
+      "phaseName": "Analyze",
+      "taskId": "opencode-11.2"
+    },
+    {
+      "phaseId": "fix",
+      "phaseName": "Fix",
+      "taskId": "opencode-11.3"
+    },
+    {
+      "phaseId": "verify",
+      "phaseName": "Verify",
+      "taskId": "opencode-11.4"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-11.5"
+    }
+  ],
+  "createdAt": "2026-05-13T08:11:46.643Z",
+  "updatedAt": "2026-05-13T08:11:46.643Z"
+}

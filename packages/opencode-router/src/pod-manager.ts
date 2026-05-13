@@ -661,7 +661,7 @@ export async function ensurePod(hash: string, session: SessionKey, githubToken?:
           `  $GIT checkout -b "${branch}"`,
           `fi`,
         ]
-      : [`git init /workspace`, `cd /workspace`, `git add -A`, `git commit -m "Initial commit" --allow-empty`]),
+      : [`git -c safe.directory=/workspace init /workspace`, `cd /workspace`, `git -c safe.directory=/workspace add -A`, `git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty`]),
   ].join("\n")
 
   const secCtx: k8s.V1SecurityContext = {
