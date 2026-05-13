@@ -517,9 +517,8 @@ describe("Attach IngressRoute (ingressroute.ts)", () => {
       const req = k8sRequests.find(
         (r) => r.method === "POST" && (r.body as any)?.metadata?.name?.includes("-attach"),
       )
-      expect(req?.body).toMatchObject({
-        spec: { routes: [{ middlewares: undefined }] },
-      })
+      const route = (req?.body as any)?.spec?.routes?.[0]
+      expect(route).not.toHaveProperty("middlewares")
     })
 
     it("targets the attach Service on the attach port", async () => {
