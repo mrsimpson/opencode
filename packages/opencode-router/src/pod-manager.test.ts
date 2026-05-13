@@ -319,8 +319,9 @@ describe("listUserSessions", () => {
     createPodCalls = []
 
     const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" }
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)(computeHash(EMAIL, REPO, "calm-snails-dream"), session)
 
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
@@ -523,15 +524,17 @@ describe("ensurePod with githubToken", () => {
     fakePVCs = []
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
     await (ensurePod as any)(
+      hash,
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
       "gho_test_token",
     )
 
     expect(createSecretCalls).toHaveLength(1)
     const secret = (createSecretCalls[0] as any).body
-    expect(secret.metadata.name).toBe(`opencode-github-${computeHash(EMAIL, REPO, "calm-snails-dream")}`)
+    expect(secret.metadata.name).toBe(`opencode-github-${hash}`)
     expect(secret.stringData?.GITHUB_TOKEN).toBe("gho_test_token")
   })
 
@@ -541,6 +544,7 @@ describe("ensurePod with githubToken", () => {
     const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
     await (ensurePod as any)(
+      hash,
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
       "gho_test_token",
     )
@@ -557,8 +561,10 @@ describe("ensurePod with githubToken", () => {
   it("init script contains git credential helper setup", async () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
     await (ensurePod as any)(
+      hash,
       { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" },
       "gho_test_token",
     )
@@ -573,8 +579,9 @@ describe("ensurePod with githubToken", () => {
   it("does NOT create a Secret when githubToken is absent", async () => {
     fakePods = []
     const { ensurePod } = await import("./pod-manager.js")
+    const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)(hash, { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
 
     expect(createSecretCalls).toHaveLength(0)
   })
@@ -584,7 +591,7 @@ describe("ensurePod with githubToken", () => {
     const { ensurePod } = await import("./pod-manager.js")
     const hash = computeHash(EMAIL, REPO, "calm-snails-dream")
 
-    await (ensurePod as any)({ email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
+    await (ensurePod as any)(hash, { email: EMAIL, repoUrl: REPO, branch: "calm-snails-dream", sourceBranch: "main" })
 
     const pod = (createPodCalls[0] as any).body
     const mainEnvFrom: any[] = pod.spec.containers[0].envFrom ?? []
@@ -803,11 +810,10 @@ describe("ensurePod injects OPENCODE_POD_SECRET", () => {
       branch: "test-branch",
       sourceBranch: "main",
     }
-    const { ensurePod } = await import("./pod-manager.js")
-    await (ensurePod as any)(session)
-    expect(podSecretStoreMock.generate).toHaveBeenCalledTimes(1)
-    // The hash passed to generate must match getSessionHash output
     const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+    const { ensurePod } = await import("./pod-manager.js")
+    await (ensurePod as any)(hash, session)
+    expect(podSecretStoreMock.generate).toHaveBeenCalledTimes(1)
     expect((podSecretStoreMock.generate as any).mock.calls[0][0]).toBe(hash)
   })
 
@@ -819,8 +825,9 @@ describe("ensurePod injects OPENCODE_POD_SECRET", () => {
       branch: "test-branch",
       sourceBranch: "main",
     }
+    const hash = getSessionHash(session.email, session.repoUrl, session.branch)
     const { ensurePod } = await import("./pod-manager.js")
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(hash, session)
     const podBody = (createPodCalls[0] as any)?.body
     const envVars = podBody?.spec?.containers?.[0]?.env ?? []
     const secretEnv = envVars.find((e: any) => e.name === "OPENCODE_POD_SECRET")
@@ -997,13 +1004,15 @@ describe("ensurePVC — attach password annotation", () => {
   })
 
   it("stores attach password annotation on new PVC", async () => {
-    const { ensurePVC } = await import("./pod-manager.js")
-    await ensurePVC({
+    const session = {
       email: "test@example.com",
       repoUrl: "https://github.com/x/y",
       branch: "test-branch",
       sourceBranch: "main",
-    })
+    }
+    const hash = computeHash(session.email, session.repoUrl, session.branch)
+    const { ensurePVC } = await import("./pod-manager.js")
+    await ensurePVC(hash, session)
     expect(fakePVCs).toHaveLength(1)
     const annotations = (fakePVCs[0] as any).metadata?.annotations ?? {}
     expect(annotations["opencode.ai/attach-password"]).toMatch(/^[a-f0-9]{32}$/)
@@ -1031,7 +1040,7 @@ describe("ensurePVC — attach password annotation", () => {
       },
     ]
     const { ensurePVC } = await import("./pod-manager.js")
-    await ensurePVC(session)
+    await ensurePVC(hash, session)
     // PVC count should still be 1 (not re-created)
     expect(fakePVCs).toHaveLength(1)
     const annotations = (fakePVCs[0] as any).metadata?.annotations ?? {}
@@ -1371,10 +1380,11 @@ describe("ensurePVC — new project (no repoUrl)", () => {
   })
 
   it("creates PVC without repo annotations when repoUrl is absent", async () => {
-    const { ensurePVC } = await import("./pod-manager.js")
+    const { ensurePVC, getSessionHash: gsh } = await import("./pod-manager.js")
     const session = { email: EMAIL, initialMessage: "Build a new app" }
+    const hash = (gsh as any)(EMAIL)
 
-    await (ensurePVC as any)(session)
+    await (ensurePVC as any)(hash, session)
 
     expect(fakePVCs).toHaveLength(1)
     const pvc = fakePVCs[0] as any
@@ -1396,10 +1406,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("init script contains git init instead of git clone when repoUrl is absent", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash: gsh } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = (gsh as any)(EMAIL)
 
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(hash, session)
 
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
@@ -1412,10 +1423,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("pod annotations do not include repo annotations when repoUrl is absent", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash: gsh } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = (gsh as any)(EMAIL)
 
-    await (ensurePod as any)(session)
+    await (ensurePod as any)(hash, session)
 
     const pod = (createPodCalls[0] as any).body
     const ann = pod.metadata?.annotations ?? {}
@@ -1428,10 +1440,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("still creates github token Secret when provided, even without repoUrl", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash: gsh } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = (gsh as any)(EMAIL)
 
-    await (ensurePod as any)(session, "gho_new_project_token")
+    await (ensurePod as any)(hash, session, "gho_new_project_token")
 
     expect(createSecretCalls).toHaveLength(1)
     const secret = (createSecretCalls[0] as any).body
@@ -1439,15 +1452,55 @@ describe("ensurePod — new project (no repoUrl)", () => {
   })
 
   it("init script still contains git credential helper setup when token provided without repoUrl", async () => {
-    const { ensurePod } = await import("./pod-manager.js")
+    const { ensurePod, getSessionHash: gsh } = await import("./pod-manager.js")
     const session = { email: EMAIL }
+    const hash = (gsh as any)(EMAIL)
 
-    await (ensurePod as any)(session, "gho_new_project_token")
+    await (ensurePod as any)(hash, session, "gho_new_project_token")
 
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
     expect(script).toContain("credential.helper store")
     expect(script).toContain(".git-credentials")
+  })
+})
+
+describe("startSession — stable hash for no-repo session", () => {
+  beforeEach(() => {
+    fakePVCs = []
+    fakePods = []
+    createPodCalls = []
+  })
+
+  it("PVC name and Pod claimName share the same hash for a no-repo session", async () => {
+    const { startSession } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    await (startSession as any)(session)
+
+    expect(fakePVCs).toHaveLength(1)
+    expect(createPodCalls).toHaveLength(1)
+
+    const pvcName: string = (fakePVCs[0] as any).metadata.name
+    const volumes: any[] = (createPodCalls[0] as any).body.spec.volumes
+    const claimName: string = volumes.find((v: any) => v.persistentVolumeClaim)?.persistentVolumeClaim?.claimName
+
+    // Both must reference the same hash — extract the hex suffix after "opencode-pvc-" / "opencode-pod-"
+    const pvcHash = pvcName.replace("opencode-pvc-", "")
+    const podHash = claimName.replace("opencode-pvc-", "")
+    expect(pvcHash).toMatch(/^[a-f0-9]{12}$/)
+    expect(pvcHash).toBe(podHash)
+  })
+
+  it("startSession returns the hash used for the PVC", async () => {
+    const { startSession } = await import("./pod-manager.js")
+    const session = { email: EMAIL }
+
+    const hash = await (startSession as any)(session)
+
+    expect(hash).toMatch(/^[a-f0-9]{12}$/)
+    const pvcName: string = (fakePVCs[0] as any).metadata.name
+    expect(pvcName).toBe(`opencode-pvc-${hash}`)
   })
 })
 

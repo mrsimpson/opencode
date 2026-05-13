@@ -488,9 +488,10 @@ async function ensureGithubTokenSecret(hash: string, token: string): Promise<voi
 
 /**
  * Create PVC for a session if it doesn't exist. Idempotent.
+ * @param hash - The session hash (DNS-safe 12-char hex). Callers must compute this
+ *   via getSessionHash before calling, so the same value is shared with ensurePod.
  */
-export async function ensurePVC(session: SessionKey): Promise<void> {
-  const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+export async function ensurePVC(hash: string, session: SessionKey): Promise<void> {
   const name = pvcName(hash)
 
   try {
@@ -565,9 +566,8 @@ export async function getPodState(hash: string): Promise<PodState> {
  *
  * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
  */
-export async function ensurePod(session: SessionKey, githubToken?: string, image?: string): Promise<string> {
+export async function ensurePod(hash: string, session: SessionKey, githubToken?: string, image?: string): Promise<string> {
   const containerImage = image ?? config.opencodeImage
-  const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   const name = podName(hash)
 
   const existingPods = await k8sApi.listNamespacedPod({
@@ -814,6 +814,26 @@ export async function ensurePod(session: SessionKey, githubToken?: string, image
 }
 
 /**
+ * Create PVC + Pod for a new session, guaranteeing both use the **same** hash.
+ *
+ * For no-repo sessions `getSessionHash` generates a random UUID-based hash on every
+ * call, so calling `ensurePVC` and `ensurePod` independently would produce different
+ * hashes (the Pod would reference a PVC that doesn't exist). This function freezes
+ * the hash once and passes it to both operations.
+ *
+ * The hash is kept internal to pod-manager — it must NOT be accepted from untrusted
+ * callers, to prevent a malicious user from targeting another user's PVC.
+ *
+ * @returns The session hash (to be returned to the client and used for polling).
+ */
+export async function startSession(session: SessionKey, githubToken?: string): Promise<string> {
+  const hash = getSessionHash(session.email, session.repoUrl, session.branch)
+  await ensurePVC(hash, session)
+  await ensurePod(hash, session, githubToken)
+  return hash
+}
+
+/**
  * Pre-pull a container image by creating a test session, waiting for it to be ready,
  * then terminating it. This ensures the image is cached on the node for faster cold starts.
  *
@@ -837,8 +857,8 @@ export async function prepullImage(image: string, timeoutMs = 300_000): Promise<
 
   try {
     // Create PVC and pod with the new image
-    await ensurePVC(testSession)
-    await ensurePod(testSession, undefined, image)
+    await ensurePVC(hash, testSession)
+    await ensurePod(hash, testSession, undefined, image)
 
     // Poll until pod is running or timeout
     const deadline = Date.now() + timeoutMs
@@ -1111,7 +1131,7 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  await ensurePod(session, githubToken)
+  await ensurePod(hash, session, githubToken)
   emitSessionsChanged()
 }
 
