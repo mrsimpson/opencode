@@ -1415,11 +1415,11 @@ describe("ensurePod — new project (no repoUrl)", () => {
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
-    // Must NOT have git clone commands
-    expect(script).not.toContain("git clone")
-    // Must have git init
-    expect(script).toContain("git init /workspace")
-    expect(script).toContain("git commit -m")
+     // Must NOT have git clone commands
+     expect(script).not.toContain("git clone")
+     // Must have git init (with safe.directory to survive pod restarts)
+     expect(script).toContain("git -c safe.directory=/workspace init /workspace")
+     expect(script).toContain("git -c safe.directory=/workspace commit -m")
   })
 
   it("pod annotations do not include repo annotations when repoUrl is absent", async () => {
@@ -1534,8 +1534,8 @@ describe("resumeSession — blank-aware", () => {
     expect(createPodCalls).toHaveLength(1)
     const pod = (createPodCalls[0] as any).body
     const script: string = pod.spec.initContainers[0].args[0]
-    // Since no repoUrl in SessionKey, should use git init path
-    expect(script).toContain("git init /workspace")
-    expect(script).not.toContain("git clone")
+     // Since no repoUrl in SessionKey, should use git init path
+     expect(script).toContain("git -c safe.directory=/workspace init /workspace")
+     expect(script).not.toContain("git clone")
   })
 })
