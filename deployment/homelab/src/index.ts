@@ -450,6 +450,8 @@ export const app = homelab.createExposedWebApp(
       { name: "ADMIN_SECRET", value: adminSecretValue },
       // Direct ClusterIP URL passed to session pods so the plugin can push port events back
       { name: "OPENCODE_ROUTER_URL", value: pulumi.interpolate`http://${APP_NAME}.${NAMESPACE}.svc.cluster.local:80` },
+      // External domain passed to session pods so the dev-server skill can construct public port-forward URLs
+      { name: "OPENCODE_ROUTER_EXTERNAL_DOMAIN", value: domain },
     ],
     probes: {
       readinessProbe: {
