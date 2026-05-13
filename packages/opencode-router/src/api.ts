@@ -5,6 +5,7 @@ import {
   RemoteRefsUnreachableError,
   ensurePVC,
   ensurePod,
+  startSession,
   getAttachUrl,
   getPodState,
   getSessionHash,
@@ -166,20 +167,18 @@ export async function handleApi(
       const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
       const hash = getSessionHash(email, repoUrl, branch)
 
-      await ensurePVC(session)
-      await ensurePod(session, githubToken)
+      await ensurePVC(hash, session)
+      await ensurePod(hash, session, githubToken)
       sessionsChangedBroadcaster.emit()
 
       json(res, 201, { hash, url: null, state: "creating" })
       return true
     }
 
-    // New project (blank disc) flow: no git validation needed
+    // New project (blank disc) flow: no git validation needed.
+    // startSession freezes the hash once so PVC and Pod share the same identity.
     const session: SessionKey = { email, initialMessage: initialMessage || undefined }
-    const hash = getSessionHash(email)
-
-    await ensurePVC(session)
-    await ensurePod(session, githubToken)
+    const hash = await startSession(session, githubToken)
     sessionsChangedBroadcaster.emit()
 
     json(res, 201, { hash, url: null, state: "creating" })

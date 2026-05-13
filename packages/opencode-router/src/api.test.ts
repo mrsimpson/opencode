@@ -35,6 +35,7 @@ const mocks = {
   suggestBranch: mock(() => Promise.resolve("calm-snails-dream")),
   remoteBranchExists: mock(() => Promise.resolve(true)),
   prepullImage: mock(() => Promise.resolve(true)),
+  startSession: mock(() => Promise.resolve("abc123456789")),
   RemoteRefsUnreachableError,
 }
 
@@ -318,7 +319,7 @@ describe("POST /api/sessions with sourceBranch", () => {
 
     expect(handled).toBe(true)
     expect(res.statusCode).toBe(201)
-    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
+    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[1]
     expect(sessionKeyPassed?.sourceBranch).toBe("main")
   })
 
@@ -431,7 +432,7 @@ describe("POST /api/sessions passes githubToken to ensurePod", () => {
 
     expect(res.statusCode).toBe(201)
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_test_token")
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBe("gho_test_token")
   })
 
   it("passes undefined to ensurePod when githubToken is absent", async () => {
@@ -446,7 +447,7 @@ describe("POST /api/sessions passes githubToken to ensurePod", () => {
 
     expect(res.statusCode).toBe(201)
     expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+    expect((mocks.ensurePod as any).mock.calls[0][2]).toBeUndefined()
   })
 })
 
@@ -502,7 +503,7 @@ describe("POST /api/sessions with initialMessage", () => {
     await handleApi(req as any, res as any, EMAIL)
 
     expect(res.statusCode).toBe(201)
-    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][1]
     expect(pvcCall.initialMessage).toBe("Fix the bug")
   })
 })
@@ -517,6 +518,8 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
     mocks.ensurePVC.mockImplementation(() => Promise.resolve())
     mocks.ensurePod.mockReset()
     mocks.ensurePod.mockImplementation(() => Promise.resolve("newproj1234567"))
+    mocks.startSession.mockReset()
+    mocks.startSession.mockImplementation(() => Promise.resolve("newproj1234567"))
     mocks.remoteBranchExists.mockReset()
     mocks.remoteBranchExists.mockImplementation(() => Promise.resolve(true))
     mocks.getSessionHash.mockReset()
@@ -550,7 +553,7 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
     expect(mocks.remoteBranchExists).not.toHaveBeenCalled()
   })
 
-  it("passes undefined githubToken to ensurePod when token absent", async () => {
+  it("passes undefined githubToken to startSession when token absent", async () => {
     const req = fakeReq("POST", "/api/sessions", {
       initialMessage: "Build me a new app",
     })
@@ -558,11 +561,11 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
 
     await handleApi(req as any, res as any, EMAIL)
 
-    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBeUndefined()
+    expect(mocks.startSession).toHaveBeenCalledTimes(1)
+    expect((mocks.startSession as any).mock.calls[0][1]).toBeUndefined()
   })
 
-  it("passes githubToken to ensurePod for new projects when token present", async () => {
+  it("passes githubToken to startSession for new projects when token present", async () => {
     const req = fakeReq("POST", "/api/sessions", {
       initialMessage: "Build me a new app",
     })
@@ -570,8 +573,8 @@ describe("POST /api/sessions — new project (no repoUrl)", () => {
 
     await handleApi(req as any, res as any, EMAIL, "gho_new_project_token")
 
-    expect(mocks.ensurePod).toHaveBeenCalledTimes(1)
-    expect((mocks.ensurePod as any).mock.calls[0][1]).toBe("gho_new_project_token")
+    expect(mocks.startSession).toHaveBeenCalledTimes(1)
+    expect((mocks.startSession as any).mock.calls[0][1]).toBe("gho_new_project_token")
   })
 
   it("still validates branch when repoUrl is present (backward compat)", async () => {
@@ -612,7 +615,7 @@ describe("POST /api/sessions without initialMessage", () => {
     await handleApi(req as any, res as any, EMAIL)
 
     expect(res.statusCode).toBe(201)
-    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][0]
+    const pvcCall = (mocks.ensurePVC as any).mock.calls[0][1]
     expect(pvcCall.initialMessage).toBeUndefined()
   })
 })
@@ -639,7 +642,7 @@ describe("ANNOTATION_INITIAL_MESSAGE in SessionKey — initialMessage passed to 
     await handleApi(req as any, res as any, EMAIL)
 
     expect(mocks.ensurePVC).toHaveBeenCalledTimes(1)
-    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[0]
+    const sessionKeyPassed = (mocks.ensurePVC as any).mock.calls[0]?.[1]
     expect(sessionKeyPassed?.initialMessage).toBe("Hello world")
   })
 })
