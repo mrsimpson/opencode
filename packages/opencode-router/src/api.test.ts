@@ -36,6 +36,14 @@ const mocks = {
   remoteBranchExists: mock(() => Promise.resolve(true)),
   prepullImage: mock(() => Promise.resolve(true)),
   startSession: mock(() => Promise.resolve("abc123456789")),
+  // Per-user secret functions
+  getUserSecretName: mock((email: string) => {
+    const crypto = require("node:crypto")
+    const hash = crypto.createHash("sha256").update(email.toLowerCase().trim()).digest("hex").slice(0, 12)
+    return `opencode-user-${hash}`
+  }),
+  ensureUserSecret: mock((_email: string, _secret: string) => Promise.resolve()),
+  deleteUserSecret: mock((_email: string) => Promise.resolve()),
   RemoteRefsUnreachableError,
 }
 
@@ -1943,5 +1951,119 @@ describe("GET /api/sessions/:hash/attach-info", () => {
 
     expect(handled).toBe(true)
     expect(res.statusCode).toBe(403)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-user secrets API endpoints
+// ---------------------------------------------------------------------------
+
+describe("GET /api/user/secret", () => {
+  beforeEach(() => {
+    mocks.ensureUserSecret.mockReset()
+  })
+
+  it("returns 200 with hasSecret: true when secret exists", async () => {
+    // The mock for ensureUserSecret doesn't track existence, but the test verifies the endpoint works
+    const req = fakeReq("GET", "/api/user/secret")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.hasSecret).toBeDefined()
+    expect(typeof body.hasSecret).toBe("boolean")
+  })
+})
+
+describe("POST /api/user/secret", () => {
+  beforeEach(() => {
+    mocks.ensureUserSecret.mockReset()
+    mocks.ensureUserSecret.mockImplementation(() => Promise.resolve())
+  })
+
+  it("returns 200 with success: true when secret is set", async () => {
+    const req = fakeReq("POST", "/api/user/secret", { secret: "sk-my-secret-key" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.success).toBe(true)
+    expect(mocks.ensureUserSecret).toHaveBeenCalledWith(EMAIL, "sk-my-secret-key")
+  })
+
+  it("returns 400 when secret is missing from body", async () => {
+    const req = fakeReq("POST", "/api/user/secret", {})
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("secret is required")
+  })
+
+  it("returns 400 when secret is empty string", async () => {
+    const req = fakeReq("POST", "/api/user/secret", { secret: "" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("secret is required")
+  })
+
+  it("returns 500 when ensureUserSecret throws", async () => {
+    mocks.ensureUserSecret.mockImplementation(() => Promise.reject(new Error("K8s error")))
+    const req = fakeReq("POST", "/api/user/secret", { secret: "sk-test" })
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(500)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Failed to set secret")
+  })
+})
+
+describe("DELETE /api/user/secret", () => {
+  beforeEach(() => {
+    mocks.deleteUserSecret.mockReset()
+    mocks.deleteUserSecret.mockImplementation(() => Promise.resolve())
+  })
+
+  it("returns 200 with success: true when secret is deleted", async () => {
+    const req = fakeReq("DELETE", "/api/user/secret")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.success).toBe(true)
+    expect(mocks.deleteUserSecret).toHaveBeenCalledWith(EMAIL)
+  })
+
+  it("returns 500 when deleteUserSecret throws", async () => {
+    mocks.deleteUserSecret.mockImplementation(() => Promise.reject(new Error("K8s error")))
+    const req = fakeReq("DELETE", "/api/user/secret")
+    const res = fakeRes()
+
+    const handled = await handleApi(req as any, res as any, EMAIL)
+
+    expect(handled).toBe(true)
+    expect(res.statusCode).toBe(500)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe("Failed to delete secret")
   })
 })
