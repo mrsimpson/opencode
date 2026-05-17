@@ -364,6 +364,63 @@ describe("listUserSessions", () => {
     // Must NOT introduce an auto-stash — work is preserved by leaving the workspace untouched
     expect(script).not.toContain("stash push")
   })
+
+  it("ensurePod git-init script gates first-run setup on a versioned marker file", async () => {
+    // Init containers run on every pod start. To distinguish "PVC freshly created"
+    // from "PVC re-mounted", the script uses an explicit marker file written LAST
+    // under `set -e`, so any failure mid-init leaves the marker absent and the next
+    // run re-executes the whole first-run block from scratch — no half-initialized
+    // state can persist.
+    fakePVCs = []
+    fakePods = []
+    createPodCalls = []
+
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL, repoUrl: REPO, branch: "marker-branch", sourceBranch: "main" }
+
+    await (ensurePod as any)(computeHash(EMAIL, REPO, "marker-branch"), session)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    // Versioned marker — bumping the suffix forces re-init on existing PVCs
+    expect(script).toContain("INIT_MARKER=/home/opencode/.opencode-init.v1")
+    expect(script).toContain('if [ ! -f "$INIT_MARKER" ]; then FIRST_RUN=1; fi')
+    // Config seed and git clone must both be gated on FIRST_RUN
+    expect(script).toContain('if [ "$FIRST_RUN" = 1 ]; then')
+    // Must NOT use the old implicit checks
+    expect(script).not.toContain("if [ ! -d /home/opencode/.config/opencode ]")
+    expect(script).not.toContain("if [ ! -d /workspace/.git ]")
+    // Marker must be the LAST thing the script does (every-start phases still run on retry)
+    const markerWriteIdx = script.lastIndexOf('touch "$INIT_MARKER"')
+    expect(markerWriteIdx).toBeGreaterThan(-1)
+    expect(script.indexOf('touch "$INIT_MARKER"')).toBe(markerWriteIdx) // exactly one write
+    expect(script.slice(markerWriteIdx).trim()).toBe('touch "$INIT_MARKER"')
+  })
+
+  it("ensurePod no-repoUrl git-init script gates `git init` on FIRST_RUN to avoid adding an empty commit on every pod restart", async () => {
+    // Without the guard, `git commit -m "Initial commit" --allow-empty` would run on
+    // every pod restart and accumulate a new empty commit each time.
+    fakePVCs = []
+    fakePods = []
+    createPodCalls = []
+
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL, repoUrl: "", branch: "", sourceBranch: "" }
+
+    await (ensurePod as any)(computeHash(EMAIL, "", ""), session)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    expect(script).toContain("git -c safe.directory=/workspace init /workspace")
+    expect(script).toContain('git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty')
+    // Both must be inside a FIRST_RUN block
+    const initIdx = script.indexOf("git -c safe.directory=/workspace init /workspace")
+    const guardIdx = script.lastIndexOf('if [ "$FIRST_RUN" = 1 ]; then', initIdx)
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeLessThan(initIdx)
+  })
 })
 
 // ---------------------------------------------------------------------------

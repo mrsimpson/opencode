@@ -595,14 +595,26 @@ export async function ensurePod(
   const workspacePath = `/home/opencode/repo`
 
   // Single init container using the opencode image (which already has git).
-  // Phase 1 — config seed (idempotent): copy /etc/opencode-defaults → ~/.config/opencode on first start,
-  //   then merge dynamic ConfigMap overrides, then run any *.sh scripts in init-scripts/ (e.g. skills install).
-  //   Skipped on pod restart.
-  // Phase 2 — git: clone repo + checkout session branch. Safe.directory avoids needing a writable HOME.
+  //
+  // First-run vs. restart: Kubernetes runs init containers on every pod start, not
+  // once-per-PVC, so we gate the one-shot setup (config seed, repo clone/init) on
+  // a marker file at /home/opencode/.opencode-init.v<N>. The marker is written
+  // LAST under `set -e`, so any failure in between leaves FIRST_RUN=1 on retry
+  // — the whole first-run block re-runs cleanly. Bumping the version suffix
+  // forces a re-init on existing PVCs (use sparingly: it re-clobbers ~/.config).
+  //
+  // Phase 1 — config seed (first-run only): copy /etc/opencode-defaults → ~/.config/opencode,
+  //   then merge dynamic ConfigMap overrides.
+  // Phase 2 — every-start sync: skill assets, plugin list, lock cleanup, git credentials.
+  // Phase 3 — git: clone (first-run) + dirty-aware fetch/checkout (every-start). Safe.directory
+  //   avoids needing a writable HOME.
   const initScript = [
     `set -e`,
-    // --- config phase (idempotent) ---
-    `if [ ! -d /home/opencode/.config/opencode ]; then`,
+    `INIT_MARKER=/home/opencode/.opencode-init.v1`,
+    `FIRST_RUN=0`,
+    `if [ ! -f "$INIT_MARKER" ]; then FIRST_RUN=1; fi`,
+    // --- config seed (first-run only) ---
+    `if [ "$FIRST_RUN" = 1 ]; then`,
     `  mkdir -p /home/opencode/.config/opencode`,
     // Copy baked config as base
     `  cp -r /etc/opencode-defaults/. /home/opencode/.config/opencode/`,
@@ -654,7 +666,7 @@ export async function ensurePod(
     ...(repoUrl
       ? [
           `GIT="git -c safe.directory=/workspace"`,
-          `if [ ! -d /workspace/.git ]; then`,
+          `if [ "$FIRST_RUN" = 1 ]; then`,
           `  git clone "${repoUrl}" /workspace`,
           `fi`,
           `cd /workspace`,
@@ -678,11 +690,19 @@ export async function ensurePod(
           `fi`,
         ]
       : [
-          `git -c safe.directory=/workspace init /workspace`,
-          `cd /workspace`,
-          `git -c safe.directory=/workspace add -A`,
-          `git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty`,
+          // First-run only: initialize the workspace and seed an empty commit. On restarts
+          // there is no remote to reconcile against, so the entire git phase is a no-op
+          // (without this guard, `commit --allow-empty` would add a new empty commit
+          // every pod restart).
+          `if [ "$FIRST_RUN" = 1 ]; then`,
+          `  git -c safe.directory=/workspace init /workspace`,
+          `  cd /workspace`,
+          `  git -c safe.directory=/workspace add -A`,
+          `  git -c safe.directory=/workspace commit -m "Initial commit" --allow-empty`,
+          `fi`,
         ]),
+    // --- mark init complete (last, so set -e re-runs the whole first-run block on any earlier failure) ---
+    `touch "$INIT_MARKER"`,
   ].join("\n")
 
   const secCtx: k8s.V1SecurityContext = {
