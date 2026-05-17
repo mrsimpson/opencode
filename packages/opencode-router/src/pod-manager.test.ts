@@ -333,6 +333,37 @@ describe("listUserSessions", () => {
     // Must NOT try to look up "calm-snails-dream" on remote (it's always a new branch)
     expect(script).not.toContain('ls-remote --exit-code --heads origin "calm-snails-dream"')
   })
+
+  it("ensurePod git-init script skips fetch/checkout when /workspace has uncommitted changes from a prior session", async () => {
+    // Pod restarts re-mount the PVC which can contain uncommitted edits from the previous
+    // session. Running `git checkout` against a dirty workspace aborts with "local changes
+    // would be overwritten" and the init container crashloops. The script must detect the
+    // dirty state and skip the git phase, leaving the workspace exactly as the user left it.
+    fakePVCs = []
+    fakePods = []
+    createPodCalls = []
+
+    const { ensurePod } = await import("./pod-manager.js")
+    const session = { email: EMAIL, repoUrl: REPO, branch: "resilient-branch", sourceBranch: "main" }
+
+    await (ensurePod as any)(computeHash(EMAIL, REPO, "resilient-branch"), session)
+
+    expect(createPodCalls).toHaveLength(1)
+    const pod = (createPodCalls[0] as any).body
+    const script: string = pod.spec.initContainers[0].args[0]
+    // Dirty-workspace guard must check both tracked diffs and untracked files
+    expect(script).toContain("$GIT diff --quiet HEAD")
+    expect(script).toContain("$GIT ls-files --others --exclude-standard")
+    // The guard wraps fetch + both checkout branches so none of them run when dirty
+    const guardIdx = script.indexOf("$GIT diff --quiet HEAD")
+    const fetchIdx = script.indexOf("$GIT fetch --all")
+    const checkoutIdx = script.indexOf("$GIT checkout")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(fetchIdx).toBeGreaterThan(guardIdx)
+    expect(checkoutIdx).toBeGreaterThan(guardIdx)
+    // Must NOT introduce an auto-stash — work is preserved by leaving the workspace untouched
+    expect(script).not.toContain("stash push")
+  })
 })
 
 // ---------------------------------------------------------------------------
