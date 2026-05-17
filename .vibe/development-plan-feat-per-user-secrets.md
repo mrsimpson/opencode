@@ -100,21 +100,31 @@ _None yet_
 ### Tasks
 
 - [x] Write tests for pod-manager user secret functions (TDD red phase)
-  - `getUserSecretName(email)` - returns `opencode-user-<sha256(email).slice(0,12)>`
-  - `ensureUserSecret(email, secret)` - creates/updates K8s secret with key USER_API_KEY
-  - `deleteUserSecret(email)` - deletes user's K8s Secret
 - [x] Write tests for API endpoints (TDD red phase)
+- [x] Implement pod-manager functions (green phase)
+  - `getUserSecretName(email)` - returns secret name
+  - `ensureUserSecret(email, secret)` - creates/updates K8s secret
+  - `deleteUserSecret(email)` - deletes user's K8s Secret
+  - `getUserSecret(email)` - retrieves user's stored secret
+- [x] Implement API endpoints (green phase)
   - `GET /api/user/secret` - returns `{ hasSecret: boolean }`
-  - `POST /api/user/secret` - body: `{ secret: string }`, returns `{ success: true }`
-  - `DELETE /api/user/secret` - returns `{ success: true }`
-- [ ] Implement the pod-manager functions (green phase)
-- [ ] Implement the API endpoints (green phase)
+  - `POST /api/user/secret` - set/update user's secret
+  - `DELETE /api/user/secret` - delete user's secret
+- [x] Update ensurePod to mount user secret via envFrom
+- [x] Update session creation to pass userSecret to pods
+- [x] Update resumeSession to pass userSecret to pods
+- [x] Implement frontend API functions (getUserSecret, setUserSecret, deleteUserSecret)
+- [x] Implement settings UI in frontend with settings button and dialog
+- [x] Add i18n translations for settings
 
 ### Completed
 
 - Created tests in `pod-manager.test.ts` for getUserSecretName, ensureUserSecret, deleteUserSecret
 - Created tests in `api.test.ts` for GET/POST/DELETE /api/user/secret
-- Tests verified to fail in TDD red phase (functions/endpoints not implemented)
+- Implemented backend: pod-manager.ts functions, api.ts endpoints
+- Updated ensurePod/startSession/resumeSession to pass userSecret
+- Frontend: api.ts functions, app.tsx settings UI, i18n/en.ts translations
+- Built successfully - frontend builds, backend tests pass
 
 ## Commit
 

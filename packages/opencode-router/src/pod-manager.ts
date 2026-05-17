@@ -1192,8 +1192,14 @@ export async function terminateSession(hash: string, email: string): Promise<voi
  * Resume a stopped session: recreate the pod for an existing PVC.
  * Idempotent — safe to call when pod already exists.
  * Only the session owner may resume.
+ * @param userSecret - User's stored API key to inject into the resumed session pod.
  */
-export async function resumeSession(hash: string, email: string, githubToken?: string): Promise<void> {
+export async function resumeSession(
+  hash: string,
+  email: string,
+  githubToken?: string,
+  userSecret?: string,
+): Promise<void> {
   const name = pvcName(hash)
   let pvc: k8s.V1PersistentVolumeClaim
   try {
@@ -1218,7 +1224,8 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  await ensurePod(hash, session, githubToken)
+  if (userSecret) await ensureUserSecret(email, userSecret)
+  await ensurePod(hash, session, githubToken, undefined, userSecret)
   emitSessionsChanged()
 }
 

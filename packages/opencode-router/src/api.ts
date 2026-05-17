@@ -474,7 +474,9 @@ export async function handleApi(
   if (resumeMatch && req.method === "POST") {
     const hash = resumeMatch[1]
     try {
-      await resumeSession(hash, email, githubToken)
+      // Fetch user's secret (if any) to inject into the resumed session pod
+      const userSecret = await getUserSecret(email)
+      await resumeSession(hash, email, githubToken, userSecret)
     } catch (err) {
       const code = errorCode(err)
       if (code === "Forbidden") {

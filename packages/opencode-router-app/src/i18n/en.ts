@@ -45,6 +45,20 @@ export const dict = {
   "app.newSession.prompt.placeholder": "Describe a task or ask a question",
   "sidebar.collapse": "Collapse sidebar",
   "sidebar.expand": "Expand sidebar",
+
+  "settings.title": "Settings",
+  "settings.apiKeys": "API Keys",
+  "settings.apiKeys.description": "Set your own API keys that will be automatically injected into all your sessions.",
+  "settings.apiKeys.current": "Current API key",
+  "settings.apiKeys.set": "Set API Key",
+  "settings.apiKeys.update": "Update API Key",
+  "settings.apiKeys.delete": "Delete API Key",
+  "settings.apiKeys.placeholder": "Enter your API key",
+  "settings.apiKeys.saved": "API key saved",
+  "settings.apiKeys.deleted": "API key deleted",
+  "settings.apiKeys.error.save": "Failed to save API key",
+  "settings.apiKeys.error.delete": "Failed to delete API key",
+  "settings.apiKeys.none": "No API key set",
 } as const
 
 export type DictKey = keyof typeof dict
