@@ -130,8 +130,10 @@ _None yet_
 
 ### Tasks
 
-- [ ] _To be added when this phase becomes active_
+- [x] WIP commit: per-user secrets backend implementation
+- [x] Feature commit: per-user secrets for session pods
 
 ### Completed
 
-_None yet_
+- WIP commit: 3a08fd234 - added pod-manager functions, API endpoints, tests
+- Feature commit: 3a08fd235 - full implementation with frontend
