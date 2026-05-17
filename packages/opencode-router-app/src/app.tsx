@@ -45,28 +45,30 @@ export function App() {
   const [formError, setFormError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
 
-  // Settings state
-  const [hasSecret, setHasSecret] = createSignal(false)
-  const [newSecret, setNewSecret] = createSignal("")
+  // Settings state - support multiple key-value pairs
+  const [secretKeys, setSecretKeys] = createSignal<string[]>([])
+  const [newEnvVarName, setNewEnvVarName] = createSignal("")
+  const [newEnvVarValue, setNewEnvVarValue] = createSignal("")
   const [secretLoading, setSecretLoading] = createSignal(false)
   const [secretMessage, setSecretMessage] = createSignal("")
 
-  // Load user secret status on mount
+  // Load user secret keys on mount
   onMount(async () => {
     try {
-      const { hasSecret: has } = await getUserSecret()
-      setHasSecret(has)
+      const { keys } = await getUserSecret()
+      setSecretKeys(keys)
     } catch {
       /* silent */
     }
   })
 
   const handleOpenSettings = async () => {
-    setNewSecret("")
+    setNewEnvVarName("")
+    setNewEnvVarValue("")
     setSecretMessage("")
     try {
-      const { hasSecret: has } = await getUserSecret()
-      setHasSecret(has)
+      const { keys } = await getUserSecret()
+      setSecretKeys(keys)
     } catch {
       /* silent */
     }
@@ -80,41 +82,84 @@ export function App() {
             </p>
           </div>
 
-          <Show when={hasSecret()}>
-            <div class="flex items-center gap-2 p-3 rounded" style={{ background: "var(--surface-elevated)" }}>
-              <span class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
-                {t("settings.apiKeys.current")}:
-              </span>
-              <code class="text-12-regular font-mono">••••••••••••••••</code>
+          {/* List of existing secrets */}
+          <Show when={secretKeys().length > 0}>
+            <div class="flex flex-col gap-2">
+              {secretKeys().map((key) => (
+                <div class="flex items-center gap-2 p-2 rounded" style={{ background: "var(--surface-elevated)" }}>
+                  <code class="text-12-regular font-mono flex-1">{key}</code>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={async () => {
+                      // Delete all secrets (simple approach - user can re-add the others)
+                      setSecretLoading(true)
+                      setSecretMessage("")
+                      try {
+                        await deleteUserSecret()
+                        setSecretKeys([])
+                        setSecretMessage(t("settings.apiKeys.deleted"))
+                      } catch (err) {
+                        setSecretMessage(t("settings.apiKeys.error.delete"))
+                      } finally {
+                        setSecretLoading(false)
+                      }
+                    }}
+                    disabled={secretLoading()}
+                    style={{ color: "var(--text-danger-base, #ef4444)" }}
+                    title={t("settings.apiKeys.delete")}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                      <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
+                      <path
+                        fill-rule="evenodd"
+                        d="M14 3a1 1 0 0 1-1 1H1a1 1 0 0 1 0-2h3.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1H13a1 1 0 0 1 1 1zM4.118 4L4.5 13a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.382-9H4.118z"
+                      />
+                    </svg>
+                  </Button>
+                </div>
+              ))}
             </div>
           </Show>
 
-          <Show when={!hasSecret()}>
+          <Show when={secretKeys().length === 0}>
             <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
               {t("settings.apiKeys.none")}
             </p>
           </Show>
 
+          {/* Add new secret form */}
           <div class="flex flex-col gap-2">
-            <TextField
-              placeholder={t("settings.apiKeys.placeholder")}
-              value={newSecret()}
-              onInput={(e) => setNewSecret(e.currentTarget.value)}
-              type="password"
-            />
+            <div class="flex gap-2">
+              <TextField
+                placeholder="ENV_VAR_NAME (e.g. OPENAI_API_KEY)"
+                value={newEnvVarName()}
+                onInput={(e) => setNewEnvVarName(e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""))}
+                class="flex-1"
+              />
+              <TextField
+                placeholder={t("settings.apiKeys.placeholder")}
+                value={newEnvVarValue()}
+                onInput={(e) => setNewEnvVarValue(e.currentTarget.value)}
+                type="password"
+                class="flex-1"
+              />
+            </div>
             <div class="flex gap-2">
               <Button
                 variant="primary"
                 size="small"
                 onClick={async () => {
-                  const secret = newSecret().trim()
-                  if (!secret) return
+                  const envVarName = newEnvVarName().trim()
+                  const envVarValue = newEnvVarValue().trim()
+                  if (!envVarName || !envVarValue) return
                   setSecretLoading(true)
                   setSecretMessage("")
                   try {
-                    await setUserSecret(secret)
-                    setHasSecret(true)
-                    setNewSecret("")
+                    await setUserSecret({ [envVarName]: envVarValue })
+                    setSecretKeys([envVarName])
+                    setNewEnvVarName("")
+                    setNewEnvVarValue("")
                     setSecretMessage(t("settings.apiKeys.saved"))
                   } catch (err) {
                     setSecretMessage(t("settings.apiKeys.error.save"))
@@ -122,11 +167,11 @@ export function App() {
                     setSecretLoading(false)
                   }
                 }}
-                disabled={secretLoading() || !newSecret().trim()}
+                disabled={secretLoading() || !newEnvVarName().trim() || !newEnvVarValue().trim()}
               >
-                {hasSecret() ? t("settings.apiKeys.update") : t("settings.apiKeys.set")}
+                {secretKeys().length > 0 ? t("settings.apiKeys.add") : t("settings.apiKeys.set")}
               </Button>
-              <Show when={hasSecret()}>
+              <Show when={secretKeys().length > 0}>
                 <Button
                   variant="secondary"
                   size="small"
@@ -135,7 +180,7 @@ export function App() {
                     setSecretMessage("")
                     try {
                       await deleteUserSecret()
-                      setHasSecret(false)
+                      setSecretKeys([])
                       setSecretMessage(t("settings.apiKeys.deleted"))
                     } catch (err) {
                       setSecretMessage(t("settings.apiKeys.error.delete"))
@@ -146,7 +191,7 @@ export function App() {
                   disabled={secretLoading()}
                   style={{ color: "var(--text-danger-base, #ef4444)" }}
                 >
-                  {t("settings.apiKeys.delete")}
+                  {t("settings.apiKeys.deleteAll")}
                 </Button>
               </Show>
             </div>
@@ -178,6 +223,10 @@ export function App() {
 
   /** Restore app phase from the current browser URL after sessions have loaded. */
   const restoreFromUrl = async () => {
+    if (window.location.pathname === "/settings") {
+      handleOpenSettings()
+      return
+    }
     const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
     if (!m) return
     const hash = m[1]
@@ -237,6 +286,10 @@ export function App() {
     startStream()
 
     const onPopState = async () => {
+      if (window.location.pathname === "/settings") {
+        handleOpenSettings()
+        return
+      }
       const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
       if (!m) {
         setAppPhase({ kind: "ready" })
@@ -437,7 +490,15 @@ export function App() {
                   <h1 class="text-18-medium text-center" style={{ color: "var(--text-base)" }}>
                     {t("app.welcomeBack", { email: email() || "—" })}
                   </h1>
-                  <Button variant="ghost" size="small" onClick={handleOpenSettings} title={t("settings.title")}>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={() => {
+                      navigate("/settings")
+                      handleOpenSettings()
+                    }}
+                    title={t("settings.title")}
+                  >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                       <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z" />
                       <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z" />

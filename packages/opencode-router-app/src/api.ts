@@ -285,6 +285,7 @@ export function subscribeProgressStream(
 
 export interface UserSecretResponse {
   hasSecret: boolean
+  keys: string[]
 }
 
 export async function getUserSecret(): Promise<UserSecretResponse> {
@@ -293,11 +294,11 @@ export async function getUserSecret(): Promise<UserSecretResponse> {
   return res.json()
 }
 
-export async function setUserSecret(secret: string): Promise<{ success: true }> {
+export async function setUserSecret(secrets: Record<string, string>): Promise<{ success: true; keys: string[] }> {
   const res = await fetch("/api/user/secret", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret }),
+    body: JSON.stringify({ secrets }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (!res.ok) {

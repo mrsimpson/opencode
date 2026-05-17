@@ -102,6 +102,13 @@ const fakeK8sApi = {
     fakePVCs = (fakePVCs as any[]).filter((_, i) => i !== idx)
   },
   createNamespacedSecret: async ({ namespace, body }: { namespace: string; body: any }) => {
+    // Check if secret already exists - if so, throw conflict error
+    const exists = (fakeSecrets as any[]).some((s) => s.metadata?.name === body.metadata?.name)
+    if (exists) {
+      const err: any = new Error("Conflict")
+      err.code = 409
+      throw err
+    }
     createSecretCalls.push({ namespace, body })
     fakeSecrets = [...fakeSecrets, body]
     return body
@@ -1632,16 +1639,16 @@ describe("ensureUserSecret", () => {
   it("creates a new secret when it does not exist", async () => {
     const { ensureUserSecret } = await import("./pod-manager.js")
     const email = "user@example.com"
-    const secret = "sk-user-secret-key"
+    const secrets = { OPENAI_API_KEY: "sk-user-secret-key" }
 
-    await (ensureUserSecret as any)(email, secret)
+    await (ensureUserSecret as any)(email, secrets)
 
     expect(createSecretCalls).toHaveLength(1)
     const call = createSecretCalls[0]
     expect(call.namespace).toBe("opencode")
     expect(call.body.metadata.name).toBe(`opencode-user-${computeUserSecretHash(email)}`)
     expect(call.body.type).toBe("Opaque")
-    expect(call.body.stringData).toEqual({ USER_API_KEY: secret })
+    expect(call.body.stringData).toEqual(secrets)
   })
 
   it("updates existing secret when it already exists", async () => {
@@ -1654,25 +1661,25 @@ describe("ensureUserSecret", () => {
       {
         metadata: { name: secretName, namespace: "opencode" },
         type: "Opaque",
-        stringData: { USER_API_KEY: "old-secret" },
+        stringData: { OPENAI_API_KEY: "old-secret" },
       },
     ]
 
-    const newSecret = "sk-new-secret-key"
-    await (ensureUserSecret as any)(email, newSecret)
+    const newSecrets = { OPENAI_API_KEY: "sk-new-secret-key" }
+    await (ensureUserSecret as any)(email, newSecrets)
 
     expect(createSecretCalls).toHaveLength(0)
     expect(replaceSecretCalls).toHaveLength(1)
     expect(replaceSecretCalls[0].name).toBe(secretName)
-    expect(replaceSecretCalls[0].body.stringData).toEqual({ USER_API_KEY: newSecret })
+    expect(replaceSecretCalls[0].body.stringData).toEqual(newSecrets)
   })
 
   it("uses correct namespace from config", async () => {
     const { ensureUserSecret } = await import("./pod-manager.js")
     const email = "admin@test.com"
-    const secret = "sk-test-key"
+    const secrets = { ANTHROPIC_API_KEY: "sk-test-key" }
 
-    await (ensureUserSecret as any)(email, secret)
+    await (ensureUserSecret as any)(email, secrets)
 
     expect(createSecretCalls[0].namespace).toBe("opencode")
   })
@@ -1708,6 +1715,8 @@ describe("deleteUserSecret", () => {
     const email = "nonexistent@example.com"
 
     // Should not throw - the function should handle NotFound gracefully
-    await expect((deleteUserSecret as any)(email)).resolves.not.toThrow()
+    await (deleteUserSecret as any)(email)
+    // If we get here without an uncaught error, the test passes
+    expect(true).toBe(true)
   })
 })

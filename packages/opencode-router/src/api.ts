@@ -213,41 +213,56 @@ export async function handleApi(
     return true
   }
 
-  // GET /api/user/secret — check if user has a secret set
+  // GET /api/user/secret — get user's secret keys (not values)
   if (url === "/api/user/secret" && req.method === "GET") {
-    const secretName = getUserSecretName(email)
     try {
-      await k8sApi.readNamespacedSecret({ name: secretName, namespace: config.namespace })
-      json(res, 200, { hasSecret: true })
-    } catch (err) {
-      if (isNotFound(err)) {
-        json(res, 200, { hasSecret: false })
+      const secrets = await getUserSecret(email)
+      if (secrets) {
+        json(res, 200, { hasSecret: true, keys: Object.keys(secrets) })
       } else {
-        console.error("getUserSecret failed:", err)
-        json(res, 500, { error: "Failed to check secret" })
+        json(res, 200, { hasSecret: false, keys: [] })
       }
+    } catch (err) {
+      console.error("getUserSecret failed:", err)
+      json(res, 500, { error: "Failed to get secret" })
     }
     return true
   }
 
-  // POST /api/user/secret — set/update user's secret
+  // POST /api/user/secret — set/update user's secrets
   if (url === "/api/user/secret" && req.method === "POST") {
     const raw = await readBody(req)
-    let secret: string
+    let secrets: Record<string, string>
     try {
       const body = JSON.parse(raw)
-      secret = typeof body.secret === "string" ? body.secret.trim() : ""
+      if (typeof body.secrets !== "object" || body.secrets === null) {
+        json(res, 400, { error: "secrets is required and must be an object" })
+        return true
+      }
+      // Validate that all keys are valid env var names and values are strings
+      secrets = {}
+      for (const [key, value] of Object.entries(body.secrets)) {
+        if (typeof key !== "string" || !key.trim()) {
+          json(res, 400, { error: "Invalid secret key" })
+          return true
+        }
+        if (typeof value !== "string") {
+          json(res, 400, { error: `Invalid value for key "${key}"` })
+          return true
+        }
+        secrets[key.trim()] = value
+      }
     } catch {
       json(res, 400, { error: "Invalid JSON" })
       return true
     }
-    if (!secret) {
-      json(res, 400, { error: "secret is required" })
+    if (Object.keys(secrets).length === 0) {
+      json(res, 400, { error: "At least one secret is required" })
       return true
     }
     try {
-      await ensureUserSecret(email, secret)
-      json(res, 200, { success: true })
+      await ensureUserSecret(email, secrets)
+      json(res, 200, { success: true, keys: Object.keys(secrets) })
     } catch (err) {
       console.error("setUserSecret failed:", err)
       json(res, 500, { error: "Failed to set secret" })

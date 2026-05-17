@@ -422,14 +422,15 @@ export function getUserSecretName(email: string): string {
 }
 
 /**
- * Create or update a user's K8s Secret containing their API key.
+ * Create or update a user's K8s Secret containing their environment variables.
+ * @param secrets Object where keys = environment variable names, values = secret values
  */
-export async function ensureUserSecret(email: string, secret: string): Promise<void> {
+export async function ensureUserSecret(email: string, secrets: Record<string, string>): Promise<void> {
   const name = getUserSecretName(email)
   const k8sSecret: k8s.V1Secret = {
     metadata: { name, namespace: config.namespace },
     type: "Opaque",
-    stringData: { USER_API_KEY: secret },
+    stringData: secrets,
   }
   try {
     await k8sApi.createNamespacedSecret({ namespace: config.namespace, body: k8sSecret })
@@ -454,16 +455,15 @@ export async function deleteUserSecret(email: string): Promise<void> {
 }
 
 /**
- * Get user's stored API key secret value.
- * Returns undefined if the user has not set a secret.
+ * Get user's stored secrets (env var name → value).
+ * Returns undefined if the user has not set any secrets.
  */
-export async function getUserSecret(email: string): Promise<string | undefined> {
+export async function getUserSecret(email: string): Promise<Record<string, string> | undefined> {
   const name = getUserSecretName(email)
   try {
     const secret = await k8sApi.readNamespacedSecret({ name, namespace: config.namespace })
-    return secret.data?.["USER_API_KEY"]
-      ? Buffer.from(secret.data["USER_API_KEY"], "base64").toString("utf-8")
-      : undefined
+    if (!secret.stringData) return undefined
+    return secret.stringData
   } catch (err) {
     if (isNotFound(err)) return undefined
     throw err
@@ -623,14 +623,14 @@ export async function getPodState(hash: string): Promise<PodState> {
  * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
  *
  * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
- * @param userSecret - User's stored API key secret (will be mounted via envFrom if provided).
+ * @param userSecrets - User's stored secrets (env var name → value). Mounted via envFrom if provided.
  */
 export async function ensurePod(
   hash: string,
   session: SessionKey,
   githubToken?: string,
   image?: string,
-  userSecret?: string,
+  userSecrets?: Record<string, string>,
 ): Promise<string> {
   const containerImage = image ?? config.opencodeImage
   const name = podName(hash)
@@ -644,7 +644,8 @@ export async function ensurePod(
   const podSecret = podSecretStore.generate(hash)
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  if (userSecret) await ensureUserSecret(session.email, userSecret)
+  // userSecrets already exist in K8s (set via API) - just ensure they're up to date
+  if (userSecrets) await ensureUserSecret(session.email, userSecrets)
 
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
@@ -841,7 +842,7 @@ export async function ensurePod(
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
-            ...(userSecret ? [{ secretRef: { name: getUserSecretName(session.email) } }] : []),
+            ...(userSecrets ? [{ secretRef: { name: getUserSecretName(session.email) } }] : []),
           ],
           securityContext: {
             allowPrivilegeEscalation: false,
@@ -910,13 +911,17 @@ export async function ensurePod(
  * The hash is kept internal to pod-manager — it must NOT be accepted from untrusted
  * callers, to prevent a malicious user from targeting another user's PVC.
  *
- * @param userSecret - User's stored API key to inject into the session pod.
+ * @param userSecrets - User's stored secrets to inject into the session pod.
  * @returns The session hash (to be returned to the client and used for polling).
  */
-export async function startSession(session: SessionKey, githubToken?: string, userSecret?: string): Promise<string> {
+export async function startSession(
+  session: SessionKey,
+  githubToken?: string,
+  userSecrets?: Record<string, string>,
+): Promise<string> {
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   await ensurePVC(hash, session)
-  await ensurePod(hash, session, githubToken, undefined, userSecret)
+  await ensurePod(hash, session, githubToken, undefined, userSecrets)
   return hash
 }
 
@@ -1192,13 +1197,13 @@ export async function terminateSession(hash: string, email: string): Promise<voi
  * Resume a stopped session: recreate the pod for an existing PVC.
  * Idempotent — safe to call when pod already exists.
  * Only the session owner may resume.
- * @param userSecret - User's stored API key to inject into the resumed session pod.
+ * @param userSecrets - User's stored secrets to inject into the resumed session pod.
  */
 export async function resumeSession(
   hash: string,
   email: string,
   githubToken?: string,
-  userSecret?: string,
+  userSecrets?: Record<string, string>,
 ): Promise<void> {
   const name = pvcName(hash)
   let pvc: k8s.V1PersistentVolumeClaim
@@ -1224,8 +1229,8 @@ export async function resumeSession(
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  if (userSecret) await ensureUserSecret(email, userSecret)
-  await ensurePod(hash, session, githubToken, undefined, userSecret)
+  if (userSecrets) await ensureUserSecret(email, userSecrets)
+  await ensurePod(hash, session, githubToken, undefined, userSecrets)
   emitSessionsChanged()
 }
 
