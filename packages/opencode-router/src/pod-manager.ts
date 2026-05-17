@@ -658,12 +658,23 @@ export async function ensurePod(
           `  git clone "${repoUrl}" /workspace`,
           `fi`,
           `cd /workspace`,
-          `$GIT fetch --all`,
-          `if $GIT rev-parse --verify "${branch}" >/dev/null 2>&1; then`,
-          `  $GIT checkout "${branch}"`,
+          // If the workspace carries uncommitted work from a prior session, skip
+          // fetch + checkout entirely and start the pod against the existing
+          // state. The repo was initialized on an earlier pod start so the user
+          // can keep working; otherwise `git checkout` would abort with "local
+          // changes would be overwritten" and the pod crashloops in Init:0/1.
+          // To get back on the session branch, commit or discard the changes
+          // from inside the pod and restart.
+          `if ! $GIT diff --quiet HEAD 2>/dev/null || [ -n "$($GIT ls-files --others --exclude-standard 2>/dev/null)" ]; then`,
+          `  echo "opencode-init: uncommitted changes detected in /workspace; skipping git fetch/checkout to preserve work"`,
           `else`,
-          `  $GIT checkout -B "${sourceBranch}" "origin/${sourceBranch}"`,
-          `  $GIT checkout -b "${branch}"`,
+          `  $GIT fetch --all`,
+          `  if $GIT rev-parse --verify "${branch}" >/dev/null 2>&1; then`,
+          `    $GIT checkout "${branch}"`,
+          `  else`,
+          `    $GIT checkout -B "${sourceBranch}" "origin/${sourceBranch}"`,
+          `    $GIT checkout -b "${branch}"`,
+          `  fi`,
           `fi`,
         ]
       : [
