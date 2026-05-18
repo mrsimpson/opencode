@@ -218,9 +218,9 @@ export async function handleApi(
     try {
       const secrets = await getUserSecret(email)
       if (secrets) {
-        json(res, 200, { hasSecret: true, keys: Object.keys(secrets) })
+        json(res, 200, { hasSecret: true, keys: Object.keys(secrets), secrets })
       } else {
-        json(res, 200, { hasSecret: false, keys: [] })
+        json(res, 200, { hasSecret: false, keys: [], secrets: {} })
       }
     } catch (err) {
       console.error("getUserSecret failed:", err)

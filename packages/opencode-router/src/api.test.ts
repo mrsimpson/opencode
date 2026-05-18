@@ -1976,6 +1976,7 @@ describe("GET /api/user/secret", () => {
     const body = JSON.parse(res.body)
     expect(body.hasSecret).toBe(true)
     expect(body.keys).toEqual(["OPENAI_API_KEY"])
+    expect(body.secrets).toEqual({ OPENAI_API_KEY: "sk-123" })
   })
 
   it("returns 200 with hasSecret: false when no secrets exist", async () => {

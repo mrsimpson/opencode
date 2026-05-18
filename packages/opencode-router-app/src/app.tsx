@@ -92,12 +92,20 @@ export function App() {
                     variant="ghost"
                     size="small"
                     onClick={async () => {
-                      // Delete all secrets (simple approach - user can re-add the others)
+                      // Delete this specific key by fetching all secrets, removing it, and saving
                       setSecretLoading(true)
                       setSecretMessage("")
                       try {
-                        await deleteUserSecret()
-                        setSecretKeys([])
+                        const existing = await getUserSecret()
+                        const remaining = { ...existing.secrets }
+                        delete remaining[key]
+                        if (Object.keys(remaining).length > 0) {
+                          await setUserSecret(remaining)
+                          setSecretKeys(Object.keys(remaining))
+                        } else {
+                          await deleteUserSecret()
+                          setSecretKeys([])
+                        }
                         setSecretMessage(t("settings.apiKeys.deleted"))
                       } catch (err) {
                         setSecretMessage(t("settings.apiKeys.error.delete"))
@@ -156,8 +164,11 @@ export function App() {
                   setSecretLoading(true)
                   setSecretMessage("")
                   try {
-                    await setUserSecret({ [envVarName]: envVarValue })
-                    setSecretKeys([envVarName])
+                    // Fetch existing secrets and merge with the new one
+                    const existing = await getUserSecret()
+                    const mergedSecrets = { ...existing.secrets, [envVarName]: envVarValue }
+                    await setUserSecret(mergedSecrets)
+                    setSecretKeys(Object.keys(mergedSecrets))
                     setNewEnvVarName("")
                     setNewEnvVarValue("")
                     setSecretMessage(t("settings.apiKeys.saved"))

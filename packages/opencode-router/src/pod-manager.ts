@@ -462,8 +462,12 @@ export async function getUserSecret(email: string): Promise<Record<string, strin
   const name = getUserSecretName(email)
   try {
     const secret = await k8sApi.readNamespacedSecret({ name, namespace: config.namespace })
-    if (!secret.stringData) return undefined
-    return secret.stringData
+    if (!secret.data || Object.keys(secret.data).length === 0) return undefined
+    const result: Record<string, string> = {}
+    for (const [key, value] of Object.entries(secret.data)) {
+      result[key] = Buffer.from(value, "base64").toString("utf-8")
+    }
+    return result
   } catch (err) {
     if (isNotFound(err)) return undefined
     throw err

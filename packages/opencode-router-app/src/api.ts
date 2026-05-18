@@ -286,6 +286,7 @@ export function subscribeProgressStream(
 export interface UserSecretResponse {
   hasSecret: boolean
   keys: string[]
+  secrets: Record<string, string>
 }
 
 export async function getUserSecret(): Promise<UserSecretResponse> {
