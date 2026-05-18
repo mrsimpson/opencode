@@ -193,12 +193,8 @@ const paidModels = pulumi.output(fetchPaidModels())
 async function fetchFlinkerModels() {
   try {
     const res = await fetch("http://flinker:8080/v1/models")
-    const data = (await res.json()) as { models: { name: string }[] }
-    const models: Record<string, object> = {}
-    for (const m of data.models) {
-      models[m.name] = {}
-    }
-    return models
+    const data = (await res.json()) as { data: { id: string }[] }
+    return Object.fromEntries((data.data ?? []).map((m) => [m.id, {}]))
   } catch {
     return {}
   }
