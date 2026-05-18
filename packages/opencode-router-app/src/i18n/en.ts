@@ -45,6 +45,23 @@ export const dict = {
   "app.newSession.prompt.placeholder": "Describe a task or ask a question",
   "sidebar.collapse": "Collapse sidebar",
   "sidebar.expand": "Expand sidebar",
+
+  "settings.title": "Settings",
+  "settings.apiKeys": "Environment Variables",
+  "settings.apiKeys.description":
+    "Set environment variables (e.g., API keys) that will be automatically injected into all your sessions.",
+  "settings.apiKeys.current": "Current",
+  "settings.apiKeys.set": "Add",
+  "settings.apiKeys.add": "Add",
+  "settings.apiKeys.update": "Update",
+  "settings.apiKeys.delete": "Delete",
+  "settings.apiKeys.deleteAll": "Delete All",
+  "settings.apiKeys.placeholder": "API key value",
+  "settings.apiKeys.saved": "Saved",
+  "settings.apiKeys.deleted": "Deleted",
+  "settings.apiKeys.error.save": "Failed to save",
+  "settings.apiKeys.error.delete": "Failed to delete",
+  "settings.apiKeys.none": "No environment variables set",
 } as const
 
 export type DictKey = keyof typeof dict

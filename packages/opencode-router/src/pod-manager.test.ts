@@ -102,6 +102,13 @@ const fakeK8sApi = {
     fakePVCs = (fakePVCs as any[]).filter((_, i) => i !== idx)
   },
   createNamespacedSecret: async ({ namespace, body }: { namespace: string; body: any }) => {
+    // Check if secret already exists - if so, throw conflict error
+    const exists = (fakeSecrets as any[]).some((s) => s.metadata?.name === body.metadata?.name)
+    if (exists) {
+      const err: any = new Error("Conflict")
+      err.code = 409
+      throw err
+    }
     createSecretCalls.push({ namespace, body })
     fakeSecrets = [...fakeSecrets, body]
     return body
@@ -1586,5 +1593,130 @@ describe("resumeSession — blank-aware", () => {
     // Since no repoUrl in SessionKey, should use git init path
     expect(script).toContain("git -c safe.directory=/workspace init /workspace")
     expect(script).not.toContain("git clone")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-user secrets — getUserSecretName, ensureUserSecret, deleteUserSecret
+// ---------------------------------------------------------------------------
+
+import crypto from "node:crypto"
+
+function computeUserSecretHash(email: string): string {
+  return crypto.createHash("sha256").update(email.toLowerCase().trim()).digest("hex").slice(0, 12)
+}
+
+describe("getUserSecretName", () => {
+  it("returns secret name in expected format", async () => {
+    const { getUserSecretName } = await import("./pod-manager.js")
+    const email = "user@example.com"
+    const result = getUserSecretName(email)
+    expect(result).toBe(`opencode-user-${computeUserSecretHash(email)}`)
+  })
+
+  it("is case-insensitive and trims whitespace", async () => {
+    const { getUserSecretName } = await import("./pod-manager.js")
+    const email = "  User@Example.COM  "
+    const result = getUserSecretName(email)
+    expect(result).toBe(`opencode-user-${computeUserSecretHash("user@example.com")}`)
+  })
+
+  it("produces different names for different emails", async () => {
+    const { getUserSecretName } = await import("./pod-manager.js")
+    const result1 = getUserSecretName("a@test.com")
+    const result2 = getUserSecretName("b@test.com")
+    expect(result1).not.toBe(result2)
+  })
+})
+
+describe("ensureUserSecret", () => {
+  beforeEach(() => {
+    fakeSecrets = []
+    createSecretCalls = []
+    replaceSecretCalls = []
+  })
+
+  it("creates a new secret when it does not exist", async () => {
+    const { ensureUserSecret } = await import("./pod-manager.js")
+    const email = "user@example.com"
+    const secrets = { OPENAI_API_KEY: "sk-user-secret-key" }
+
+    await (ensureUserSecret as any)(email, secrets)
+
+    expect(createSecretCalls).toHaveLength(1)
+    const call = createSecretCalls[0]
+    expect(call.namespace).toBe("opencode")
+    expect(call.body.metadata.name).toBe(`opencode-user-${computeUserSecretHash(email)}`)
+    expect(call.body.type).toBe("Opaque")
+    expect(call.body.stringData).toEqual(secrets)
+  })
+
+  it("updates existing secret when it already exists", async () => {
+    const { ensureUserSecret, getUserSecretName } = await import("./pod-manager.js")
+    const email = "user@example.com"
+    const secretName = getUserSecretName(email)
+
+    // Pre-populate with existing secret
+    fakeSecrets = [
+      {
+        metadata: { name: secretName, namespace: "opencode" },
+        type: "Opaque",
+        stringData: { OPENAI_API_KEY: "old-secret" },
+      },
+    ]
+
+    const newSecrets = { OPENAI_API_KEY: "sk-new-secret-key" }
+    await (ensureUserSecret as any)(email, newSecrets)
+
+    expect(createSecretCalls).toHaveLength(0)
+    expect(replaceSecretCalls).toHaveLength(1)
+    expect(replaceSecretCalls[0].name).toBe(secretName)
+    expect(replaceSecretCalls[0].body.stringData).toEqual(newSecrets)
+  })
+
+  it("uses correct namespace from config", async () => {
+    const { ensureUserSecret } = await import("./pod-manager.js")
+    const email = "admin@test.com"
+    const secrets = { ANTHROPIC_API_KEY: "sk-test-key" }
+
+    await (ensureUserSecret as any)(email, secrets)
+
+    expect(createSecretCalls[0].namespace).toBe("opencode")
+  })
+})
+
+describe("deleteUserSecret", () => {
+  beforeEach(() => {
+    fakeSecrets = []
+    deleteSecretCalls = []
+  })
+
+  it("deletes the user's secret", async () => {
+    const { deleteUserSecret, getUserSecretName } = await import("./pod-manager.js")
+    const email = "user@example.com"
+    const secretName = getUserSecretName(email)
+
+    // Pre-populate with existing secret
+    fakeSecrets = [
+      {
+        metadata: { name: secretName, namespace: "opencode" },
+        type: "Opaque",
+        stringData: { USER_API_KEY: "some-secret" },
+      },
+    ]
+
+    await (deleteUserSecret as any)(email)
+
+    expect(deleteSecretCalls).toContain(secretName)
+  })
+
+  it("does not throw when secret does not exist", async () => {
+    const { deleteUserSecret } = await import("./pod-manager.js")
+    const email = "nonexistent@example.com"
+
+    // Should not throw - the function should handle NotFound gracefully
+    await (deleteUserSecret as any)(email)
+    // If we get here without an uncaught error, the test passes
+    expect(true).toBe(true)
   })
 })

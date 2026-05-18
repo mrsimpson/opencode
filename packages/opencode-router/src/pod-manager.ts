@@ -412,6 +412,68 @@ function githubSecretName(hash: string): string {
   return `opencode-github-${hash}`
 }
 
+/**
+ * Generate the K8s secret name for a user's API key.
+ * Uses SHA256 hash of email (lowercased, trimmed) to create a deterministic name.
+ */
+export function getUserSecretName(email: string): string {
+  const hash = crypto.createHash("sha256").update(email.toLowerCase().trim()).digest("hex").slice(0, 12)
+  return `opencode-user-${hash}`
+}
+
+/**
+ * Create or update a user's K8s Secret containing their environment variables.
+ * @param secrets Object where keys = environment variable names, values = secret values
+ */
+export async function ensureUserSecret(email: string, secrets: Record<string, string>): Promise<void> {
+  const name = getUserSecretName(email)
+  const k8sSecret: k8s.V1Secret = {
+    metadata: { name, namespace: config.namespace },
+    type: "Opaque",
+    stringData: secrets,
+  }
+  try {
+    await k8sApi.createNamespacedSecret({ namespace: config.namespace, body: k8sSecret })
+  } catch (err) {
+    if (!isConflict(err)) throw err
+    // Secret exists — replace it with a PUT.
+    await k8sApi.replaceNamespacedSecret({ name, namespace: config.namespace, body: k8sSecret })
+  }
+}
+
+/**
+ * Delete a user's K8s Secret containing their API key.
+ * Does not throw if secret doesn't exist.
+ */
+export async function deleteUserSecret(email: string): Promise<void> {
+  const name = getUserSecretName(email)
+  try {
+    await k8sApi.deleteNamespacedSecret({ name, namespace: config.namespace })
+  } catch (err) {
+    if (!isNotFound(err)) throw err
+  }
+}
+
+/**
+ * Get user's stored secrets (env var name → value).
+ * Returns undefined if the user has not set any secrets.
+ */
+export async function getUserSecret(email: string): Promise<Record<string, string> | undefined> {
+  const name = getUserSecretName(email)
+  try {
+    const secret = await k8sApi.readNamespacedSecret({ name, namespace: config.namespace })
+    if (!secret.data || Object.keys(secret.data).length === 0) return undefined
+    const result: Record<string, string> = {}
+    for (const [key, value] of Object.entries(secret.data)) {
+      result[key] = Buffer.from(value, "base64").toString("utf-8")
+    }
+    return result
+  } catch (err) {
+    if (isNotFound(err)) return undefined
+    throw err
+  }
+}
+
 const WORKSPACE_BASE64 = Buffer.from("/home/opencode/repo").toString("base64").replace(/=+$/, "")
 
 function deepLinkUrl(podUrl: string, sessionId: string): string {
@@ -565,12 +627,14 @@ export async function getPodState(hash: string): Promise<PodState> {
  * - Checks out `branch` if it exists remotely, otherwise creates it from the default branch
  *
  * @param image - Override the container image (defaults to config.opencodeImage). Used by prepullImage().
+ * @param userSecrets - User's stored secrets (env var name → value). Mounted via envFrom if provided.
  */
 export async function ensurePod(
   hash: string,
   session: SessionKey,
   githubToken?: string,
   image?: string,
+  userSecrets?: Record<string, string>,
 ): Promise<string> {
   const containerImage = image ?? config.opencodeImage
   const name = podName(hash)
@@ -584,6 +648,8 @@ export async function ensurePod(
   const podSecret = podSecretStore.generate(hash)
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
+  // userSecrets already exist in K8s (set via API) - just ensure they're up to date
+  if (userSecrets) await ensureUserSecret(session.email, userSecrets)
 
   const now = new Date().toISOString()
   const { repoUrl, branch, sourceBranch, email } = session
@@ -780,6 +846,7 @@ export async function ensurePod(
           envFrom: [
             { secretRef: { name: config.apiKeySecretName } },
             ...(githubToken ? [{ secretRef: { name: githubSecretName(hash) } }] : []),
+            ...(userSecrets ? [{ secretRef: { name: getUserSecretName(session.email) } }] : []),
           ],
           securityContext: {
             allowPrivilegeEscalation: false,
@@ -848,12 +915,17 @@ export async function ensurePod(
  * The hash is kept internal to pod-manager — it must NOT be accepted from untrusted
  * callers, to prevent a malicious user from targeting another user's PVC.
  *
+ * @param userSecrets - User's stored secrets to inject into the session pod.
  * @returns The session hash (to be returned to the client and used for polling).
  */
-export async function startSession(session: SessionKey, githubToken?: string): Promise<string> {
+export async function startSession(
+  session: SessionKey,
+  githubToken?: string,
+  userSecrets?: Record<string, string>,
+): Promise<string> {
   const hash = getSessionHash(session.email, session.repoUrl, session.branch)
   await ensurePVC(hash, session)
-  await ensurePod(hash, session, githubToken)
+  await ensurePod(hash, session, githubToken, undefined, userSecrets)
   return hash
 }
 
@@ -1129,8 +1201,14 @@ export async function terminateSession(hash: string, email: string): Promise<voi
  * Resume a stopped session: recreate the pod for an existing PVC.
  * Idempotent — safe to call when pod already exists.
  * Only the session owner may resume.
+ * @param userSecrets - User's stored secrets to inject into the resumed session pod.
  */
-export async function resumeSession(hash: string, email: string, githubToken?: string): Promise<void> {
+export async function resumeSession(
+  hash: string,
+  email: string,
+  githubToken?: string,
+  userSecrets?: Record<string, string>,
+): Promise<void> {
   const name = pvcName(hash)
   let pvc: k8s.V1PersistentVolumeClaim
   try {
@@ -1155,7 +1233,8 @@ export async function resumeSession(hash: string, email: string, githubToken?: s
   }
 
   if (githubToken) await ensureGithubTokenSecret(hash, githubToken)
-  await ensurePod(hash, session, githubToken)
+  if (userSecrets) await ensureUserSecret(email, userSecrets)
+  await ensurePod(hash, session, githubToken, undefined, userSecrets)
   emitSessionsChanged()
 }
 

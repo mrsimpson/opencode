@@ -1,5 +1,7 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { TextField } from "@opencode-ai/ui/text-field"
+import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
 import {
@@ -10,6 +12,9 @@ import {
   subscribeSessionsStream,
   suggestBranch,
   terminateSession,
+  getUserSecret,
+  setUserSecret,
+  deleteUserSecret,
 } from "./api"
 import { useT } from "./i18n"
 import { LoadingScreen } from "./loading-screen"
@@ -41,6 +46,179 @@ export function App() {
   const [formError, setFormError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
 
+  // Settings state - support multiple key-value pairs
+  const [secretKeys, setSecretKeys] = createSignal<string[]>([])
+  const [newEnvVarName, setNewEnvVarName] = createSignal("")
+  const [newEnvVarValue, setNewEnvVarValue] = createSignal("")
+  const [secretLoading, setSecretLoading] = createSignal(false)
+  const [secretMessage, setSecretMessage] = createSignal("")
+
+  // Load user secret keys on mount
+  onMount(async () => {
+    try {
+      const { keys } = await getUserSecret()
+      setSecretKeys(keys)
+    } catch {
+      /* silent */
+    }
+  })
+
+  const handleOpenSettings = async () => {
+    setNewEnvVarName("")
+    setNewEnvVarValue("")
+    setSecretMessage("")
+    try {
+      const { keys } = await getUserSecret()
+      setSecretKeys(keys)
+    } catch {
+      /* silent */
+    }
+    dialog.show(() => (
+      <Dialog fit title={t("settings.title")}>
+        <div class="flex flex-col gap-4 p-4">
+          <div>
+            <h3 class="text-14-medium mb-1">{t("settings.apiKeys")}</h3>
+            <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
+              {t("settings.apiKeys.description")}
+            </p>
+          </div>
+
+          {/* List of existing secrets */}
+          <Show when={secretKeys().length > 0}>
+            <div class="flex flex-col gap-2">
+              {secretKeys().map((key) => (
+                <div class="flex items-center gap-2 p-2 rounded" style={{ background: "var(--surface-elevated)" }}>
+                  <code class="text-12-regular font-mono flex-1">{key}</code>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={async () => {
+                      // Delete this specific key by fetching all secrets, removing it, and saving
+                      setSecretLoading(true)
+                      setSecretMessage("")
+                      try {
+                        const existing = await getUserSecret()
+                        const remaining = { ...existing.secrets }
+                        delete remaining[key]
+                        if (Object.keys(remaining).length > 0) {
+                          await setUserSecret(remaining)
+                          setSecretKeys(Object.keys(remaining))
+                        } else {
+                          await deleteUserSecret()
+                          setSecretKeys([])
+                        }
+                        setSecretMessage(t("settings.apiKeys.deleted"))
+                      } catch (err) {
+                        setSecretMessage(t("settings.apiKeys.error.delete"))
+                      } finally {
+                        setSecretLoading(false)
+                      }
+                    }}
+                    disabled={secretLoading()}
+                    style={{ color: "var(--text-danger-base, #ef4444)" }}
+                    title={t("settings.apiKeys.delete")}
+                  >
+                    <Icon name="trash" style={{ color: "var(--text-danger-base, #ef4444)" }} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Show>
+
+          <Show when={secretKeys().length === 0}>
+            <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
+              {t("settings.apiKeys.none")}
+            </p>
+          </Show>
+
+          {/* Add new secret form */}
+          <div class="flex flex-col gap-2">
+            <div class="flex gap-2">
+              <TextField
+                placeholder="ENV_VAR_NAME (e.g. OPENAI_API_KEY)"
+                value={newEnvVarName()}
+                onInput={(e) => setNewEnvVarName(e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""))}
+                class="flex-1"
+              />
+              <TextField
+                placeholder={t("settings.apiKeys.placeholder")}
+                value={newEnvVarValue()}
+                onInput={(e) => setNewEnvVarValue(e.currentTarget.value)}
+                type="password"
+                class="flex-1"
+              />
+            </div>
+            <div class="flex gap-2">
+              <Button
+                variant="primary"
+                size="small"
+                onClick={async () => {
+                  const envVarName = newEnvVarName().trim()
+                  const envVarValue = newEnvVarValue().trim()
+                  if (!envVarName || !envVarValue) return
+                  setSecretLoading(true)
+                  setSecretMessage("")
+                  try {
+                    // Fetch existing secrets and merge with the new one
+                    const existing = await getUserSecret()
+                    const mergedSecrets = { ...existing.secrets, [envVarName]: envVarValue }
+                    await setUserSecret(mergedSecrets)
+                    setSecretKeys(Object.keys(mergedSecrets))
+                    setNewEnvVarName("")
+                    setNewEnvVarValue("")
+                    setSecretMessage(t("settings.apiKeys.saved"))
+                  } catch (err) {
+                    setSecretMessage(t("settings.apiKeys.error.save"))
+                  } finally {
+                    setSecretLoading(false)
+                  }
+                }}
+                disabled={secretLoading() || !newEnvVarName().trim() || !newEnvVarValue().trim()}
+              >
+                {secretKeys().length > 0 ? t("settings.apiKeys.add") : t("settings.apiKeys.set")}
+              </Button>
+              <Show when={secretKeys().length > 0}>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  onClick={async () => {
+                    setSecretLoading(true)
+                    setSecretMessage("")
+                    try {
+                      await deleteUserSecret()
+                      setSecretKeys([])
+                      setSecretMessage(t("settings.apiKeys.deleted"))
+                    } catch (err) {
+                      setSecretMessage(t("settings.apiKeys.error.delete"))
+                    } finally {
+                      setSecretLoading(false)
+                    }
+                  }}
+                  disabled={secretLoading()}
+                  style={{ color: "var(--text-danger-base, #ef4444)" }}
+                >
+                  {t("settings.apiKeys.deleteAll")}
+                </Button>
+              </Show>
+            </div>
+            <Show when={secretMessage()}>
+              <p
+                class="text-12-regular"
+                style={{
+                  color: secretMessage().includes("error")
+                    ? "var(--text-danger-base, #ef4444)"
+                    : "var(--text-dimmed-base)",
+                }}
+              >
+                {secretMessage()}
+              </p>
+            </Show>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
+
   let promptRef: HTMLTextAreaElement | undefined
 
   const dialog = useDialog()
@@ -51,6 +229,10 @@ export function App() {
 
   /** Restore app phase from the current browser URL after sessions have loaded. */
   const restoreFromUrl = async () => {
+    if (window.location.pathname === "/settings") {
+      handleOpenSettings()
+      return
+    }
     const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
     if (!m) return
     const hash = m[1]
@@ -110,6 +292,10 @@ export function App() {
     startStream()
 
     const onPopState = async () => {
+      if (window.location.pathname === "/settings") {
+        handleOpenSettings()
+        return
+      }
       const m = window.location.pathname.match(/^\/session\/([a-f0-9]{12})$/)
       if (!m) {
         setAppPhase({ kind: "ready" })
@@ -305,10 +491,26 @@ export function App() {
           <Match when={appPhase().kind === "ready"}>
             <div class="flex flex-1 flex-col items-center overflow-y-auto px-4 pt-12 pb-8 gap-6">
               <div class="w-full max-w-2xl flex flex-col gap-6">
-                {/* Welcome heading */}
-                <h1 class="text-18-medium text-center" style={{ color: "var(--text-base)" }}>
-                  {t("app.welcomeBack", { email: email() || "—" })}
-                </h1>
+                {/* Welcome heading with settings button */}
+                <div class="flex items-center justify-center gap-2">
+                  <h1 class="text-18-medium text-center" style={{ color: "var(--text-base)" }}>
+                    {t("app.welcomeBack", { email: email() || "—" })}
+                  </h1>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    onClick={() => {
+                      navigate("/settings")
+                      handleOpenSettings()
+                    }}
+                    title={t("settings.title")}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z" />
+                      <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z" />
+                    </svg>
+                  </Button>
+                </div>
 
                 {/* New session form */}
                 <SessionInputBar

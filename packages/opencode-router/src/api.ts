@@ -1,5 +1,11 @@
 import type http from "node:http"
+import * as k8s from "@kubernetes/client-node"
 import { config } from "./config.js"
+
+const kc = new k8s.KubeConfig()
+kc.loadFromDefault()
+const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
+
 import {
   type SessionKey,
   RemoteRefsUnreachableError,
@@ -17,6 +23,10 @@ import {
   terminateSession,
   resumeSession,
   suggestBranch,
+  ensureUserSecret,
+  deleteUserSecret,
+  getUserSecretName,
+  getUserSecret,
 } from "./pod-manager.js"
 import { podSecretStore } from "./pod-secret-store.js"
 import { messageStore } from "./message-store.js"
@@ -167,8 +177,11 @@ export async function handleApi(
       const session: SessionKey = { email, repoUrl, branch, sourceBranch, initialMessage: initialMessage || undefined }
       const hash = getSessionHash(email, repoUrl, branch)
 
+      // Fetch user's secret (if any) to inject into the session pod
+      const userSecret = await getUserSecret(email)
+
       await ensurePVC(hash, session)
-      await ensurePod(hash, session, githubToken)
+      await ensurePod(hash, session, githubToken, undefined, userSecret)
       sessionsChangedBroadcaster.emit()
 
       json(res, 201, { hash, url: null, state: "creating" })
@@ -177,8 +190,10 @@ export async function handleApi(
 
     // New project (blank disc) flow: no git validation needed.
     // startSession freezes the hash once so PVC and Pod share the same identity.
+    // Fetch user's secret (if any) to inject into the session pod
+    const userSecret = await getUserSecret(email)
     const session: SessionKey = { email, initialMessage: initialMessage || undefined }
-    const hash = await startSession(session, githubToken)
+    const hash = await startSession(session, githubToken, userSecret)
     sessionsChangedBroadcaster.emit()
 
     json(res, 201, { hash, url: null, state: "creating" })
@@ -195,6 +210,75 @@ export async function handleApi(
     }
     const branch = await suggestBranch(email, repoUrl)
     json(res, 200, { branch })
+    return true
+  }
+
+  // GET /api/user/secret — get user's secret keys (not values)
+  if (url === "/api/user/secret" && req.method === "GET") {
+    try {
+      const secrets = await getUserSecret(email)
+      if (secrets) {
+        json(res, 200, { hasSecret: true, keys: Object.keys(secrets), secrets })
+      } else {
+        json(res, 200, { hasSecret: false, keys: [], secrets: {} })
+      }
+    } catch (err) {
+      console.error("getUserSecret failed:", err)
+      json(res, 500, { error: "Failed to get secret" })
+    }
+    return true
+  }
+
+  // POST /api/user/secret — set/update user's secrets
+  if (url === "/api/user/secret" && req.method === "POST") {
+    const raw = await readBody(req)
+    let secrets: Record<string, string>
+    try {
+      const body = JSON.parse(raw)
+      if (typeof body.secrets !== "object" || body.secrets === null) {
+        json(res, 400, { error: "secrets is required and must be an object" })
+        return true
+      }
+      // Validate that all keys are valid env var names and values are strings
+      secrets = {}
+      for (const [key, value] of Object.entries(body.secrets)) {
+        if (typeof key !== "string" || !key.trim()) {
+          json(res, 400, { error: "Invalid secret key" })
+          return true
+        }
+        if (typeof value !== "string") {
+          json(res, 400, { error: `Invalid value for key "${key}"` })
+          return true
+        }
+        secrets[key.trim()] = value
+      }
+    } catch {
+      json(res, 400, { error: "Invalid JSON" })
+      return true
+    }
+    if (Object.keys(secrets).length === 0) {
+      json(res, 400, { error: "At least one secret is required" })
+      return true
+    }
+    try {
+      await ensureUserSecret(email, secrets)
+      json(res, 200, { success: true, keys: Object.keys(secrets) })
+    } catch (err) {
+      console.error("setUserSecret failed:", err)
+      json(res, 500, { error: "Failed to set secret" })
+    }
+    return true
+  }
+
+  // DELETE /api/user/secret — delete user's secret
+  if (url === "/api/user/secret" && req.method === "DELETE") {
+    try {
+      await deleteUserSecret(email)
+      json(res, 200, { success: true })
+    } catch (err) {
+      console.error("deleteUserSecret failed:", err)
+      json(res, 500, { error: "Failed to delete secret" })
+    }
     return true
   }
 
@@ -405,7 +489,9 @@ export async function handleApi(
   if (resumeMatch && req.method === "POST") {
     const hash = resumeMatch[1]
     try {
-      await resumeSession(hash, email, githubToken)
+      // Fetch user's secret (if any) to inject into the resumed session pod
+      const userSecret = await getUserSecret(email)
+      await resumeSession(hash, email, githubToken, userSecret)
     } catch (err) {
       const code = errorCode(err)
       if (code === "Forbidden") {
@@ -700,4 +786,17 @@ export async function handleApi(
   }
 
   return false
+}
+
+function hasCode(err: unknown): err is { code: number } {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as Record<string, unknown>).code === "number"
+  )
+}
+
+function isNotFound(err: unknown): boolean {
+  return hasCode(err) && err.code === 404
 }

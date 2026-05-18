@@ -280,3 +280,40 @@ export function subscribeProgressStream(
   if (handlers.onError) es.onerror = handlers.onError
   return es
 }
+
+// User secret API
+
+export interface UserSecretResponse {
+  hasSecret: boolean
+  keys: string[]
+  secrets: Record<string, string>
+}
+
+export async function getUserSecret(): Promise<UserSecretResponse> {
+  const res = await fetch("/api/user/secret", { signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!res.ok) throw new Error(`Failed to get user secret: ${res.status}`)
+  return res.json()
+}
+
+export async function setUserSecret(secrets: Record<string, string>): Promise<{ success: true; keys: string[] }> {
+  const res = await fetch("/api/user/secret", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secrets }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `Failed to set user secret: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function deleteUserSecret(): Promise<{ success: true }> {
+  const res = await fetch("/api/user/secret", {
+    method: "DELETE",
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+  if (!res.ok) throw new Error(`Failed to delete user secret: ${res.status}`)
+  return res.json()
+}
