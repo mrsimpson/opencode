@@ -1,0 +1,24 @@
+{
+  "conversationId": "opencode-fix-flinker-model-api-response-parsing-fd18te",
+  "projectPath": "/Users/oliverjaegle/projects/open-source/opencode",
+  "epicId": "opencode-12",
+  "phaseTasks": [
+    {
+      "phaseId": "explore",
+      "phaseName": "Explore",
+      "taskId": "opencode-12.1"
+    },
+    {
+      "phaseId": "implement",
+      "phaseName": "Implement",
+      "taskId": "opencode-12.2"
+    },
+    {
+      "phaseId": "finalize",
+      "phaseName": "Finalize",
+      "taskId": "opencode-12.3"
+    }
+  ],
+  "createdAt": "2026-05-18T09:16:26.015Z",
+  "updatedAt": "2026-05-18T09:16:26.015Z"
+}
