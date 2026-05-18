@@ -190,11 +190,38 @@ const apiKeysSecret = new k8s.core.v1.Secret(
 const freeModels = pulumi.output(fetchFreeModels())
 const paidModels = pulumi.output(fetchPaidModels())
 
+type FlinkerModel = {
+  id: string
+  status: { value: string; args: string[] }
+}
+
+function parseFlinkerModel(m: FlinkerModel): [string, object] | null {
+  const args = m.status.args ?? []
+  // Exclude embedding models and placeholders with no --model arg
+  if (args.includes("--embeddings")) return null
+  if (!args.includes("--model") && !args.includes("--hf-repo")) return null
+
+  const ctxIdx = args.indexOf("--ctx-size")
+  const ctx = ctxIdx !== -1 ? parseInt(args[ctxIdx + 1], 10) : undefined
+
+  return [
+    m.id,
+    {
+      name: `${m.id} (local${m.status.value === "loaded" ? ", loaded" : ""})`,
+      tool_call: true,
+      ...(ctx ? { limit: { context: ctx, output: Math.min(ctx, 32768) } } : {}),
+    },
+  ]
+}
+
 async function fetchFlinkerModels() {
   try {
     const res = await fetch("http://flinker:8080/v1/models")
-    const data = (await res.json()) as { data: { id: string }[] }
-    return Object.fromEntries((data.data ?? []).map((m) => [m.id, {}]))
+    const data = (await res.json()) as { data: FlinkerModel[] }
+    return Object.fromEntries((data.data ?? []).flatMap((m) => {
+      const entry = parseFlinkerModel(m)
+      return entry ? [entry] : []
+    }))
   } catch {
     return {}
   }
