@@ -1,6 +1,7 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { TextField } from "@opencode-ai/ui/text-field"
+import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog, useI18n } from "@opencode-ai/ui/context"
 import { Match, Show, Switch, createSignal, onCleanup, onMount, batch } from "solid-js"
 import {
@@ -117,13 +118,7 @@ export function App() {
                     style={{ color: "var(--text-danger-base, #ef4444)" }}
                     title={t("settings.apiKeys.delete")}
                   >
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                      <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
-                      <path
-                        fill-rule="evenodd"
-                        d="M14 3a1 1 0 0 1-1 1H1a1 1 0 0 1 0-2h3.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1H13a1 1 0 0 1 1 1zM4.118 4L4.5 13a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.382-9H4.118z"
-                      />
-                    </svg>
+                    <Icon name="trash" style={{ color: "var(--text-danger-base, #ef4444)" }} />
                   </Button>
                 </div>
               ))}
