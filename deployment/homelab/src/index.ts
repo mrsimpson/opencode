@@ -218,10 +218,14 @@ async function fetchFlinkerModels() {
   try {
     const res = await fetch("http://flinker:8080/v1/models")
     const data = (await res.json()) as { data: FlinkerModel[] }
-    return Object.fromEntries((data.data ?? []).flatMap((m) => {
-      const entry = parseFlinkerModel(m)
-      return entry ? [entry] : []
-    }))
+    return Object.fromEntries(
+      (data.data ?? [])
+        .sort((a, b) => (a.status.value === "loaded" ? -1 : 1) - (b.status.value === "loaded" ? -1 : 1))
+        .flatMap((m) => {
+          const entry = parseFlinkerModel(m)
+          return entry ? [entry] : []
+        }),
+    )
   } catch {
     return {}
   }
