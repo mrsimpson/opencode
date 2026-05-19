@@ -210,6 +210,7 @@ function parseFlinkerModel(m: FlinkerModel): [string, object] | null {
       name: `${m.id} (local${m.status.value === "loaded" ? ", loaded" : ""})`,
       tool_call: true,
       ...(ctx ? { limit: { context: ctx, output: Math.min(ctx, 32768) } } : {}),
+      ...(m.id === "qwen3.6-35b-a3b" ? { options: { top_k: 20, top_p: 0.95, temperature: 0.6 } } : {}),
     },
   ]
 }
@@ -245,6 +246,7 @@ const configMap = new k8s.core.v1.ConfigMap(
       // Only contains the parts that need to be dynamic (model lists).
       "opencode.json": JSON.stringify(
         {
+          model: "flinker/qwen3.6-35b-a3b",
           provider: {
             openrouter: {
               models: paid,
