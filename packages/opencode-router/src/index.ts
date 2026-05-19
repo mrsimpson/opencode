@@ -1,3 +1,5 @@
+if (process.env.MOCK_K8S) await import("./mock-k8s.js")
+
 import http from "node:http"
 import httpProxy from "http-proxy"
 import { handleApi } from "./api.js"
