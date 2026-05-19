@@ -210,7 +210,7 @@ function parseFlinkerModel(m: FlinkerModel): [string, object] | null {
       name: `${m.id} (local${m.status.value === "loaded" ? ", loaded" : ""})`,
       tool_call: true,
       ...(ctx ? { limit: { context: ctx, output: Math.min(ctx, 32768) } } : {}),
-      ...(m.id === "qwen3.6-35b-a3b" ? { options: { top_k: 40, temperature: 0.6 } } : {}),
+      ...(m.id === "qwen3.6-35b-a3b" ? { options: { top_k: 20, top_p: 0.95, temperature: 0.6 } } : {}),
     },
   ]
 }

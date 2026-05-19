@@ -39,9 +39,9 @@ if (id.includes("qwen")) return 0.55
 
 We should override this via the model's `options.temperature` field if a different value is desired. Per user request, we will configure temperature for the llama.cpp setup.
 
-### Decision 5: Exact values for llama.cpp options
+### Decision 5: Exact values for llama.cpp options (per Qwen model card)
 
-We set `temperature: 0.6` and `top_k: 40` for `flinker/qwen3.6-35b-a3b`. These are sensible defaults for llama.cpp (temperature close to the qwen heuristic but explicitly configured; top_k matching common server defaults). The values are injected only for the model whose `m.id === "qwen3.6-35b-a3b"`.
+Per the [Qwen/Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B), the recommended parameters for **precise coding tasks** are `temperature=0.6, top_p=0.95, top_k=20`. We apply these to `flinker/qwen3.6-35b-a3b` via `model.options`. The values are injected only for the model whose `m.id === "qwen3.6-35b-a3b"`.
 
 ## Notes
 
@@ -94,7 +94,7 @@ We set `temperature: 0.6` and `top_k: 40` for `flinker/qwen3.6-35b-a3b`. These a
 ### Completed
 
 - [x] Added root `model: "flinker/qwen3.6-35b-a3b"` to the dynamic `opencode.json` in the ConfigMap
-- [x] Added conditional `options: { top_k: 40, temperature: 0.6 }` to `parseFlinkerModel` for `qwen3.6-35b-a3b`
+- [x] Added conditional `options: { top_k: 20, top_p: 0.95, temperature: 0.6 }` to `parseFlinkerModel` for `qwen3.6-35b-a3b` (per Qwen model card coding recommendations)
 - [x] Ran `tsc --noEmit` in `deployment/homelab`; no type errors introduced
 
 ## Finalize
@@ -112,9 +112,9 @@ We set `temperature: 0.6` and `top_k: 40` for `flinker/qwen3.6-35b-a3b`. These a
 - [x] **Code Cleanup**: Scanned `deployment/homelab/src/index.ts` for debug output, TODOs, FIXMEs, and temporary code. No issues found. The `DEBUG_HEADERS` env var is legitimate runtime configuration. No TODO/FIXME comments exist. No commented-out or experimental code related to this feature.
 - [x] **Documentation Review**: `requirements.md` and `design.md` are empty templates — no updates needed for this minor deployment config change.
 - [x] **Final Validation**: Existing tests in `models.test.ts` cover `models.ts` only and are unaffected by our changes. Syntactic review confirms valid TypeScript.
-- [x] **Commit & PR**: Committed all changes and created PR #68 → `origin/dev`
+- [x] **Commit & PR**: Committed all changes and created PR #69 → `main`
 
-PR: https://github.com/mrsimpson/opencode/pull/68
+PR: https://github.com/mrsimpson/opencode/pull/69
 
 ---
 
