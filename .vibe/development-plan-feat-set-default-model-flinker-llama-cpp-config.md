@@ -113,6 +113,7 @@ Per the [Qwen/Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35
 - [x] **Documentation Review**: `requirements.md` and `design.md` are empty templates — no updates needed for this minor deployment config change.
 - [x] **Final Validation**: Existing tests in `models.test.ts` cover `models.ts` only and are unaffected by our changes. Syntactic review confirms valid TypeScript.
 - [x] **Commit & PR**: Committed all changes and created PR #69 → `main`
+- [x] **Parameter refinement**: Updated `top_k` from 40 → 20 and added `top_p=0.95` per Qwen model card coding recommendations. PR updated.
 
 PR: https://github.com/mrsimpson/opencode/pull/69
 
