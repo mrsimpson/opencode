@@ -109,9 +109,12 @@ We set `temperature: 0.6` and `top_k: 40` for `flinker/qwen3.6-35b-a3b`. These a
 ### Completed
 
 - [x] Verified `deployment/homelab/src/index.ts` compiles with `tsc --noEmit` (no new errors)
-- [x] **Code Cleanup**: Scanned `deployment/homelab/src/index.ts` for debug output, TODOs, FIXMEs, and temporary code. No issues found. The `DEBUG_HEADERS` env var on line 476 is legitimate runtime configuration (not debug logging). No TODO or FIXME comments exist in the file. No commented-out or experimental code related to this feature.
-- [x] **Documentation Review**: `requirements.md` and `design.md` are empty templates with no pre-existing content for this feature. Since this is a minor deployment configuration change with no evolving requirements or design decisions beyond what is already documented in Key Decisions, no updates were needed.
-- [x] **Final Validation**: Existing tests in `deployment/homelab/tests/models.test.ts` cover `models.ts` only and are unaffected by our changes to `index.ts`. No new test failures introduced. Syntactic review of the edited code confirms valid TypeScript.
+- [x] **Code Cleanup**: Scanned `deployment/homelab/src/index.ts` for debug output, TODOs, FIXMEs, and temporary code. No issues found. The `DEBUG_HEADERS` env var is legitimate runtime configuration. No TODO/FIXME comments exist. No commented-out or experimental code related to this feature.
+- [x] **Documentation Review**: `requirements.md` and `design.md` are empty templates — no updates needed for this minor deployment config change.
+- [x] **Final Validation**: Existing tests in `models.test.ts` cover `models.ts` only and are unaffected by our changes. Syntactic review confirms valid TypeScript.
+- [x] **Commit & PR**: Committed all changes and created PR #68 → `origin/dev`
+
+PR: https://github.com/mrsimpson/opencode/pull/68
 
 ---
 
