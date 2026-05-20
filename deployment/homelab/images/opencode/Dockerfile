@@ -8,11 +8,12 @@ FROM ghcr.io/anomalyco/opencode:${BASE_VERSION}
 #   nodejs, npm      — Node.js LTS + npm (latest from Alpine apk)
 #   pnpm             — fast Node package manager
 #   python3          — Python interpreter (for MCP servers, scripts)
+#   ripgrep          — fast file search (required by glob tool)
 #   gh               — GitHub CLI (linux/amd64 tarball from GitHub releases)
 #   bd               — beads task-management CLI (https://github.com/steveyegge/beads)
 #   bun              — fast typescript toolchain
 
-RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq && \
+RUN apk add --no-cache git curl bash nodejs npm pnpm python3 jq ripgrep && \
     # gh CLI — resolve latest version tag, fetch and extract just the binary
     GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
       | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/') && \
