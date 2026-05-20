@@ -5,21 +5,7 @@ import type { Session, StoredMessage } from "./api"
 import { subscribeProgressStream } from "./api"
 import { useT } from "./i18n"
 import { StatusDot } from "./status-dot"
-import { computeIdleStatus } from "./session-utils"
-
-export function computeRelativeAge(lastActivity: string) {
-  const diffMs = Date.now() - new Date(lastActivity).getTime()
-  const diffMins = Math.floor(diffMs / 60_000)
-  if (diffMins < 1) return "just now"
-  if (diffMins < 60) return `${diffMins}m ago`
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}h ago`
-  return `${Math.floor(diffHours / 24)}d ago`
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-}
+import { computeIdleStatus, formatDateTime } from "./session-utils"
 
 export function stripRepoUrl(repoUrl: string) {
   return repoUrl.replace(/^https?:\/\//, "").replace(/\.git$/, "")
@@ -60,7 +46,7 @@ export function SessionItem(props: Props) {
   const t = useT(useI18n())
   const repo = () => stripRepoUrl(props.session.repoUrl)
   const name = () => repoLabel(props.session.repoUrl, props.session.email)
-  const created = () => computeRelativeAge(props.session.createdAt)
+  const created = () => formatDateTime(props.session.createdAt)
   const clickable = () => props.session.state !== "creating"
 
   const idle = () =>
@@ -72,11 +58,14 @@ export function SessionItem(props: Props) {
 
   /** Second line for compact variant */
   const compactMeta = () =>
-    props.session.state === "stopped" ? `stopped ${formatDate(props.session.lastActivity)}` : `started ${created()}`
+    props.session.state === "stopped"
+      ? t("session.meta.stopped", { date: formatDateTime(props.session.lastActivity) })
+      : t("session.meta.started", { date: created() })
 
   // Live message thread from /progress/stream — opened when panel is expanded
   const [messages, setMessages] = createSignal<StoredMessage[]>([])
   const [attachCopied, setAttachCopied] = createSignal(false)
+  let messagesRef: HTMLDivElement | undefined
 
   const attachCommand = () => {
     const url = props.session.attachUrl
@@ -172,6 +161,48 @@ export function SessionItem(props: Props) {
             {props.trailing}
           </div>
 
+          {/* Action buttons — shown above the detail panel divider when expanded */}
+          <Show when={props.expanded}>
+            <div class="flex gap-2 px-4 pb-3">
+              <Show when={attachCommand()}>
+                <button
+                  class="text-13-medium rounded-lg flex-1"
+                  style={{
+                    background: "none",
+                    border: "1px solid var(--border-base)",
+                    cursor: "pointer",
+                    color: attachCopied() ? "var(--text-success-base, #22c55e)" : "var(--text-base)",
+                    "min-height": "44px",
+                    padding: "10px 16px",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    copyAttachCommand()
+                  }}
+                >
+                  {attachCopied() ? t("session.action.attachCopied") : t("session.action.attach")}
+                </button>
+              </Show>
+              <button
+                class="text-13-medium rounded-lg flex-1"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border-base)",
+                  cursor: "pointer",
+                  color: "var(--text-danger-base, #ef4444)",
+                  "min-height": "44px",
+                  padding: "10px 16px",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onTerminate?.()
+                }}
+              >
+                {t("session.action.terminate")}
+              </button>
+            </div>
+          </Show>
+
           {/* Inline detail panel — always in DOM for CSS transition */}
           <div
             style={{
@@ -180,7 +211,7 @@ export function SessionItem(props: Props) {
               transition: "max-height 200ms ease",
             }}
           >
-            <div class="flex flex-col gap-3 px-4 pb-4 pt-1" style={{ "border-top": "1px solid var(--border-base)" }}>
+            <div class="flex flex-col gap-3 px-4 pb-4 pt-3" style={{ "border-top": "1px solid var(--border-base)" }}>
               {/* Title (shown when no description) */}
               <Show when={props.session.title && !props.session.description}>
                 <p class="text-12-regular" style={{ color: "var(--text-dimmed-base)" }}>
@@ -200,72 +231,85 @@ export function SessionItem(props: Props) {
 
               {/* Live message thread from /progress/stream */}
               <Show when={messages().length > 0}>
-                <div
-                  class="flex flex-col gap-1 max-h-40 overflow-y-auto"
-                  style={{ "border-top": "1px solid var(--border-base)", "padding-top": "8px" }}
-                >
-                  <For each={messages()}>
-                    {(msg) => (
-                      <div
-                        class="text-11-regular"
-                        style={{
-                          color: msg.role === "user" ? "var(--text-base)" : "var(--text-dimmed-base)",
-                          "text-align": msg.role === "user" ? "right" : "left",
-                          "word-break": "break-word",
-                          "white-space": "pre-wrap",
-                        }}
-                      >
-                        {msg.text}
+                <div style={{ "border-top": "1px solid var(--border-base)", "padding-top": "8px" }}>
+                  {/* Messages header with scroll controls */}
+                  <Show when={messages().length > 3}>
+                    <div
+                      class="flex items-center justify-between"
+                      style={{ "margin-bottom": "6px" }}
+                    >
+                      <span class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
+                        {t("session.messages.count", { count: messages().length })}
+                      </span>
+                      <div class="flex gap-1">
+                        <button
+                          class="text-11-regular"
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--border-base)",
+                            "border-radius": "4px",
+                            cursor: "pointer",
+                            color: "var(--text-dimmed-base)",
+                            padding: "2px 6px",
+                            "line-height": "1",
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (messagesRef) messagesRef.scrollTop = 0
+                          }}
+                          title="Scroll to top"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          class="text-11-regular"
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--border-base)",
+                            "border-radius": "4px",
+                            cursor: "pointer",
+                            color: "var(--text-dimmed-base)",
+                            padding: "2px 6px",
+                            "line-height": "1",
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (messagesRef) messagesRef.scrollTop = messagesRef.scrollHeight
+                          }}
+                          title="Scroll to bottom"
+                        >
+                          ↓
+                        </button>
                       </div>
-                    )}
-                  </For>
+                    </div>
+                  </Show>
+                  <div
+                    ref={messagesRef}
+                    class="flex flex-col gap-1 max-h-40 overflow-y-auto"
+                  >
+                    <For each={messages()}>
+                      {(msg) => (
+                        <div
+                          class="text-11-regular"
+                          style={{
+                            color: msg.role === "user" ? "var(--text-base)" : "var(--text-dimmed-base)",
+                            "text-align": msg.role === "user" ? "right" : "left",
+                            "word-break": "break-word",
+                            "white-space": "pre-wrap",
+                          }}
+                        >
+                          {msg.text}
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </div>
               </Show>
 
               {/* Created + idle status */}
               <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)" }}>
-                Created {created()} · {idle().label}
+                {t("session.meta.created", { date: created(), idle: idle().label })}
               </p>
-
-              {/* Action buttons */}
-              <div class="flex gap-2">
-                <Show when={attachCommand()}>
-                  <button
-                    class="text-13-medium rounded-lg flex-1"
-                    style={{
-                      background: "none",
-                      border: "1px solid var(--border-base)",
-                      cursor: "pointer",
-                      color: attachCopied() ? "var(--text-success-base, #22c55e)" : "var(--text-base)",
-                      "min-height": "44px",
-                      padding: "10px 16px",
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      copyAttachCommand()
-                    }}
-                  >
-                    {attachCopied() ? t("session.action.attachCopied") : t("session.action.attach")}
-                  </button>
-                </Show>
-                <button
-                  class="text-13-medium rounded-lg flex-1"
-                  style={{
-                    background: "none",
-                    border: "1px solid var(--border-base)",
-                    cursor: "pointer",
-                    color: "var(--text-danger-base, #ef4444)",
-                    "min-height": "44px",
-                    padding: "10px 16px",
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    props.onTerminate?.()
-                  }}
-                >
-                  {t("session.action.terminate")}
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -323,7 +367,7 @@ function CompactSessionItem(props: {
         <p class="text-12-regular truncate" style={{ color: "var(--text-base)" }}>
           {props.name}
         </p>
-        <p class="text-11-regular truncate" style={{ color: "var(--text-dimmed-base)" }}>
+        <p class="text-11-regular" style={{ color: "var(--text-dimmed-base)", "overflow-wrap": "break-word" }}>
           {props.compactMeta}
         </p>
       </div>

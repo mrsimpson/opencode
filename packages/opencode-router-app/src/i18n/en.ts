@@ -45,6 +45,17 @@ export const dict = {
   "app.newSession.prompt.placeholder": "Describe a task or ask a question",
   "sidebar.collapse": "Collapse sidebar",
   "sidebar.expand": "Expand sidebar",
+  "sidebar.home": "Home",
+
+  "session.group.current": "Current",
+  "session.group.active": "Active",
+  "session.group.stopped": "Stopped",
+  "session.meta.started": "started {{date}}",
+  "session.meta.stopped": "stopped {{date}}",
+  "session.meta.created": "Created {{date}} · {{idle}}",
+  "session.messages.count": "{{count}} messages",
+
+  "autocomplete.loading": "Loading…",
 
   "settings.title": "Settings",
   "settings.apiKeys": "Environment Variables",
