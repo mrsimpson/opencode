@@ -1,3 +1,50 @@
+/**
+ * Format an ISO date string as locale date + time.
+ * Uses the browser's locale via `Intl.DateTimeFormat`.
+ */
+export function formatDateTime(iso: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso))
+}
+
+type Session = { hash: string; state: "creating" | "running" | "stopped"; lastActivity: string }
+
+/**
+ * Sort and group sessions: active (creating/running) first, then stopped.
+ * Within each group sorted by lastActivity descending (most recent first).
+ */
+export function sortedAndGroupedSessions<T extends Session>(sessions: T[]): { active: T[]; stopped: T[] }
+/**
+ * Sort and group sessions into three groups for the sidebar:
+ * - current: the single session matching activeHash (shown first)
+ * - active: other active (creating/running) sessions
+ * - stopped: stopped sessions
+ * Within active/stopped, sorted by lastActivity descending.
+ */
+export function sortedAndGroupedSessions<T extends Session>(
+  sessions: T[],
+  activeHash: string | undefined,
+): { current: T[]; active: T[]; stopped: T[] }
+export function sortedAndGroupedSessions<T extends Session>(
+  sessions: T[],
+  activeHash?: string | undefined,
+): { current: T[]; active: T[]; stopped: T[] } | { active: T[]; stopped: T[] } {
+  const byLastActivity = (a: T, b: T) =>
+    new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+  if (activeHash !== undefined) {
+    const current = sessions.filter((s) => s.hash === activeHash)
+    const rest = sessions.filter((s) => s.hash !== activeHash)
+    return {
+      current,
+      active: rest.filter((s) => s.state !== "stopped").sort(byLastActivity),
+      stopped: rest.filter((s) => s.state === "stopped").sort(byLastActivity),
+    }
+  }
+  return {
+    active: sessions.filter((s) => s.state !== "stopped").sort(byLastActivity),
+    stopped: sessions.filter((s) => s.state === "stopped").sort(byLastActivity),
+  }
+}
+
 export type IdleLabels = {
   stopsIn: (minutes: number) => string
   stoppedOn: (date: string) => string

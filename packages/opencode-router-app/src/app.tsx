@@ -52,6 +52,7 @@ export function App() {
   const [newEnvVarValue, setNewEnvVarValue] = createSignal("")
   const [secretLoading, setSecretLoading] = createSignal(false)
   const [secretMessage, setSecretMessage] = createSignal("")
+  const [secretMessageIsError, setSecretMessageIsError] = createSignal(false)
 
   // Load user secret keys on mount
   onMount(async () => {
@@ -94,25 +95,28 @@ export function App() {
                     size="small"
                     onClick={async () => {
                       // Delete this specific key by fetching all secrets, removing it, and saving
-                      setSecretLoading(true)
-                      setSecretMessage("")
-                      try {
-                        const existing = await getUserSecret()
-                        const remaining = { ...existing.secrets }
-                        delete remaining[key]
-                        if (Object.keys(remaining).length > 0) {
-                          await setUserSecret(remaining)
-                          setSecretKeys(Object.keys(remaining))
-                        } else {
-                          await deleteUserSecret()
-                          setSecretKeys([])
+                        setSecretLoading(true)
+                        setSecretMessage("")
+                        setSecretMessageIsError(false)
+                        try {
+                          const existing = await getUserSecret()
+                          const remaining = { ...existing.secrets }
+                          delete remaining[key]
+                          if (Object.keys(remaining).length > 0) {
+                            await setUserSecret(remaining)
+                            setSecretKeys(Object.keys(remaining))
+                          } else {
+                            await deleteUserSecret()
+                            setSecretKeys([])
+                          }
+                          setSecretMessageIsError(false)
+                          setSecretMessage(t("settings.apiKeys.deleted"))
+                        } catch (err) {
+                          setSecretMessageIsError(true)
+                          setSecretMessage(t("settings.apiKeys.error.delete"))
+                        } finally {
+                          setSecretLoading(false)
                         }
-                        setSecretMessage(t("settings.apiKeys.deleted"))
-                      } catch (err) {
-                        setSecretMessage(t("settings.apiKeys.error.delete"))
-                      } finally {
-                        setSecretLoading(false)
-                      }
                     }}
                     disabled={secretLoading()}
                     style={{ color: "var(--text-danger-base, #ef4444)" }}
@@ -158,6 +162,7 @@ export function App() {
                   if (!envVarName || !envVarValue) return
                   setSecretLoading(true)
                   setSecretMessage("")
+                  setSecretMessageIsError(false)
                   try {
                     // Fetch existing secrets and merge with the new one
                     const existing = await getUserSecret()
@@ -166,8 +171,10 @@ export function App() {
                     setSecretKeys(Object.keys(mergedSecrets))
                     setNewEnvVarName("")
                     setNewEnvVarValue("")
+                    setSecretMessageIsError(false)
                     setSecretMessage(t("settings.apiKeys.saved"))
                   } catch (err) {
+                    setSecretMessageIsError(true)
                     setSecretMessage(t("settings.apiKeys.error.save"))
                   } finally {
                     setSecretLoading(false)
@@ -184,11 +191,14 @@ export function App() {
                   onClick={async () => {
                     setSecretLoading(true)
                     setSecretMessage("")
+                    setSecretMessageIsError(false)
                     try {
                       await deleteUserSecret()
                       setSecretKeys([])
+                      setSecretMessageIsError(false)
                       setSecretMessage(t("settings.apiKeys.deleted"))
                     } catch (err) {
+                      setSecretMessageIsError(true)
                       setSecretMessage(t("settings.apiKeys.error.delete"))
                     } finally {
                       setSecretLoading(false)
@@ -205,7 +215,7 @@ export function App() {
               <p
                 class="text-12-regular"
                 style={{
-                  color: secretMessage().includes("error")
+                  color: secretMessageIsError()
                     ? "var(--text-danger-base, #ef4444)"
                     : "var(--text-dimmed-base)",
                 }}
@@ -499,10 +509,7 @@ export function App() {
                   <Button
                     variant="ghost"
                     size="small"
-                    onClick={() => {
-                      navigate("/settings")
-                      handleOpenSettings()
-                    }}
+                    onClick={handleOpenSettings}
                     title={t("settings.title")}
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">

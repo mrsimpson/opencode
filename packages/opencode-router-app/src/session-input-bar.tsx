@@ -180,6 +180,7 @@ export function SessionInputBar(props: Props) {
                 loadBranchesForRepo(v)
               }}
               items={repoItems()}
+              loading={reposLoading()}
             />
             <Autocomplete
               placeholder={t("app.newSession.sourceBranch.placeholder")}
@@ -188,6 +189,17 @@ export function SessionInputBar(props: Props) {
               items={branchItems()}
             />
           </div>
+          <Show when={props.sessionBranch}>
+            <p
+              data-testid="session-branch-display"
+              style={{
+                color: "var(--text-dimmed-base)",
+                "font-size": "11px",
+              }}
+            >
+              Session branch: {props.sessionBranch}
+            </p>
+          </Show>
         </Show>
 
         <textarea

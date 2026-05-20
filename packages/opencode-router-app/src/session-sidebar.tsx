@@ -1,9 +1,10 @@
-import { For, Show } from "solid-js"
+import { For, Show, createMemo } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context"
 import { Button } from "@opencode-ai/ui/button"
 import type { Session } from "./api"
 import { useT } from "./i18n"
 import { SessionItem } from "./session-item"
+import { sortedAndGroupedSessions } from "./session-utils"
 
 type Props = {
   collapsed: boolean
@@ -25,6 +26,51 @@ const sidebarBase = {
 
 export function SessionSidebar(props: Props) {
   const t = useT(useI18n())
+  const groups = createMemo(() => sortedAndGroupedSessions(props.sessions, props.activeHash))
+
+  const renderItem = (session: Session) => (
+    <SessionItem
+      session={session}
+      compact
+      active={props.activeHash === session.hash}
+      onClick={() => {
+        if (session.state === "stopped") props.onResumeSession(session)
+        else if (session.state === "running") props.onOpenSession(session)
+      }}
+      trailing={
+        <button
+          class="opacity-0 group-hover:opacity-100 text-12-regular px-1 shrink-0"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-danger-base, #ef4444)",
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onTerminateSession(session)
+          }}
+          title={t("session.action.terminate")}
+        >
+          ✕
+        </button>
+      }
+    />
+  )
+
+  const groupLabel = (label: string) => (
+    <p class="text-10-regular px-2 pt-2 pb-0.5" style={{ color: "var(--text-dimmed-base)", "text-transform": "uppercase", "letter-spacing": "0.05em" }}>
+      {label}
+    </p>
+  )
+
+  const hasMultipleGroups = createMemo(
+    () =>
+      (groups().current.length > 0 ? 1 : 0) +
+        (groups().active.length > 0 ? 1 : 0) +
+        (groups().stopped.length > 0 ? 1 : 0) >
+      1,
+  )
 
   return (
     <Show
@@ -58,47 +104,28 @@ export function SessionSidebar(props: Props) {
         </div>
 
         <div class="px-3">
-          <Button onClick={props.onNewSession} icon="plus" variant="secondary" class="w-full">
-            {t("app.newSession")}
+          <Button onClick={props.onNewSession} icon="arrow-left" variant="secondary" class="w-full">
+            {t("sidebar.home")}
           </Button>
         </div>
 
         <Show when={props.sessions.length > 0}>
-          <div class="flex flex-col gap-0.5 px-1 overflow-y-auto flex-1">
-            <p class="text-11-regular px-2 mb-1" style={{ color: "var(--text-dimmed-base)" }}>
-              {t("app.recents")}
-            </p>
-            <For each={props.sessions}>
-              {(session) => (
-                <SessionItem
-                  session={session}
-                  compact
-                  active={props.activeHash === session.hash}
-                  onClick={() => {
-                    if (session.state === "stopped") props.onResumeSession(session)
-                    else if (session.state === "running") props.onOpenSession(session)
-                  }}
-                  trailing={
-                    <button
-                      class="opacity-0 group-hover:opacity-100 text-12-regular px-1 shrink-0"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "var(--text-danger-base, #ef4444)",
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        props.onTerminateSession(session)
-                      }}
-                      title={t("session.action.terminate")}
-                    >
-                      ✕
-                    </button>
-                  }
-                />
-              )}
-            </For>
+          <div class="flex flex-col gap-0 px-1 overflow-y-auto flex-1">
+            {/* Current group */}
+            <Show when={groups().current.length > 0}>
+              <Show when={hasMultipleGroups()}>{groupLabel(t("session.group.current"))}</Show>
+              <For each={groups().current}>{renderItem}</For>
+            </Show>
+            {/* Active group */}
+            <Show when={groups().active.length > 0}>
+              <Show when={hasMultipleGroups()}>{groupLabel(t("session.group.active"))}</Show>
+              <For each={groups().active}>{renderItem}</For>
+            </Show>
+            {/* Stopped group */}
+            <Show when={groups().stopped.length > 0}>
+              <Show when={hasMultipleGroups()}>{groupLabel(t("session.group.stopped"))}</Show>
+              <For each={groups().stopped}>{renderItem}</For>
+            </Show>
           </div>
         </Show>
       </aside>

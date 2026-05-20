@@ -1,5 +1,7 @@
 import { createSignal, createEffect, Show, For, onCleanup, onMount } from "solid-js"
+import { useI18n } from "@opencode-ai/ui/context"
 import type { Repo, Branch } from "./api"
+import { useT } from "./i18n"
 
 type Props = {
   /** Placeholder text when empty */
@@ -10,9 +12,12 @@ type Props = {
   onSelect: (value: string) => void
   /** Items fetched from API */
   items?: { label: string; value: string }[]
+  /** Show a loading hint while items are being fetched */
+  loading?: boolean
 }
 
 export function Autocomplete(props: Props) {
+  const t = useT(useI18n())
   const [isOpen, setIsOpen] = createSignal(false)
   const [highlightedIndex, setHighlightedIndex] = createSignal(0)
 
@@ -96,8 +101,7 @@ export function Autocomplete(props: Props) {
             setIsOpen(true)
           }
         }}
-        onBlur={(e) => {
-          props.onSelect(e.currentTarget.value)
+        onBlur={() => {
           setIsOpen(false)
         }}
         onKeyDown={handleKeyDown}
@@ -113,7 +117,7 @@ export function Autocomplete(props: Props) {
         }}
       />
 
-      <Show when={isOpen() && filteredItems().length > 0}>
+      <Show when={isOpen() && (props.loading || filteredItems().length > 0)}>
         <div
           style={{
             position: "absolute",
@@ -129,6 +133,18 @@ export function Autocomplete(props: Props) {
             "z-index": "50",
           }}
         >
+          <Show when={props.loading}>
+            <div
+              style={{
+                padding: "8px 10px",
+                "font-size": "13px",
+                color: "var(--text-dimmed-base)",
+                "font-style": "italic",
+              }}
+            >
+              {t("autocomplete.loading")}
+            </div>
+          </Show>
           <For each={filteredItems()}>
             {(item, index) => (
               <div

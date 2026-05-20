@@ -16,6 +16,9 @@ export const dict = {
   "session.terminate.description":
     '„{{repo}}" wird unwiderruflich gelöscht – alle nicht gespeicherten Änderungen gehen verloren.',
 
+  "form.tab.git": "Git-Repository",
+  "form.tab.newProject": "Neues Projekt",
+
   "form.submit": "Sitzung starten",
   "form.submitting": "Wird gestartet...",
   "form.error.sessionBranch": "Sitzungs-Branch konnte nicht generiert werden – bitte erneut versuchen",
@@ -30,7 +33,7 @@ export const dict = {
 
   "loading.stage.initializing": "Initialisierung",
   "loading.stage.configuring": "Umgebung konfigurieren",
-  "loading.stage.cloning": "Repository klonen",
+  "loading.stage.preparing": "Repository vorbereiten",
   "loading.stage.starting": "OpenCode-Server starten",
   "loading.stage.readying": "Sitzung abschließen",
 
@@ -43,6 +46,34 @@ export const dict = {
   "app.newSession.prompt.placeholder": "Beschreibe eine Aufgabe oder stelle eine Frage",
   "sidebar.collapse": "Seitenleiste einklappen",
   "sidebar.expand": "Seitenleiste ausklappen",
+  "sidebar.home": "Startseite",
+
+  "session.group.current": "Aktuell",
+  "session.group.active": "Aktiv",
+  "session.group.stopped": "Gestoppt",
+  "session.meta.started": "gestartet {{date}}",
+  "session.meta.stopped": "gestoppt {{date}}",
+  "session.meta.created": "Erstellt {{date}} · {{idle}}",
+  "session.messages.count": "{{count}} Nachrichten",
+
+  "autocomplete.loading": "Lädt…",
+
+  "settings.title": "Einstellungen",
+  "settings.apiKeys": "Umgebungsvariablen",
+  "settings.apiKeys.description":
+    "Lege Umgebungsvariablen (z.B. API-Schlüssel) fest, die automatisch in alle Sitzungen eingefügt werden.",
+  "settings.apiKeys.current": "Aktuell",
+  "settings.apiKeys.set": "Hinzufügen",
+  "settings.apiKeys.add": "Hinzufügen",
+  "settings.apiKeys.update": "Aktualisieren",
+  "settings.apiKeys.delete": "Löschen",
+  "settings.apiKeys.deleteAll": "Alle löschen",
+  "settings.apiKeys.placeholder": "API-Schlüsselwert",
+  "settings.apiKeys.saved": "Gespeichert",
+  "settings.apiKeys.deleted": "Gelöscht",
+  "settings.apiKeys.error.save": "Speichern fehlgeschlagen",
+  "settings.apiKeys.error.delete": "Löschen fehlgeschlagen",
+  "settings.apiKeys.none": "Keine Umgebungsvariablen gesetzt",
 } as const
 
 export type DictKey = keyof typeof dict
